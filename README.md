@@ -9,7 +9,7 @@ chunks, equipment upgrades, and skill progression.
 
 Open:
 
-**[https://navigatelabs.github.io/boardlocked/?local=default](https://navigatelabs.github.io/boardlocked/)**
+**[https://navigatelabs.github.io/boardlocked/?local=default](https://navigatelabs.github.io/boardlocked/?local=default)**
 
 ## Roguelike mode
 
