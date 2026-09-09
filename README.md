@@ -39,9 +39,9 @@ Enabling this option assumes you have done these steps before starting your acco
 
 Three optional start groups are available before the first roll:
 
-- **Varlamore:** adds selected starts and records Children of the Sun as an initialization quest.
+- **Varlamore:** adds selected starts and records, assumes you have completed Children of the Sun before rolling.
 - **Wilderness:** adds a small set of shallow, low-risk tiles. PvP risk still applies.
-- **Ocean (experimental):** adds beginner waters near Port Sarim, records Pandemonium as an initialization quest, and starts Sailing at level 4 from its 400 XP reward. very untested and experimental :b But IN THEORY it should work with no problems, so feel free to select it.
+- **Ocean (experimental):** adds beginner waters near Port Sarim, assumes Pandemonium as a quest you have done before starting, and starts Sailing at level 4-5. Very untested and experimental :b But IN THEORY it should work with no problems, so feel free to select it.
 
 Each enabled group has the same chance to be selected, then every tile within that
 group has the same chance. The first roll automatically selects the start tile.
