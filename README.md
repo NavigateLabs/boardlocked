@@ -51,4 +51,4 @@ node --test scripts/testRoguelike.js
 Boardlocked is based on [source-chunk/chunk-picker-v2](https://github.com/source-chunk/chunk-picker-v2),
 the Chunk Picker website for the fan-made One Chunk Man mode. Thanks to the original
 Chunk Picker contributors and to [Alyx Bailey](https://www.youtube.com/c/AlyxBailey)
-for creating the mode.
+for creating the mode!
