@@ -1,6 +1,6 @@
 # Boardlocked
 
-Boardlocked is a local-first Roguelike progression mode for the Old School RuneScape
+Boardlocked is a local-first progression mode for the Old School RuneScape
 [Chunk Picker V2](https://github.com/source-chunk/chunk-picker-v2). Instead of completing
 every possible task in a chunk, a run advances one visit at a time through reachable
 chunks, equipment upgrades, and skill progression.
@@ -9,9 +9,12 @@ chunks, equipment upgrades, and skill progression.
 
 Open:
 
-**[https://navigatelabs.github.io/boardlocked/?local=default](https://navigatelabs.github.io/boardlocked/?local=default)**
+**[https://navigatelabs.github.io/boardlocked/](https://navigatelabs.github.io/boardlocked/)**
 
-## Roguelike mode
+Boardlocked starts directly in this mode and cannot be switched back to the original
+Chunk Picker flow. Use the task icon in the top-right to reopen the run panel.
+
+## How Boardlocked plays
 
 - Roll from the first reachable new chunk or unfinished encounter in each direction.
 - Cross taskless `FREE` chunks automatically while building the roll pool.

@@ -1,18 +1,22 @@
-/* Local-fork controller. Legacy Active Tasks and Firebase schema remain separate. */
+/* Boardlocked controller. Legacy task calculation remains the data source. */
 (function () {
     'use strict';
     const R = Roguelike;
-    let state = R.normalizeState(), loadedKey = '', localProfile = null;
+    const boardlockedState = input => {
+        const next = R.normalizeState(input);
+        next.enabled = true;
+        return next;
+    };
+    let state = boardlockedState(), loadedKey = '', localProfile = null;
     let worker = null, generation = 0, busy = true, error = '', timer = null;
     let rawTasks = [], tasks = [], sections = {}, diagnostics = [], sourceCounts = {};
     let enablerCatalog = [], enablerAmbiguities = [];
     let pool = R.derivePool([], {}, [], null), signature = '', previousUnlocked = null;
     let panel = null, message = '', dataReady = false;
     let loadFailure = false;
-    let catalog = [], catalogData = null, progressionHighWater = {}, setupLocations = [], showComparison = false;
+    let catalog = [], catalogData = null, progressionHighWater = {}, setupLocations = [];
     const ROGUELIKE_PRESET = 'Roguelike Chunker';
     const ROGUELIKE_PRESET_REVISION = 2;
-    const comparisonInputs = new Map();
     const legacy = () => ({ checkedAllTasks, checkedChallenges, completedChallenges, manualEquipment, backlog });
     const storageKey = () => 'chunk-picker-v2:roguelike:v1:' + (localProfile ? 'local:' + localProfile :
         (mid || 'unloaded') + (testMode ? ':sandbox' : ':map'));
@@ -24,10 +28,15 @@
         message = text;
         render();
     }
+    function setPanelOpen(open) {
+        if (!panel) return;
+        panel.hidden = !open;
+        document.getElementById('boardlocked-panel-button')?.setAttribute('aria-expanded', String(open));
+    }
     function fail(err) {
         error = err.message || String(err);
         busy = false;
-        console.error('Roguelike Mode:', err);
+        console.error('Boardlocked:', err);
         render();
     }
     function applyRoguelikePreset(preserveClues = false, announce = false) {
@@ -37,13 +46,13 @@
         state.rulePresetInitialized = true;
         state.rulePresetRevision = ROGUELIKE_PRESET_REVISION;
         forceUpdatePluginOutput = true;
-        if (announce) message = 'Roguelike Chunker defaults restored. Task access is recalculating.';
+        if (announce) message = 'Boardlocked defaults restored. Task access is recalculating.';
     }
     function activeRulePreset() {
         const preset = typeof rulePresets === 'object' ? rulePresets[ROGUELIKE_PRESET] : null;
-        if (!preset) return 'Roguelike Custom';
+        if (!preset) return 'Custom';
         return Object.keys(rules).every(key => typeof rules[key] === 'boolean' ?
-            rules[key] === R.own(preset, key) : String(rules[key]) === String(preset[key] ?? rules[key])) ? ROGUELIKE_PRESET : 'Roguelike Custom';
+            rules[key] === R.own(preset, key) : String(rules[key]) === String(preset[key] ?? rules[key])) ? 'Boardlocked defaults' : 'Custom';
     }
     function upgradeRoguelikePreset() {
         if (!state.enabled || !state.rulePresetInitialized || state.rulePresetRevision >= ROGUELIKE_PRESET_REVISION) return false;
@@ -64,15 +73,15 @@
         dataReady = false; busy = true; error = ''; message = ''; loadFailure = false;
         try {
             const saved = localStorage.getItem(key);
-            state = R.normalizeState(saved ? JSON.parse(saved) : null);
+            state = boardlockedState(saved ? JSON.parse(saved) : null);
             if (!state.enablersInitialized) state = R.recoverAcquiredEnablers(state, legacy(), chunkInfo, tasksMap, RoguelikeData);
             if (state.enabled && !state.rulePresetInitialized) applyRoguelikePreset(true);
             if (upgradeRoguelikePreset()) save();
-        } catch (err) { state = R.normalizeState(); loadFailure = true; fail(new Error('Saved state was not overwritten. ' + err.message)); }
-        if (panel && state.enabled) panel.hidden = false;
+        } catch (err) { state = boardlockedState(); loadFailure = true; fail(new Error('Saved state was not overwritten. ' + err.message)); }
+        setPanelOpen(true);
         render();
     }
-    function enabled() { ensureMap(); return state.enabled; }
+    function enabled() { ensureMap(); return true; }
     function snapshotLegacy() {
         return R.copy({ tempChunks, tempSelectedChunks, rules, settings, checkedAllTasks, checkedChallenges,
             completedChallenges, manualEquipment, backlog, manualTasks, backloggedSources, manualMonsters,
@@ -208,7 +217,7 @@
             timer = null;
             // Reuse the normal section chooser, then run both global calculations.
             calcCurrentChallengesCanvas(true, true);
-            if (!globalSectionsValid) { panel.hidden = true; notice('Choose the accessible sections to finish setting up your unlocked chunks.'); }
+            if (!globalSectionsValid) { setPanelOpen(false); notice('Choose the accessible sections to finish setting up your unlocked chunks.'); }
         }, 250);
     }
     function onLegacyChange() {
@@ -233,21 +242,6 @@
         else save();
         render();
     }
-    function setEnabled(value) {
-        if (!canEdit() || loadFailure) return;
-        if (value && isPicking) return notice('Finish or cancel the existing Roll 2 / Roll 5 selection before enabling Roguelike Mode.');
-        state.enabled = value;
-        if (value && !state.rulePresetInitialized) applyRoguelikePreset(true);
-        if (value) upgradeRoguelikePreset();
-        if (value) panel.hidden = false;
-        showComparison = false;
-        if (!value) {
-            generation++; worker?.terminate(); worker = null; clearTimeout(timer); busy = false;
-            $('.pick').prop('disabled', false).text(!Object.keys(tempChunks.unlocked || {}).length && !Object.keys(tempChunks.selected || {}).length ? 'Random Start?' : 'Pick Chunk');
-        }
-        save(); render(); drawCanvas();
-        if (value) schedule();
-    }
     function roll() {
         if (!canEdit()) return notice('Unlock this map or enter Sandbox Mode to roll.');
         if (!state.enabled) return;
@@ -259,7 +253,7 @@
         begin(candidate);
     }
     function begin(candidate) {
-        panel.hidden = false;
+        setPanelOpen(true);
         state = R.startVisit(state, candidate, label(candidate.locationId));
         if (candidate.kind === 'frontier') {
             const id = candidate.locationId;
@@ -408,7 +402,7 @@
             // Delete only this profile's two records. Reload reinitializes all
             // legacy globals and workers, avoiding leftover calculated progress.
             localStorage.removeItem(localKey());
-            const next = R.normalizeState(); next.enabled = state.enabled;
+            const next = boardlockedState();
             localStorage.setItem(loadedKey, JSON.stringify(next));
             generation++; worker?.terminate(); clearTimeout(timer);
             window.location.reload();
@@ -431,21 +425,6 @@
         }
         if (matches.length > 30) container.append(element('p', 'Showing 30 matches. Narrow your search.'));
     }
-    function syncComparison() {
-        const reference = state.enabled;
-        document.body.classList.toggle('rl-legacy-comparison', reference && showComparison);
-        const title = document.querySelector('#challengesactive .accordion-title');
-        const text = reference ? 'Normal tasks · reference only' : 'Active Chunk Tasks';
-        if (title && title.textContent.trim().replace(/\s+/g, ' ') !== text) title.textContent = text;
-        for (const input of document.querySelectorAll('.menu9 input[type=checkbox]')) {
-            if (reference) {
-                if (!comparisonInputs.has(input)) comparisonInputs.set(input, input.disabled);
-                input.disabled = true;
-            } else if (comparisonInputs.has(input)) { input.disabled = comparisonInputs.get(input); comparisonInputs.delete(input); }
-        }
-        for (const input of comparisonInputs.keys()) if (!input.isConnected) comparisonInputs.delete(input);
-    }
-
     function element(tag, text, attrs = {}) {
         const node = document.createElement(tag);
         if (text != null) node.textContent = text;
@@ -507,7 +486,7 @@
             }, null, 2), { className: 'rl-task-debug' }));
             tools.append(button('Inspect', () => inspectTask(task)));
             if (chunkInfo.challenges?.[task.skill]?.[task.name]) tools.append(button('Details', () => {
-                panel.hidden = true;
+                setPanelOpen(false);
                 showDetails(encodeRFC5987ValueChars(task.name), task.skill, '');
             }));
             const backlogButton = button(task.backlogged ? 'Unbacklog' : 'Backlog', () => backlogTask(task));
@@ -554,28 +533,20 @@
     }
     function render() {
         if (!panel) return;
-        document.body.classList.toggle('rl-enabled', state.enabled);
-        syncComparison();
-        const launcher = document.getElementById('rl-launcher');
-        launcher.hidden = !gotData;
-        launcher.textContent = state.enabled ? 'Visit tasks' : 'Roguelike OFF';
-        const toggle = document.getElementById('rl-enabled');
-        toggle.checked = state.enabled; toggle.disabled = !canEdit();
-        document.getElementById('rl-mode-content').hidden = !state.enabled;
-        document.getElementById('rl-storage-label').textContent = localProfile ? 'Local run: ' + localProfile : 'Local fork state for map ' + (mid || '');
+        document.body.classList.add('rl-enabled');
+        document.getElementById('rl-storage-label').textContent = localProfile ? 'Run: ' + localProfile + ' · saved in this browser' : 'Run: ' + (mid || '');
         document.getElementById('rl-message').textContent = error || message;
         document.getElementById('rl-message').classList.toggle('rl-error', !!error);
         document.getElementById('rl-reset').hidden = !localProfile;
         document.getElementById('rl-reset').disabled = !canEdit();
         document.getElementById('rl-preset-status').textContent = 'Rules: ' + activeRulePreset();
-        document.getElementById('rl-comparison').textContent = showComparison ? 'Hide normal task reference' : 'Show normal task reference';
         if (localProfile || state.enabled) {
             unlockedChunks = Object.keys(tempChunks.unlocked || {}).length;
-            selectedChunks = state.enabled ? pool.candidates.filter(candidate => candidate.kind === 'frontier').length : Object.keys(tempChunks.selected || {}).length;
+            selectedChunks = pool.candidates.filter(candidate => candidate.kind === 'frontier').length;
+            const boundaryLabel = unlockedChunks ? 'Rollable tiles' : 'Starting tiles';
             $('#chunkInfo1').text('Unlocked chunks: ' + unlockedChunks);
-            $('#chunkInfo2').text('Selected chunks: ' + selectedChunks);
+            $('#chunkInfo2').text(boundaryLabel + ': ' + selectedChunks);
         }
-        if (!state.enabled) return;
         document.getElementById('rl-sections').hidden = !busy || globalSectionsValid;
         document.getElementById('rl-milestones').textContent = 'Ordinary Skill Tasks must be above your highest completed task and within that skill’s forward window. Sparse skills automatically expose their nearest next milestone. Special and independent objectives remain live.';
         renderEnablers();
@@ -586,12 +557,12 @@
         rollButton.disabled = busy || !!error || !dataReady || !R.canRoll(state) || !pool.candidates.length || !canEdit();
         rollButton.textContent = busy ? 'Calculating access and tasks…' : !R.canRoll(state) ? 'Complete one task to travel' : !pool.candidates.length ?
             'No reachable locations' : state.currentVisit?.resolution === 'no_tasks' && state.travelAnchor === state.currentVisit.locationId ?
-                'Continue travel (free tile)' : 'Roll next location';
+                'Continue travel (free tile)' : !state.travelAnchor && !Object.keys(tempChunks.unlocked || {}).length ? 'Roll starting tile' : 'Roll next location';
         $('.pick').prop('disabled', rollButton.disabled).text(rollButton.textContent);
         const visit = state.currentVisit;
         document.getElementById('rl-visit-title').textContent = visit ? '#' + visit.visitNumber + ' · ' + visit.locationId + ' — ' + visit.chunkName :
             state.travelAnchor ? 'Current tile · ' + state.travelAnchor + ' — ' + label(state.travelAnchor) : 'No current tile';
-        document.getElementById('rl-visit-status').textContent = visit ? visit.kind.toUpperCase() + ' · ' + ({ pending_calculation: 'Awaiting task/section calculation', task_required: 'Complete any 1 task', resolved: ({ no_tasks: 'No tasks — free roll', task_completed: 'Complete', admin_void: 'Administratively voided' })[visit.resolution] })[visit.status] : 'Your next roll starts the visit loop.';
+        document.getElementById('rl-visit-status').textContent = visit ? visit.kind.toUpperCase() + ' · ' + ({ pending_calculation: 'Awaiting task/section calculation', task_required: 'Complete any 1 task', resolved: ({ no_tasks: 'No tasks — free roll', task_completed: 'Complete', admin_void: 'Administratively voided' })[visit.resolution] })[visit.status] : 'Roll a starting tile to begin.';
         const candidates = document.getElementById('rl-candidates'); candidates.replaceChildren();
         const completedIds = R.completionIds(legacy(), tasksMap);
         if (visit) taskList(candidates, visit.candidateTaskIds.map(id => {
@@ -605,7 +576,8 @@
         }), true);
         document.getElementById('rl-void').disabled = !visit || R.canRoll(state) || !canEdit();
         const reachableEncounters = pool.candidates.filter(c => c.kind === 'revisit' || c.kind === 'stay');
-        document.getElementById('rl-pool-summary').textContent = 'Current tile: ' + (pool.current || 'not set') + ' · New boundary: ' +
+        const poolBoundaryLabel = Object.keys(tempChunks.unlocked || {}).length ? 'Rollable new tiles' : 'Possible starting tiles';
+        document.getElementById('rl-pool-summary').textContent = 'Current tile: ' + (pool.current || 'not set') + ' · ' + poolBoundaryLabel + ': ' +
             pool.candidates.filter(c => c.kind === 'frontier').length + ' · Reachable encounters: ' + reachableEncounters.length +
             ' · Free tiles: ' + pool.dormant.length + ' (' + pool.reachableFree.length + ' on a current path)';
         const locations = document.getElementById('rl-locations'); locations.replaceChildren();
@@ -677,7 +649,7 @@
         try {
             const origins = JSON.parse(document.getElementById('rl-origin-overrides').value || '{}');
             const access = JSON.parse(document.getElementById('rl-access-overrides').value || '{}');
-            const updated = R.normalizeState({ ...state, originOverrides: origins, accessOverrides: access });
+            const updated = boardlockedState({ ...state, originOverrides: origins, accessOverrides: access });
             for (const entries of Object.values(origins)) for (const loc of entries) {
                 const parsed = R.parseLocation(loc);
                 if (!chunkInfo.chunks[parsed.chunkId] || (parsed.sectionId && !chunkInfo.chunks[parsed.chunkId].Sections?.[parsed.sectionId])) throw new Error('Unknown origin chunk/section');
@@ -690,7 +662,7 @@
     function exportRun() {
         const payload = { format: 'chunk-picker-roguelike', version: 5, mapId: mid, exportedAt: new Date().toISOString(), roguelikeState: state, legacy: snapshotLegacy() };
         const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-        const link = element('a', null, { href: url, download: 'roguelike-' + (localProfile || mid || 'run') + '.json' });
+        const link = element('a', null, { href: url, download: 'boardlocked-' + (localProfile || mid || 'run') + '.json' });
         link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     function restoreLegacy(saved, trustTransient = false) {
@@ -718,10 +690,10 @@
         if (!file || !canEdit()) return;
         try {
             const payload = JSON.parse(await file.text());
-            if (payload.format !== 'chunk-picker-roguelike' || ![1, 2, 3, 4, 5].includes(payload.version)) throw new Error('Not a supported Roguelike run export');
-            let nextState = R.normalizeState(payload.roguelikeState);
+            if (payload.format !== 'chunk-picker-roguelike' || ![1, 2, 3, 4, 5].includes(payload.version)) throw new Error('Not a supported Boardlocked run export');
+            let nextState = boardlockedState(payload.roguelikeState);
             if (!confirm(localProfile ? 'Replace this local run with the imported geography, rules, completion records and visit history? Any unresolved active visit will be recalculated using this version.' :
-                'Replace local Roguelike levels, overrides and visits for this map? Any unresolved active visit will be recalculated using this version. Legacy map data stays in its existing save; use a local run to restore the full export.')) return;
+                'Replace local Boardlocked levels, overrides and visits for this map? Any unresolved active visit will be recalculated using this version. Legacy map data stays in its existing save; use a local run to restore the full export.')) return;
             invalidate();
             if (localProfile && payload.legacy) {
                 restoreLegacy(payload.legacy);
@@ -777,20 +749,22 @@
                 restoreLegacy(run.legacy, true);
             }
             ensureMap();
-            $('.body, .canvasDiv, .topnav, .menu, .menu2, .menu3, .menu4, .menu8, .menu9, .pick').show().css('opacity', 1);
+            $('.body, .canvasDiv, .topnav, .menu, .menu2, .menu3, .menu4, .menu8').show().css('opacity', 1);
             $('#home-menu, #entry-menu, #import-menu, #highscore-menu, #highscore-menu2, #help-menu, .entry-home-menu-container, .entry-home-menu-extra, .background-img, .loading, #page1, #page1extra, #page1search').hide();
             $('.test-hint').hide();
             $('.lock-closed, .lock-opened, .pinchange, .friendslist, .gosandbox').hide();
             document.title = 'Boardlocked · ' + name;
-            $('.toptitle2').text('LOCAL · ' + name);
+            $('.toptitle2').text('RUN · ' + name);
             toggleTheme(settings.theme || 'light');
             doneLoading();
+            // The empty legacy card obscures the map without providing data.
+            // Right-clicking a tile still opens the full chunk information view.
+            $('.menu8, .hiddenInfo').hide();
             toggleChallengesPanel('active');
             setUpSelected(); render();
             if (readyToDrawImage) centerCanvas('quick');
             else mapImg.addEventListener('load', () => centerCanvas('quick'), { once: true });
             calcCurrentChallengesCanvas(true, true, true);
-            document.getElementById('rl-launcher').hidden = false;
         } catch (err) { fail(err); $('.loading').hide(); }
     }
     function drawOverlay(context) {
@@ -825,20 +799,13 @@
         context.restore();
     }
     function mount() {
-        const launcher = button('Roguelike OFF', () => {
-            ensureMap(); panel.hidden = !panel.hidden;
-            document.getElementById('rl-origin-overrides').value = JSON.stringify(state.originOverrides, null, 2);
-            document.getElementById('rl-access-overrides').value = JSON.stringify(state.accessOverrides, null, 2);
-            rebuild(); render();
-        });
-        launcher.id = 'rl-launcher'; launcher.hidden = !gotData; document.body.append(launcher);
-        panel = element('aside', null, { id: 'rl-panel', 'aria-label': 'Roguelike Mode' }); panel.hidden = true;
-        panel.innerHTML = `<header><h2>Roguelike Mode</h2><button type="button" id="rl-close" aria-label="Close Roguelike panel">×</button></header>
-            <p id="rl-storage-label"></p><label class="rl-toggle"><input id="rl-enabled" type="checkbox"> Enable Roguelike Mode</label>
+        panel = element('aside', null, { id: 'rl-panel', 'aria-label': 'Boardlocked run' }); panel.hidden = true;
+        panel.innerHTML = `<header><h2>Boardlocked Run</h2><button type="button" id="rl-close" aria-label="Close run panel">×</button></header>
+            <p id="rl-storage-label"></p>
             <button id="rl-reset" type="button" class="rl-danger" title="Clear the map and all progress for this local run">Reset map &amp; run</button>
-            <div class="rl-preset"><strong id="rl-preset-status">Rules: Roguelike Custom</strong><div class="rl-toolbar"><button id="rl-show-rules" type="button">Chunk Rules</button><button id="rl-reset-preset" type="button">Reset Roguelike preset</button></div></div>
+            <div class="rl-preset"><strong id="rl-preset-status">Rules: Boardlocked defaults</strong><div class="rl-toolbar"><button id="rl-show-rules" type="button">Chunk Rules</button><button id="rl-reset-preset" type="button">Restore Boardlocked rules</button></div></div>
             <p id="rl-message" role="status" aria-live="polite"></p>
-            <details id="rl-run-setup"><summary>Run setup · continue or reset</summary>
+            <details id="rl-run-setup"><summary>Continue or import a run</summary>
             <div class="rl-toolbar"><button id="rl-export" type="button">Export run</button><label class="rl-file">Import run<input id="rl-import" type="file" accept=".json,application/json"></label></div>
             <h3>Continue an existing run</h3><p>Add your unlocked chunk IDs in order, separated by commas. Current rules and progress automatically classify each as an encounter or a free travel tile. This adds geography without inventing past visits.</p>
             <label>Already unlocked chunks<textarea id="rl-setup-chunks" rows="2" placeholder="Chunk IDs, in unlock order"></textarea></label>
@@ -849,7 +816,7 @@
             <h3>Current tile / resume a visit</h3><p>An import uses its current visit, then its latest unlocked chunk, as the travel start. Correct that start here if needed. Resume a visit only when you still owe a task in that chunk.</p>
             <label>Unlocked chunk ID <input id="rl-admin-location" inputmode="numeric"></label><div class="rl-toolbar"><button id="rl-set-anchor" type="button">Set current tile</button><button id="rl-admin-visit" type="button">Resume unfinished visit here</button></div>
             </details>
-            <div id="rl-mode-content" hidden><p class="rl-muted">Travel starts at the current tile. Free tiles are crossed automatically when building the pool; the first new tile or unfinished-task tile in each direction gets one ticket.</p>
+            <div id="rl-mode-content"><p class="rl-muted">Travel starts at the current tile. Free tiles are crossed automatically when building the pool; the first new tile or unfinished-task tile in each direction gets one ticket.</p>
             <div class="rl-map-legend" aria-label="Map legend"><span><i class="rl-key-current"></i>Current</span><span><i class="rl-key-free"></i>Free</span><span><i class="rl-key-encounter"></i>Reachable encounter</span><span><i class="rl-key-boundary"></i>Rollable new tile</span></div>
             <button id="rl-roll" class="rl-primary" type="button">Roll next location</button>
             <button id="rl-sections" type="button" hidden>Choose accessible sections</button>
@@ -862,23 +829,28 @@
             <details><summary>Levels &amp; skill progression</summary><p>Actual levels control source access. Highest completed task levels separately control each skill’s rolling progression window.</p><div id="rl-levels"></div><h3>Highest completed task levels</h3><div id="rl-frontiers"></div><button id="rl-rebuild-frontiers" type="button">Rebuild from completed tasks</button><p id="rl-milestones"></p></details>
             <details><summary id="rl-task-count">Other tasks & progress</summary><p>Record incidental progress here. Only a Current visit candidate resolves the visit.</p><input id="rl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search atomic tasks"><label class="rl-toggle"><input type="checkbox" id="rl-show-earlier">Show completed and earlier skilling tasks</label><div id="rl-all-tasks"></div></details>
             <details><summary>Diagnostics and overrides</summary>
-            <details><summary id="rl-unassigned-count">Unassigned Roguelike Tasks</summary><div id="rl-unassigned"></div></details>
+            <details><summary id="rl-unassigned-count">Unassigned Boardlocked Tasks</summary><div id="rl-unassigned"></div></details>
             <details><summary id="rl-gate-count">Access diagnostics</summary><div id="rl-gates"></div></details>
             <details><summary>Task inspector</summary><pre id="rl-debug">Use Inspect on a task.</pre></details>
             <label>Origin overrides: task ID → array of chunk or chunk-section IDs<textarea id="rl-origin-overrides" rows="5" spellcheck="false">{}</textarea></label>
             <label>Access overrides: diagnostic key → true / false<textarea id="rl-access-overrides" rows="5" spellcheck="false">{}</textarea></label>
             <p>Copy a task or source key from diagnostics. <code>section:1234-1: false</code> is written as <code>{"section:1234-1": false}</code>. Manually closed sections remain authoritative.</p>
             <button id="rl-apply-overrides" type="button">Apply overrides</button><button id="rl-recalculate" type="button">Recalculate tasks</button></details>
-            <p><button id="rl-comparison" type="button">Show normal task reference</button></p>
             <details><summary>Visit history</summary><div id="rl-history"></div></details>
             <details><summary>Setup history</summary><pre id="rl-admin-history"></pre></details>
             </div>`;
         document.body.append(panel);
-        // Stop map keyboard/mouse handlers from treating form edits as map actions.
-        ['keydown', 'keyup', 'mousedown', 'mouseup', 'wheel', 'touchstart', 'touchend'].forEach(type => panel.addEventListener(type, event => event.stopPropagation()));
-        panel.addEventListener('keydown', event => { if (event.key === 'Escape') { panel.hidden = true; launcher.focus(); } });
-        document.getElementById('rl-close').onclick = () => { panel.hidden = true; launcher.focus(); };
-        document.getElementById('rl-enabled').onchange = event => setEnabled(event.target.checked);
+        const focusPanelButton = () => document.getElementById('boardlocked-panel-button')?.focus();
+        const stopMapInteraction = event => {
+            if (typeof cancelMapDrag === 'function') cancelMapDrag();
+            event.stopPropagation();
+        };
+        // A gesture that crosses into the panel must never keep panning or
+        // complete as a tile click underneath it.
+        ['mouseenter', 'mousedown', 'mouseup', 'mousemove', 'wheel', 'touchstart', 'touchmove', 'touchend', 'contextmenu']
+            .forEach(type => panel.addEventListener(type, stopMapInteraction));
+        panel.addEventListener('keydown', event => { if (event.key === 'Escape') { setPanelOpen(false); focusPanelButton(); } });
+        document.getElementById('rl-close').onclick = () => { setPanelOpen(false); focusPanelButton(); };
         document.getElementById('rl-roll').onclick = roll;
         document.getElementById('rl-void').onclick = voidCurrent;
         document.getElementById('rl-export').onclick = exportRun;
@@ -886,15 +858,14 @@
         document.getElementById('rl-add-unlocked').onclick = addUnlocked;
         document.getElementById('rl-reset').onclick = resetRun;
         document.getElementById('rl-reset-preset').onclick = resetRulePreset;
-        document.getElementById('rl-show-rules').onclick = () => { panel.hidden = true; showRules(); };
+        document.getElementById('rl-show-rules').onclick = () => { setPanelOpen(false); showRules(); };
         document.getElementById('rl-rebuild-frontiers').onclick = rebuildProgression;
         document.getElementById('rl-enabler-select').onchange = event => {
             document.getElementById('rl-add-enabler').disabled = !canEdit() || !event.target.value;
         };
         document.getElementById('rl-add-enabler').onclick = addEnabler;
         document.getElementById('rl-past-search').oninput = renderPastTasks;
-        document.getElementById('rl-sections').onclick = () => { panel.hidden = true; calcCurrentChallengesCanvas(true, true); };
-        document.getElementById('rl-comparison').onclick = () => { showComparison = !showComparison; render(); if (showComparison) { $('.menu9').show(); panel.hidden = true; } };
+        document.getElementById('rl-sections').onclick = () => { setPanelOpen(false); calcCurrentChallengesCanvas(true, true); };
         document.getElementById('rl-set-anchor').onclick = setAnchor;
         document.getElementById('rl-admin-visit').onclick = adminVisit;
         document.getElementById('rl-apply-overrides').onclick = applyOverrides;
@@ -930,14 +901,18 @@
             frontierLine.append(frontierInput, element('small', '', { id: 'rl-window-' + skill }));
             document.getElementById('rl-frontiers').append(frontierLine);
         }
-        const legacyPanel = document.querySelector('.menu9');
-        if (legacyPanel) new MutationObserver(syncComparison).observe(legacyPanel, { childList: true, subtree: true });
         render();
     }
     window.roguelikeController = { enabled, notice, calculate, invalidate, onLegacyChange, roll, allowRelock, drawOverlay, bootstrapLocal,
         isFrontierCandidate: id => pool.candidates.some(candidate => candidate.kind === 'frontier' && candidate.locationId === String(id)),
         frontierNumber: id => pool.candidates.filter(candidate => candidate.kind === 'frontier').findIndex(candidate => candidate.locationId === String(id)) + 1,
-        open: () => { panel.hidden = false; rebuild(); render(); },
+        open: () => {
+            setPanelOpen(true);
+            document.getElementById('rl-origin-overrides').value = JSON.stringify(state.originOverrides, null, 2);
+            document.getElementById('rl-access-overrides').value = JSON.stringify(state.accessOverrides, null, 2);
+            rebuild(); render();
+            document.getElementById('rl-close')?.focus();
+        },
         debug: () => ({ state: R.copy(state), pool: R.copy(pool), tasks: R.copy(tasks), progressionHighWater: { ...progressionHighWater },
             enablerCatalog: R.copy(enablerCatalog), enablerAmbiguities: R.copy(enablerAmbiguities),
             rulePreset: activeRulePreset(), diagnostics: R.copy(diagnostics), sourceCounts, busy, error, generation }),

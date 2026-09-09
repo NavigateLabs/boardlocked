@@ -56,9 +56,9 @@
   <script src="./modal.js?v=6.9.66-rl1"></script>
   <script src="./roguelike-data.js?v=2"></script>
   <script src="./roguelike.js?v=9"></script>
-  <script src="./index.js?v=6.9.66-rl5"></script>
-  <script src="./roguelike-ui.js?v=15"></script>
-  <link rel="stylesheet" href="./roguelike.css?v=7">
+  <script src="./index.js?v=6.9.66-rl6"></script>
+  <script src="./roguelike-ui.js?v=16"></script>
+  <link rel="stylesheet" href="./roguelike.css?v=8">
   <ul class='active-context-menu'>
     <li onclick="switchActiveContext(event, 'backlog')">Backlog</li>
     <li onclick="switchActiveContext(event, 'backlog note')">Backlog Options</li>
@@ -100,9 +100,9 @@
     <span class='topbar-item topbar-item-3'></span>
     <span class='topbar-item topbar-item-2'></span>
     <div><span onclick='openSearch()'><i class="gosearch fa-solid fa-search" title='Search My Chunks'></i></span></div>
-    <div><span
-      class='noscroll'
-      onclick="openMobileTasks()"><i class="gomobiletasks fa-solid fa-tasks" title='Tasks'></i></span></div>
+    <div><button id="boardlocked-panel-button" type="button" class="noscroll" aria-controls="rl-panel"
+      aria-expanded="false" aria-label="Open Boardlocked run panel" onclick="window.roguelikeController?.open()"><i
+      class="gomobiletasks fa-solid fa-tasks" title='Open Boardlocked run'></i></button></div>
   </div>
   <div id='entry-menu'>
     <div class='entry-content'>
@@ -167,7 +167,7 @@
   </div>
   <div class='menu3'>
     <div id='chunkInfo1' class='text'>Unlocked chunks: 0</div>
-    <div id='chunkInfo2' class='text'>Selected chunks: 0</div>
+    <div id='chunkInfo2' class='text'>Rollable tiles: 0</div>
   </div>
   <div class='menu5'>
     <div class='icon-lock'>

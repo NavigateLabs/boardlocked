@@ -2629,7 +2629,7 @@ let handleMouseDown = function(e) {
         removeCanvasDarkness = true;
         return;
     }
-    if ((e.button !== 0 && !e.touches) || atHome || inEntry || importMenuOpen || highscoreMenuOpen || helpMenuOpen || patchNotesOpen || manualModalOpen || detailsModalOpen || notesModalOpen || rulesModalOpen || settingsModalOpen || userTasksModalOpen || searchModalOpen || searchDetailsModalOpen || highestModalOpen || highest2ModalOpen || methodsModalOpen || completeModalOpen || addEquipmentModalOpen || stickerModalOpen || paintModalOpen || backlogSourcesModalOpen || chunkHistoryModalOpen || challengeAltsModalOpen || manualOuterModalOpen || monsterModalOpen || slayerLockedModalOpen || constructionLockedModalOpen || rollChunkModalOpen || questStepsModalOpen || friendsListModalOpen || friendsAddModalOpen || passiveSkillModalOpen || mapIntroOpen || xpRewardOpen || manualAreasModalOpen || chunkSectionsModalOpen || chunkSectionPickerModalOpen || slayerMasterInfoModalOpen || doableClueStepsModalOpen || clueChunksModalOpen || notesOpen || newTasksOpen || clipboardModalOpen || overlaysModalOpen || userTasksListModalOpen || userTaskDeleteConfirmationModalOpen || exitSandboxWarningModalOpen || mobileMenuOpen || mobileTasksOpen || mobileChunkMenuOpen || customizeTopbarModalOpen || questChunksModalOpen || e.target.nodeName.toLowerCase() === 'select' || e.target.nodeName.toLowerCase() === 'option') {
+    if ((e.button !== 0 && !e.touches) || e.target.id !== 'canvas' || atHome || inEntry || importMenuOpen || highscoreMenuOpen || helpMenuOpen || patchNotesOpen || manualModalOpen || detailsModalOpen || notesModalOpen || rulesModalOpen || settingsModalOpen || userTasksModalOpen || searchModalOpen || searchDetailsModalOpen || highestModalOpen || highest2ModalOpen || methodsModalOpen || completeModalOpen || addEquipmentModalOpen || stickerModalOpen || paintModalOpen || backlogSourcesModalOpen || chunkHistoryModalOpen || challengeAltsModalOpen || manualOuterModalOpen || monsterModalOpen || slayerLockedModalOpen || constructionLockedModalOpen || rollChunkModalOpen || questStepsModalOpen || friendsListModalOpen || friendsAddModalOpen || passiveSkillModalOpen || mapIntroOpen || xpRewardOpen || manualAreasModalOpen || chunkSectionsModalOpen || chunkSectionPickerModalOpen || slayerMasterInfoModalOpen || doableClueStepsModalOpen || clueChunksModalOpen || notesOpen || newTasksOpen || clipboardModalOpen || overlaysModalOpen || userTasksListModalOpen || userTaskDeleteConfirmationModalOpen || exitSandboxWarningModalOpen || mobileMenuOpen || mobileTasksOpen || mobileChunkMenuOpen || customizeTopbarModalOpen || questChunksModalOpen || e.target.nodeName.toLowerCase() === 'select' || e.target.nodeName.toLowerCase() === 'option') {
         drawCanvas();
         return;
     }
@@ -2652,6 +2652,13 @@ let handleMouseDown = function(e) {
     }
     drawCanvas();
 }
+
+// End a canvas gesture without allowing its eventual mouseup to become a tile
+// click. Panels call this when the pointer crosses off the map.
+let cancelMapDrag = function() {
+    mouseDown = false;
+    movedNum = Math.max(movedNum, 2);
+};
 
 // Handles mouse move event
 let handleMouseMove = function(e) {
@@ -2853,6 +2860,8 @@ let handleKeyUp = function(e) {
 
 // Handles the mouse up event
 let handleMouseUp = function(e) {
+    const startedOnCanvas = mouseDown;
+    if (e.button === 0 || e.type === 'touchend') mouseDown = false;
     if ((e.button !== 0 && e.button !== 2 && e.type !== 'touchend') || (onMobile && e.type !== 'touchend') || atHome || inEntry || importMenuOpen || highscoreMenuOpen || helpMenuOpen || patchNotesOpen || manualModalOpen || detailsModalOpen || notesModalOpen || rulesModalOpen || settingsModalOpen || userTasksModalOpen || searchModalOpen || searchDetailsModalOpen || highestModalOpen || highest2ModalOpen || methodsModalOpen || completeModalOpen || addEquipmentModalOpen || stickerModalOpen || paintModalOpen || backlogSourcesModalOpen || chunkHistoryModalOpen || challengeAltsModalOpen || manualOuterModalOpen || monsterModalOpen || slayerLockedModalOpen || constructionLockedModalOpen || rollChunkModalOpen || questStepsModalOpen || friendsListModalOpen || friendsAddModalOpen || passiveSkillModalOpen || mapIntroOpen || xpRewardOpen || manualAreasModalOpen || chunkSectionsModalOpen || chunkSectionPickerModalOpen || slayerMasterInfoModalOpen || doableClueStepsModalOpen || clueChunksModalOpen || notesOpen || newTasksOpen || clipboardModalOpen || overlaysModalOpen || userTasksListModalOpen || userTaskDeleteConfirmationModalOpen || exitSandboxWarningModalOpen || mobileTasksOpen || customizeTopbarModalOpen || questChunksModalOpen) {
         drawCanvas();
         return;
@@ -2889,11 +2898,18 @@ let handleMouseUp = function(e) {
         } else {
             infoLockedId = chunkId.toString();
         }
+        if (window.roguelikeController?.enabled()) {
+            chunkInfoOn = true;
+            infoCollapse = false;
+        }
         updateChunkInfo();
         drawCanvas();
         return;
     } else if (e.button === 0 || e.type === 'touchend') {
-        mouseDown = false;
+        if (!startedOnCanvas) {
+            drawCanvas();
+            return;
+        }
         if (movedNum <= 1 && isHoveringClose) {
             selectedOverlayIds = [];
             selectedOverlayIndex = 0;
@@ -2956,6 +2972,11 @@ let handleMouseUp = function(e) {
         if (movedNum <= 1 && e.target.id === 'canvas') {
             e.preventDefault();
             e.stopPropagation();
+            if (window.roguelikeController?.enabled()) {
+                window.roguelikeController.notice('Boardlocked unlocks tiles through Roll next location. Right-click a tile to inspect it.');
+                drawCanvas();
+                return;
+            }
             let chunkId = convertToChunkNum(Math.floor((currentX - dragTotalX) / (totalZoom * (imgW / rowSize))), Math.floor((currentY - dragTotalY) / (totalZoom * (imgH / (fullSize / rowSize)))));
             let coords = convertToXY(chunkId);
             if (coords.x >= rowSize || coords.y >= (fullSize / rowSize) || coords.x < 0 || coords.y < 0) {
@@ -3769,6 +3790,11 @@ let currentWorkerRequest = function(tempSections = manualSections) {
 
 // Handles mouse leaving the page
 let handleMouseOut = function(e) {
+    if (!e.relatedTarget) {
+        cancelMapDrag();
+        drawCanvas();
+        return;
+    }
     if (e.button !== 0) {
         drawCanvas();
         return
@@ -4046,6 +4072,7 @@ $(document).ready(function() {
     $(document).mousemove(function(e){handleMouseMove(e);});
     $(document).mouseup(function(e){handleMouseUp(e);});
     $(document).mouseout(function(e){handleMouseOut(e);});
+    window.addEventListener('blur', cancelMapDrag);
     $("#canvas").on('wheel', function(e){handleMouseScroll(e);});
     $(document).keydown(function(e){handleKeyDown(e);});
     $(document).keyup(function(e){handleKeyUp(e);});

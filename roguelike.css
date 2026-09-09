@@ -1,7 +1,6 @@
-/* Fork UI is scoped so normal map/task colors and layout stay intact. */
-#rl-launcher { position: fixed; left: 16px; bottom: 55px; z-index: 2100; padding: 9px 14px; border: 1px solid #567d72; border-radius: 6px; background: #153c33; color: white; font: 14px Arial, sans-serif; cursor: pointer; }
+/* Boardlocked owns the run flow while retaining the map and data views. */
 #rl-panel { position: fixed; top: 55px; right: 12px; bottom: 12px; z-index: 2200; box-sizing: border-box; width: min(440px, calc(100vw - 24px)); overflow: auto; overscroll-behavior: contain; padding: 18px; background: var(--color3, #eee); color: var(--colorText, #202020); border: 2px solid #377e68; border-radius: 8px; box-shadow: 0 6px 25px #0006; font: 14px/1.45 Arial, sans-serif; text-align: left; }
-#rl-panel[hidden], #rl-launcher[hidden], #rl-mode-content[hidden] { display: none !important; }
+#rl-panel[hidden] { display: none !important; }
 #rl-panel header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 #rl-panel h2 { font-size: 20px; margin: 0; }
 #rl-panel h3 { font-size: 17px; margin: 12px 0 8px; }
@@ -53,9 +52,9 @@
 #rl-panel .rl-danger { border-color: #a84d40; color: #a02c20; }
 #rl-panel #rl-reset { display: block; width: 100%; margin: 12px 0; font-weight: bold; }
 #rl-panel #rl-reset[hidden] { display: none !important; }
-.rl-enabled:not(.rl-legacy-comparison) .menu9 { display: none !important; }
-.rl-enabled .menu9 .checkbox__input, .rl-enabled .menu9 .burger,
-.rl-enabled .menu9 .open-checkoff-container, .rl-enabled .menu9 .open-complete-container,
-.rl-enabled .menu9 .tasks-checkmark { display: none !important; }
-.rl-enabled .roll2, .rl-enabled .unpick, .rl-enabled .randomstartalways-setting { display: none !important; }
-@media (max-width: 600px) { #rl-panel { top: 8px; right: 8px; bottom: 8px; width: calc(100vw - 16px); padding: 14px; } #rl-launcher { bottom: 68px; left: 8px; } }
+.rl-enabled .menu9 { display: none !important; }
+.rl-enabled .pick, .rl-enabled .roll2, .rl-enabled .unpick, .rl-enabled .randomstartalways-setting { display: none !important; }
+.rl-enabled #boardlocked-panel-button { display: block; position: absolute; top: 0; right: 58px; height: 50px; padding: 0 5px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.rl-enabled #boardlocked-panel-button:focus-visible { outline: 3px solid #008866; outline-offset: -3px; }
+.rl-enabled #boardlocked-panel-button .gomobiletasks { display: block !important; position: static; font-size: 44px; }
+@media (max-width: 600px) { #rl-panel { top: 8px; right: 8px; bottom: 8px; width: calc(100vw - 16px); padding: 14px; } }
