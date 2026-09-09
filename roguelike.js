@@ -5,7 +5,7 @@
     else root.Roguelike = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 5;
+    const VERSION = 6;
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
         'Cooking', 'Woodcutting', 'Fletching', 'Fishing', 'Firemaking', 'Crafting', 'Smithing',
         'Mining', 'Herblore', 'Agility', 'Thieving', 'Slayer', 'Farming', 'Runecraft', 'Hunter',
@@ -38,11 +38,13 @@
     const progressionWindow = skill => PROGRESSION_WINDOWS[skill] || 10;
 
     function normalizeState(input) {
-        if (input && ![1, 2, 3, 4, VERSION].includes(input.version)) throw new Error('Unsupported Roguelike state version: ' + input.version);
+        if (input && ![1, 2, 3, 4, 5, VERSION].includes(input.version)) throw new Error('Unsupported Roguelike state version: ' + input.version);
         const state = { version: VERSION, enabled: false, actualLevels: {}, currentVisit: null, travelAnchor: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
-            rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input };
+            rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input,
+            initialization: { druidicRitual: !input, varlamore: false, wilderness: false, ocean: false },
+            initializationApplied: {}, initializationTaskIds: {}, initializationLevelFloors: {} };
         if (input) {
             if (typeof input.enabled !== 'boolean' || !Array.isArray(input.visitHistory)) throw new Error('Invalid Roguelike state');
             for (const key of ['currentVisit', 'visitHistory', 'originOverrides', 'accessOverrides', 'adminHistory']) {
@@ -53,6 +55,43 @@
             state.rulePresetInitialized = input.version >= 2 && input.rulePresetInitialized === true;
             state.rulePresetRevision = Number.isInteger(input.rulePresetRevision) && input.rulePresetRevision >= 0 ? input.rulePresetRevision : 0;
             state.enablersInitialized = input.version >= 3 && input.enablersInitialized === true;
+            if (input.version >= 6) {
+                if (!input.initialization || Array.isArray(input.initialization) || typeof input.initialization !== 'object') {
+                    throw new Error('Invalid initialization options');
+                }
+                for (const key of Object.keys(state.initialization)) {
+                    if (typeof input.initialization[key] !== 'boolean') throw new Error('Invalid initialization option: ' + key);
+                    state.initialization[key] = input.initialization[key];
+                }
+                if (input.initializationApplied !== undefined && (!input.initializationApplied || Array.isArray(input.initializationApplied) ||
+                    typeof input.initializationApplied !== 'object')) throw new Error('Invalid initialization completion records');
+                for (const [key, applied] of Object.entries(input.initializationApplied || {})) {
+                    if (!own(state.initialization, key) || applied !== true) throw new Error('Invalid initialization completion record: ' + key);
+                    state.initializationApplied[key] = true;
+                }
+                if (input.initializationTaskIds !== undefined && (!input.initializationTaskIds ||
+                    Array.isArray(input.initializationTaskIds) || typeof input.initializationTaskIds !== 'object')) {
+                    throw new Error('Invalid initialization task records');
+                }
+                for (const [key, taskIds] of Object.entries(input.initializationTaskIds || {})) {
+                    if (!own(state.initialization, key) || !Array.isArray(taskIds) || taskIds.some(id => typeof id !== 'string')) {
+                        throw new Error('Invalid initialization task record: ' + key);
+                    }
+                    state.initializationTaskIds[key] = [...new Set(taskIds)];
+                }
+                if (input.initializationLevelFloors !== undefined && (!input.initializationLevelFloors ||
+                    Array.isArray(input.initializationLevelFloors) || typeof input.initializationLevelFloors !== 'object')) {
+                    throw new Error('Invalid initialization level records');
+                }
+                for (const [skill, record] of Object.entries(input.initializationLevelFloors || {})) {
+                    if (!SKILLS.includes(skill) || !record || !own(state.initialization, record.option) ||
+                        !Number.isInteger(record.previous) || record.previous < 1 || record.previous > 99 ||
+                        !Number.isInteger(record.floor) || record.floor < 1 || record.floor > 99) {
+                        throw new Error('Invalid initialization level record: ' + skill);
+                    }
+                    state.initializationLevelFloors[skill] = copy(record);
+                }
+            }
             if (input.travelAnchor != null) {
                 const anchor = parseLocation(input.travelAnchor);
                 if (!anchor) throw new Error('Invalid travel anchor');
@@ -105,6 +144,41 @@
         }
         if (!state.travelAnchor && state.currentVisit) state.travelAnchor = state.currentVisit.locationId;
         return state;
+    }
+
+    function deriveStartingPool(data = {}, annotations = {}, options = {}, blacklisted = {}) {
+        const configured = annotations.initialization?.startingTiles || {};
+        const walkable = new Set((data.walkableChunks || []).map(String));
+        const groupOrder = ['standard', 'varlamore', 'wilderness', 'ocean'];
+        const enabled = { standard: true, varlamore: options.varlamore === true,
+            wilderness: options.wilderness === true, ocean: options.ocean === true };
+        const ids = [], groupByLocation = {}, groups = [];
+        for (const group of groupOrder) {
+            if (!enabled[group]) continue;
+            const groupIds = [];
+            for (const rawId of configured[group] || []) {
+                const id = String(rawId);
+                if (!walkable.has(id) || own(blacklisted, id) || own(groupByLocation, id)) continue;
+                groupByLocation[id] = group; ids.push(id); groupIds.push(id);
+            }
+            if (groupIds.length) groups.push({ id: group, locationIds: groupIds });
+        }
+        return { ids, groups, groupByLocation };
+    }
+
+    // Initial groups receive equal odds, then every tile within the selected
+    // group receives equal odds. This keeps optional ocean tiles from changing
+    // the meaning of every other start merely because the ocean grid is larger.
+    function chooseStartingCandidate(candidates, startingPool, rng = Math.random) {
+        if (!Array.isArray(candidates) || !candidates.length) return null;
+        const available = (startingPool?.groups || []).map(group => ({ ...group,
+            candidates: candidates.filter(candidate => group.locationIds.includes(String(candidate.locationId))) }))
+            .filter(group => group.candidates.length);
+        if (!available.length) return chooseCandidate(candidates, rng);
+        const groupRoll = rng(), tileRoll = rng();
+        if (groupRoll < 0 || groupRoll >= 1 || tileRoll < 0 || tileRoll >= 1) throw new Error('Random source must return [0, 1)');
+        const group = available[Math.floor(groupRoll * available.length)];
+        return group.candidates[Math.floor(tileRoll * group.candidates.length)];
     }
 
     function sanitizeLegacySnapshot(input = {}, ruleKeys = [], settingKeys = []) {
@@ -1030,7 +1104,8 @@
         canonicalItemKey, enablerTaskId, enablerItemFromTaskId, normalizeState, sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
-        buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, setTravelAnchor, derivePool, chooseCandidate, canRoll,
+        buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, setTravelAnchor, derivePool, chooseCandidate,
+        deriveStartingPool, chooseStartingCandidate, canRoll,
         startVisit, snapshotVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });

@@ -12,6 +12,7 @@
     let rawTasks = [], tasks = [], sections = {}, diagnostics = [], sourceCounts = {};
     let enablerCatalog = [], enablerAmbiguities = [];
     let pool = R.derivePool([], {}, [], null), signature = '', previousUnlocked = null;
+    let startingPool = { ids: [], groups: [], groupByLocation: {} };
     let panel = null, message = '', dataReady = false;
     let loadFailure = false;
     let catalog = [], catalogData = null, progressionHighWater = {}, setupLocations = [];
@@ -23,6 +24,71 @@
     const localKey = () => 'chunk-picker-v2:local-run:v1:' + localProfile;
     const canEdit = () => !!gotData && (testMode || !(viewOnly || locked || inEntry));
     const label = id => chunkInfo.chunks?.[id]?.Nickname || chunkInfo.chunks?.[id]?.Name || '';
+    const hasStarted = () => !!state.travelAnchor || !!state.currentVisit || state.visitHistory.length > 0 ||
+        Object.keys(tempChunks.unlocked || {}).length > 0;
+    const isInitializationTask = id => Object.values(state.initializationTaskIds || {}).some(ids => ids.includes(id));
+
+    function removeCompletionId(id) {
+        for (const store of [checkedAllTasks, checkedChallenges, completedChallenges]) {
+            for (const category of Object.keys(store || {})) for (const key of Object.keys(store[category] || {})) {
+                if (key === id || R.taskId(key, category, tasksMap) === id) delete store[category][key];
+            }
+        }
+    }
+    function syncInitializationCompletions(journal = false) {
+        const questTasks = RoguelikeData.initialization?.questTasks || {};
+        const questBaseNames = RoguelikeData.initialization?.questBaseNames || {};
+        const questOptions = ['druidicRitual', 'varlamore', 'ocean'];
+        const levelFloors = { druidicRitual: { Herblore: 3 }, ocean: { Sailing: 4 } };
+        let changed = false;
+        for (const key of questOptions) {
+            const finalName = questTasks[key], baseQuest = questBaseNames[key];
+            if (!finalName || !baseQuest) continue;
+            const finalId = R.taskId(finalName, 'Quest', tasksMap);
+            const names = Object.entries(chunkInfo.challenges?.Quest || {}).filter(([, meta]) => meta.BaseQuest === baseQuest).map(([name]) => name);
+            const recorded = new Set(state.initializationTaskIds[key] || []);
+            // Early v6 previews tracked only the final task. Preserve enough
+            // provenance to remove exactly what that switch added.
+            if (state.initializationApplied[key] && !recorded.size) recorded.add(finalId);
+            if (state.initialization[key]) {
+                const completed = R.completionIds(legacy(), tasksMap);
+                let questChanged = false;
+                for (const name of names) {
+                    const id = R.taskId(name, 'Quest', tasksMap);
+                    if (completed.has(id)) continue;
+                    (checkedAllTasks.Quest ||= {})[name] = true;
+                    recorded.add(id); completed.add(id);
+                    changed = true; questChanged = true;
+                }
+                if (recorded.size) {
+                    state.initializationTaskIds[key] = [...recorded];
+                    state.initializationApplied[key] = true;
+                }
+                if (questChanged && journal) state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'apply_initialization_quest',
+                    option: key, taskId: finalId, completedStepCount: names.length });
+            } else if (state.initializationApplied[key] || recorded.size) {
+                for (const id of recorded) removeCompletionId(id);
+                delete state.initializationApplied[key];
+                delete state.initializationTaskIds[key];
+                changed = true;
+                if (journal) state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'remove_initialization_quest', option: key, taskId: finalId });
+            }
+            for (const [skill, floor] of Object.entries(levelFloors[key] || {})) {
+                const record = state.initializationLevelFloors[skill];
+                if (state.initialization[key] && state.actualLevels[skill] < floor) {
+                    if (!record) state.initializationLevelFloors[skill] = { option: key, previous: state.actualLevels[skill], floor };
+                    state.actualLevels[skill] = floor;
+                    changed = true;
+                } else if (!state.initialization[key] && record?.option === key) {
+                    if (state.actualLevels[skill] === record.floor) state.actualLevels[skill] = record.previous;
+                    delete state.initializationLevelFloors[skill];
+                    changed = true;
+                }
+            }
+        }
+        if (changed) forceUpdatePluginOutput = true;
+        return changed;
+    }
 
     function notice(text) {
         message = text;
@@ -73,10 +139,15 @@
         dataReady = false; busy = true; error = ''; message = ''; loadFailure = false;
         try {
             const saved = localStorage.getItem(key);
-            state = boardlockedState(saved ? JSON.parse(saved) : null);
+            const parsed = saved ? JSON.parse(saved) : null;
+            state = boardlockedState(parsed);
+            // An unused pre-v6 profile is equivalent to a new account. Started
+            // profiles and imported histories never gain a quest retroactively.
+            if (parsed?.version < 6 && !hasStarted()) state.initialization.druidicRitual = true;
             if (!state.enablersInitialized) state = R.recoverAcquiredEnablers(state, legacy(), chunkInfo, tasksMap, RoguelikeData);
             if (state.enabled && !state.rulePresetInitialized) applyRoguelikePreset(true);
-            if (upgradeRoguelikePreset()) save();
+            const initializationChanged = !hasStarted() && syncInitializationCompletions();
+            if (upgradeRoguelikePreset() || initializationChanged) save();
         } catch (err) { state = boardlockedState(); loadFailure = true; fail(new Error('Saved state was not overwritten. ' + err.message)); }
         setPanelOpen(true);
         render();
@@ -116,16 +187,8 @@
                     coords.x >= 0 && coords.x < rowSize && coords.y >= 0 && coords.y < fullSize / rowSize;
             });
         }
-        // Same region/bank/quest/F2P/blacklist filters as legacy Random Start.
-        const options = settings.rollingChunksOptions || {};
-        const regionKey = name => name.replaceAll(' ', '_').replace(/[^\w]/g, '').toLowerCase();
-        const selected = regionNames.filter(name => options[regionKey(name)]);
-        let allowed = (selected.length ? selected : regionNames).flatMap(name => chunkInfo.rollingChunks?.[regionKey(name)] || []);
-        if (options.bank) allowed = allowed.filter(id => chunkInfo.rollingChunks.bank.includes(id));
-        if (options.noquest) allowed = allowed.filter(id => chunkInfo.rollingChunks.noquest.includes(id));
-        const set = new Set(allowed.map(String));
-        return (rules.F2P ? chunkInfo.walkableChunksF2P : chunkInfo.walkableChunks || []).map(String)
-            .filter(id => set.has(id) && !R.own(tempChunks.blacklisted, id) && !R.own(unlocked, id));
+        startingPool = R.deriveStartingPool(chunkInfo, RoguelikeData, state.initialization, tempChunks.blacklisted || {});
+        return startingPool.ids;
     }
     function travelConnectionAllowed(from, to) {
         const limits = chunkInfo.sectionsLimits || {};
@@ -157,7 +220,7 @@
         state.travelAnchor = R.inferTravelAnchor(state, unlocked, chunkOrder);
         const graph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed);
         pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, graph, state.travelAnchor);
-        const woke = pool.live.filter(id => oldDormant.has(id));
+        const woke = pool.live.filter(id => oldDormant.has(id) && id !== state.currentVisit?.locationId);
         if (dataReady && woke.length && !/^(Run imported|Added unlocked chunks)/.test(message)) {
             message = woke.join(', ') + ' has new available tasks and returned to the travel graph as an encounter.';
         }
@@ -248,12 +311,13 @@
         if (busy || error || !dataReady) return notice('Wait for a successful task/access calculation before rolling.');
         rebuild();
         if (!R.canRoll(state)) return notice('Complete any one snapshotted task, or use Void / recalculate current visit.');
-        const candidate = R.chooseCandidate(pool.candidates);
+        const candidate = !hasStarted() ? R.chooseStartingCandidate(pool.candidates, startingPool) : R.chooseCandidate(pool.candidates);
         if (!candidate) return notice('No reachable encounter or new boundary tile. Check the current tile, section access, backlogs, and map frontier.');
         begin(candidate);
     }
     function begin(candidate) {
         setPanelOpen(true);
+        const firstRoll = !hasStarted();
         state = R.startVisit(state, candidate, label(candidate.locationId));
         if (candidate.kind === 'frontier') {
             const id = candidate.locationId;
@@ -263,6 +327,15 @@
             tempSelectedChunks = tempSelectedChunks.filter(value => value !== id);
             if (settings.chunkNeighboursOptions?.neighbors) selectNeighborsCanvas(Number(id));
             if (settings.chunkNeighboursOptions?.remove) { tempChunks.selected = {}; tempSelectedChunks = []; }
+            if (firstRoll) {
+                const availableSections = Object.keys(chunkInfo.sections?.[id] || {}).filter(section => section !== '0');
+                const arrivalSection = availableSections.includes('1') ? '1' : availableSections.includes('W1') ? 'W1' : availableSections[0];
+                if (arrivalSection) {
+                    (manualSections[id] ||= {})[arrivalSection] = true;
+                    state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'set_starting_section',
+                        locationId: id, sectionId: arrivalSection });
+                }
+            }
             // Only new geography enters the original unlock history/highscore path.
             setRecentRoll(id);
         }
@@ -303,6 +376,7 @@
     }
     function complete(task, checked) {
         if (!canEdit()) return;
+        if (isInitializationTask(task.taskId)) return notice('Initialization quest steps stay completed for this run.');
         const target = task.skill === 'BiS' ? completedChallenges : checkedAllTasks;
         // Clear duplicate legacy representations when unchecking this exact atomic ID.
         if (!checked) {
@@ -397,7 +471,7 @@
     }
     function resetRun() {
         if (!localProfile || !canEdit()) return;
-        if (!confirm('Reset this map and run completely?\n\nThis clears every unlocked/selected chunk, accessible section, completed task, equipment record, skill level, rule/setting, backlog, override, and all visit/unlock/setup history.\n\nYou will restart with an empty map and fresh-account levels. Other runs are untouched.')) return;
+        if (!confirm('Reset this map and run completely?\n\nThis clears every unlocked/selected chunk, accessible section, completed task, equipment record, skill level, rule/setting, backlog, override, and all visit/unlock/setup history.\n\nYou will restart with an empty map and the new-account options. Druidic Ritual is recommended by default but can be unchecked before the first roll. Other runs are untouched.')) return;
         try {
             // Delete only this profile's two records. Reload reinitializes all
             // legacy globals and workers, avoiding leftover calculated progress.
@@ -407,6 +481,16 @@
             generation++; worker?.terminate(); clearTimeout(timer);
             window.location.reload();
         } catch (err) { fail(new Error('Could not reset this local run: ' + err.message)); }
+    }
+    function setInitializationOption(key, checked) {
+        if (!canEdit() || hasStarted() || !R.own(state.initialization, key)) return;
+        state.initialization[key] = checked;
+        const questChanged = syncInitializationCompletions(true);
+        state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'set_start_option', option: key, enabled: checked });
+        message = ({ druidicRitual: 'Druidic Ritual initialization', varlamore: 'Varlamore starts',
+            wilderness: 'Wilderness starts', ocean: 'Experimental ocean starts' })[key] + (checked ? ' enabled.' : ' disabled.');
+        save(); rebuild(); render(); drawCanvas();
+        if (questChanged) schedule();
     }
     function renderPastTasks() {
         const container = document.getElementById('rl-past-tasks');
@@ -418,9 +502,11 @@
         for (const task of matches.slice(0, 30)) {
             const row = element('label', null, { className: 'rl-past-task' });
             const check = element('input', null, { type: 'checkbox', 'aria-label': 'Already completed ' + task.displayName });
-            check.checked = R.isComplete(task, legacy(), state); check.disabled = !canEdit();
+            const initialized = isInitializationTask(task.taskId);
+            check.checked = R.isComplete(task, legacy(), state); check.disabled = !canEdit() || initialized;
             check.onchange = () => complete(task, check.checked);
-            row.append(check, element('span', task.skill + (task.level ? ' [' + task.level + ']' : '') + ' · ' + task.displayName));
+            row.append(check, element('span', task.skill + (task.level ? ' [' + task.level + ']' : '') + ' · ' + task.displayName +
+                (initialized ? ' · Initialization' : '')));
             container.append(row);
         }
         if (matches.length > 30) container.append(element('p', 'Showing 30 matches. Narrow your search.'));
@@ -452,7 +538,7 @@
             const checkLabel = element('label');
             const checkbox = element('input', null, { type: 'checkbox', 'aria-label': 'Complete ' + task.displayName });
             checkbox.checked = task.completed;
-            checkbox.disabled = !canEdit() || (busy && !snapshot);
+            checkbox.disabled = !canEdit() || (busy && !snapshot) || isInitializationTask(task.taskId);
             checkbox.addEventListener('change', () => complete(task, checkbox.checked));
             checkLabel.append(checkbox, element('span', (task.level ? '[' + task.level + '] ' : '') + task.displayName));
             row.append(checkLabel);
@@ -540,6 +626,12 @@
         document.getElementById('rl-reset').hidden = !localProfile;
         document.getElementById('rl-reset').disabled = !canEdit();
         document.getElementById('rl-preset-status').textContent = 'Rules: ' + activeRulePreset();
+        const startSetup = document.getElementById('rl-start-setup');
+        startSetup.hidden = hasStarted();
+        for (const key of Object.keys(state.initialization)) {
+            const input = document.getElementById('rl-start-' + key);
+            if (input) { input.checked = state.initialization[key]; input.disabled = !canEdit() || busy; }
+        }
         if (localProfile || state.enabled) {
             unlockedChunks = Object.keys(tempChunks.unlocked || {}).length;
             selectedChunks = pool.candidates.filter(candidate => candidate.kind === 'frontier').length;
@@ -558,6 +650,9 @@
         rollButton.textContent = busy ? 'Calculating access and tasks…' : !R.canRoll(state) ? 'Complete one task to travel' : !pool.candidates.length ?
             'No reachable locations' : state.currentVisit?.resolution === 'no_tasks' && state.travelAnchor === state.currentVisit.locationId ?
                 'Continue travel (free tile)' : !state.travelAnchor && !Object.keys(tempChunks.unlocked || {}).length ? 'Roll starting tile' : 'Roll next location';
+        const startRollButton = document.getElementById('rl-start-roll');
+        startRollButton.disabled = rollButton.disabled;
+        startRollButton.textContent = rollButton.textContent;
         $('.pick').prop('disabled', rollButton.disabled).text(rollButton.textContent);
         const visit = state.currentVisit;
         document.getElementById('rl-visit-title').textContent = visit ? '#' + visit.visitNumber + ' · ' + visit.locationId + ' — ' + visit.chunkName :
@@ -580,6 +675,13 @@
         document.getElementById('rl-pool-summary').textContent = 'Current tile: ' + (pool.current || 'not set') + ' · ' + poolBoundaryLabel + ': ' +
             pool.candidates.filter(c => c.kind === 'frontier').length + ' · Reachable encounters: ' + reachableEncounters.length +
             ' · Free tiles: ' + pool.dormant.length + ' (' + pool.reachableFree.length + ' on a current path)';
+        const startSummary = document.getElementById('rl-start-summary');
+        if (startSummary && !hasStarted()) {
+            const names = { standard: 'mainland', varlamore: 'Varlamore', wilderness: 'Wilderness', ocean: 'ocean' };
+            startSummary.textContent = startingPool.ids.length + ' curated tiles · ' + startingPool.groups
+                .map(group => names[group.id] + ' ' + group.locationIds.length).join(' · ') +
+                (startingPool.groups.length > 1 ? ' · equal chance per enabled group' : '');
+        }
         const locations = document.getElementById('rl-locations'); locations.replaceChildren();
         for (const [title, ids] of [
             ['New boundary', pool.candidates.filter(c => c.kind === 'frontier').map(c => c.locationId)],
@@ -660,7 +762,7 @@
         } catch (err) { notice('Overrides were not applied: ' + err.message); }
     }
     function exportRun() {
-        const payload = { format: 'chunk-picker-roguelike', version: 5, mapId: mid, exportedAt: new Date().toISOString(), roguelikeState: state, legacy: snapshotLegacy() };
+        const payload = { format: 'chunk-picker-roguelike', version: 6, mapId: mid, exportedAt: new Date().toISOString(), roguelikeState: state, legacy: snapshotLegacy() };
         const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
         const link = element('a', null, { href: url, download: 'boardlocked-' + (localProfile || mid || 'run') + '.json' });
         link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -690,7 +792,7 @@
         if (!file || !canEdit()) return;
         try {
             const payload = JSON.parse(await file.text());
-            if (payload.format !== 'chunk-picker-roguelike' || ![1, 2, 3, 4, 5].includes(payload.version)) throw new Error('Not a supported Boardlocked run export');
+            if (payload.format !== 'chunk-picker-roguelike' || ![1, 2, 3, 4, 5, 6].includes(payload.version)) throw new Error('Not a supported Boardlocked run export');
             let nextState = boardlockedState(payload.roguelikeState);
             if (!confirm(localProfile ? 'Replace this local run with the imported geography, rules, completion records and visit history? Any unresolved active visit will be recalculated using this version.' :
                 'Replace local Boardlocked levels, overrides and visits for this map? Any unresolved active visit will be recalculated using this version. Legacy map data stays in its existing save; use a local run to restore the full export.')) return;
@@ -805,6 +907,14 @@
             <button id="rl-reset" type="button" class="rl-danger" title="Clear the map and all progress for this local run">Reset map &amp; run</button>
             <div class="rl-preset"><strong id="rl-preset-status">Rules: Boardlocked defaults</strong><div class="rl-toolbar"><button id="rl-show-rules" type="button">Chunk Rules</button><button id="rl-reset-preset" type="button">Restore Boardlocked rules</button></div></div>
             <p id="rl-message" role="status" aria-live="polite"></p>
+            <section id="rl-start-setup" class="rl-start-setup"><h3>Start a new account</h3>
+            <label class="rl-start-option"><input id="rl-start-druidicRitual" type="checkbox"><span><strong>Druidic Ritual <em>recommended</em></strong><small>Counts as initialization and starts Herblore at 3.</small></span></label>
+            <p class="rl-start-route">Bronze dagger in Lumbridge → rat meat → buy raw chicken + beef at Wydin's in Port Sarim → <a href="https://www.youtube.com/watch?v=YcvoAOKZF1Q" target="_blank" rel="noopener">level-3 bear cub safespot</a> → <a href="https://oldschool.runescape.wiki/w/Druidic_Ritual" target="_blank" rel="noopener">finish the quest</a>.</p>
+            <div class="rl-start-grid">
+            <label class="rl-start-option"><input id="rl-start-varlamore" type="checkbox"><span><strong>Varlamore starts</strong><small>Counts Children of the Sun as initialization.</small></span></label>
+            <label class="rl-start-option"><input id="rl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Curated shallow and low-risk tiles; PvP still applies.</small></span></label>
+            <label class="rl-start-option"><input id="rl-start-ocean" type="checkbox"><span><strong>Ocean starts <em>experimental</em></strong><small>Untested near-Port-Sarim waters; Pandemonium starts Sailing at 4.</small></span></label>
+            </div><p id="rl-start-summary" class="rl-muted"></p><button id="rl-start-roll" class="rl-primary" type="button">Roll starting tile</button></section>
             <details id="rl-run-setup"><summary>Continue or import a run</summary>
             <div class="rl-toolbar"><button id="rl-export" type="button">Export run</button><label class="rl-file">Import run<input id="rl-import" type="file" accept=".json,application/json"></label></div>
             <h3>Continue an existing run</h3><p>Add your unlocked chunk IDs in order, separated by commas. Current rules and progress automatically classify each as an encounter or a free travel tile. This adds geography without inventing past visits.</p>
@@ -852,6 +962,7 @@
         panel.addEventListener('keydown', event => { if (event.key === 'Escape') { setPanelOpen(false); focusPanelButton(); } });
         document.getElementById('rl-close').onclick = () => { setPanelOpen(false); focusPanelButton(); };
         document.getElementById('rl-roll').onclick = roll;
+        document.getElementById('rl-start-roll').onclick = roll;
         document.getElementById('rl-void').onclick = voidCurrent;
         document.getElementById('rl-export').onclick = exportRun;
         document.getElementById('rl-import').onchange = event => { importRun(event.target.files[0]); event.target.value = ''; };
@@ -873,6 +984,8 @@
         document.getElementById('rl-task-search').oninput = renderAllTasks;
         document.getElementById('rl-show-earlier').onchange = renderAllTasks;
         document.getElementById('rl-all-tasks').parentElement.addEventListener('toggle', renderAllTasks);
+        for (const key of Object.keys(state.initialization)) document.getElementById('rl-start-' + key)
+            .addEventListener('change', event => setInitializationOption(key, event.target.checked));
         for (const skill of R.SKILLS) {
             const line = element('label', skill);
             const input = element('input', null, { id: 'rl-level-' + skill, type: 'number', min: '1', max: '99', 'aria-label': 'Current ' + skill });

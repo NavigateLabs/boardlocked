@@ -6,6 +6,8 @@ const vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const R = require('../roguelike');
+const annotations = require('../roguelike-data');
+const chunkData = require('../chunkpicker-chunkinfo-export.json');
 const { makeRequest, usePreset, runWorker, declaration, declarationFrom } = require('./roguelikeTestHarness');
 const fresh = () => R.normalizeState();
 const origin = (id, sectionId = null) => ({ chunkId: id, sectionId, sourceType: 'objects', sourceName: 'Resource', reason: 'Action source' });
@@ -14,6 +16,69 @@ const task = (id, locations = ['1000'], rest = {}) => ({ taskId: id, name: id, d
 const geo = { '1000': '1000', '2000': '2000', '3000': '3000' };
 const adapt = (list, legacy = {}, state = fresh(), unlocked = geo, sections = {}, manual = {}) => R.adaptTasks(list, legacy, state, unlocked, sections, manual);
 const start = (list, kind = 'revisit', id = '1000') => R.snapshotVisit(R.startVisit(fresh(), { kind, locationId: id }), list);
+
+test('fresh and migrated runs keep initialization choices explicit', () => {
+    const current = fresh();
+    assert.deepEqual(current.initialization, { druidicRitual: true, varlamore: false, wilderness: false, ocean: false });
+    current.initializationApplied.druidicRitual = true;
+    current.initializationLevelFloors.Herblore = { option: 'druidicRitual', previous: 1, floor: 3 };
+    assert.deepEqual(R.normalizeState(current).initializationLevelFloors.Herblore,
+        { option: 'druidicRitual', previous: 1, floor: 3 });
+    const old = fresh(); old.version = 5; delete old.initialization; delete old.initializationApplied;
+    const migrated = R.normalizeState(old);
+    assert.deepEqual(migrated.initialization, { druidicRitual: false, varlamore: false, wilderness: false, ocean: false });
+    assert.deepEqual(migrated.initializationApplied, {});
+    assert.deepEqual(migrated.initializationLevelFloors, {});
+});
+
+test('curated start pool excludes gated and hazardous regions unless explicitly enabled', () => {
+    const base = R.deriveStartingPool(chunkData, annotations, fresh().initialization);
+    assert.equal(base.ids.length, 179);
+    const allConfigured = Object.values(annotations.initialization.startingTiles).flat();
+    assert.equal(new Set(allConfigured).size, allConfigured.length, 'start groups must not overlap or contain duplicates');
+    assert.ok(allConfigured.every(id => chunkData.chunks[id] && chunkData.walkableChunks.map(String).includes(id)));
+    const noQuest = new Set(chunkData.rollingChunks.noquest.map(String));
+    assert.ok(annotations.initialization.startingTiles.standard.every(id => noQuest.has(id)), 'standard starts stay quest-free');
+    for (const id of allConfigured) {
+        const sections = Object.keys(chunkData.sections[id] || {}).filter(section => section !== '0');
+        const arrival = sections.includes('1') ? '1' : sections.includes('W1') ? 'W1' : sections[0];
+        const access = arrival ? { [id]: { [arrival]: true } } : {};
+        const boundary = R.deriveConnectedFrontier(chunkData, { [id]: id }, chunkData.walkableChunks, {});
+        const graph = R.buildTravelGraph(chunkData, { [id]: id }, access, boundary);
+        assert.ok(graph[id]?.length, id + ' must have an exit from its arrival section');
+    }
+    assert.ok(base.ids.includes('12850'), 'Lumbridge is a normal start');
+    for (const excluded of ['13621', '12844', '8755', '12349', '12079']) assert.ok(!base.ids.includes(excluded));
+    const expanded = R.deriveStartingPool(chunkData, annotations,
+        { druidicRitual: true, varlamore: true, wilderness: true, ocean: true });
+    assert.ok(expanded.ids.includes('6704'), 'Varlamore town is enabled');
+    assert.ok(expanded.ids.includes('12600'), 'safe Wilderness hub is enabled');
+    assert.ok(expanded.ids.includes('12080'), 'near-Port-Sarim ocean is enabled');
+    assert.ok(!expanded.ids.includes('12349'), 'deep Wilderness Mage Arena stays excluded');
+    assert.ok(!expanded.ids.includes('12844'), 'desert damage region stays excluded');
+    assert.ok(!expanded.ids.includes('8755'), 'Prifddinas stays excluded');
+});
+
+test('initialization quests name every stable step, including final completion', () => {
+    const expected = { druidicRitual: 6, varlamore: 4, ocean: 7 };
+    for (const [key, count] of Object.entries(expected)) {
+        const baseQuest = annotations.initialization.questBaseNames[key];
+        const names = Object.entries(chunkData.challenges.Quest).filter(([, meta]) => meta.BaseQuest === baseQuest).map(([name]) => name);
+        assert.equal(names.length, count, baseQuest);
+        assert.ok(names.includes(annotations.initialization.questTasks[key]));
+        assert.ok(names.every(name => typeof require('../tasksMap.json')[name] === 'string'));
+    }
+});
+
+test('starting roll gives enabled groups equal odds before choosing a tile', () => {
+    const starting = R.deriveStartingPool(chunkData, annotations,
+        { varlamore: true, wilderness: true, ocean: true });
+    const candidates = starting.ids.map(locationId => ({ kind: 'frontier', locationId }));
+    const rolls = [.26, .99];
+    const chosen = R.chooseStartingCandidate(candidates, starting, () => rolls.shift());
+    assert.equal(starting.groupByLocation[chosen.locationId], 'varlamore');
+    assert.equal(chosen.locationId, starting.groups.find(group => group.id === 'varlamore').locationIds.at(-1));
+});
 
 test('pool includes every frontier and live revisit exactly once', () => {
     const pool = R.derivePool(['4000', '5000', '4000', '1000'], geo, adapt([task('a')]), null);
@@ -655,10 +720,10 @@ test('acquired Enabler state and stable acquisition IDs round-trip without guess
     assert.equal(R.enablerItemFromTaskId(R.enablerTaskId('Iron axe')), 'Iron axe');
 });
 
-test('older states migrate to v5, exact completions replace automatic tiers, and explicit tier edits survive', () => {
+test('older states migrate to v6, exact completions replace automatic tiers, and explicit tier edits survive', () => {
     const migrated = R.normalizeState({ version: 1, enabled: true, visitHistory: [], actualLevels: { Cooking: 42 },
         derivedPool: ['stale'], origins: ['stale'] });
-    assert.equal(migrated.version, 5); assert.equal(migrated.actualLevels.Cooking, 42);
+    assert.equal(migrated.version, 6); assert.equal(migrated.actualLevels.Cooking, 42);
     assert.equal(migrated.progressionInitialized, false); assert.equal(migrated.derivedPool, undefined);
     const legacyFrontiers = Object.fromEntries(R.SKILLS.map(skill => [skill, skill === 'Cooking' ? 4 : 0]));
     const explicit = R.normalizeState({ version: 2, enabled: true, visitHistory: [], progressionFrontiers: legacyFrontiers,

@@ -1,4 +1,4 @@
-# Roguelike Mode (local fork)
+# Boardlocked mode
 
 ## Inspection and design
 
@@ -43,16 +43,17 @@ identity and completion adaptation, origins, strict gates, pools, and visits.
 `roguelike-worker.js` supplies small hooks that switch source/area/section prerequisites
 to actual-state checks only for a roguelike request.
 
-Normal Active Tasks remains available as an optional reference. When enabled, one additional
-global strict worker calculation runs alongside the normal comparison calculation.
+One global strict worker calculation supplies the Boardlocked panel while the
+inherited Active Tasks panel remains hidden.
 Neither calculation runs once per unlocked chunk. A source sidecar and memoized
 item/task graph resolve provenance from the final validated source data. Fixed
 action anchors outrank enabling tools; portable processing needs a resource anchor
 or an explicit override. Ambiguity is diagnostic, never a last-unlocked heuristic.
 
-The persistent state is version 5: `enabled`, `actualLevels` (HP 10, other skills
+The persistent state is version 6: `enabled`, `actualLevels` (HP 10, other skills
 1), per-skill `progressionHighWater`, progression/preset initialization flags,
-the additive preset revision, `acquiredEnablers`, `travelAnchor`, `currentVisit`, `visitHistory`,
+the additive preset revision, first-run `initialization` choices and their applied
+quest completions, `acquiredEnablers`, `travelAnchor`, `currentVisit`, `visitHistory`,
 `originOverrides`, `accessOverrides`, and an
 administrative journal. Pools, source indexes and atomic tasks are derived.
 Visits snapshot stable task IDs and compact display/category metadata only after recalculation. Completion resolves any
@@ -78,10 +79,10 @@ cd C:\chunk-picker-v2
 node scripts/serveLocal.js
 ```
 
-Open **http://127.0.0.1:8080/?local=default**, open **Roguelike OFF**, and enable
-the mode. No build or package installation is required for the application.
-A fresh local profile applies the **Roguelike Chunker** preset the first time the
-mode is enabled. Use `?local=profile-name` for a separate run. Existing public CDN libraries
+Open **http://127.0.0.1:8080/?local=default**. Boardlocked is the only run mode;
+the panel opens automatically. No build or package installation is required.
+A fresh local profile applies the **Roguelike Chunker** preset during initialization.
+Use `?local=profile-name` for a separate run. Existing public CDN libraries
 are still needed, so the application is not fully offline.
 
 * Roll one reachable new boundary tile or unlocked encounter. Existing free tiles
@@ -96,9 +97,7 @@ are still needed, so the application is not fully offline.
   its capability family and recorded source. Adding or removing one recalculates
   all unlocked chunks.
 * Free tiles automatically become encounters when their tasks become eligible; the
-  next pool rebuild stops travel at them. **Current visit** is the main place to check off tasks. The legacy
-  task panel is hidden by default; **Show normal task reference** reveals it with
-  task checkboxes disabled. Mode OFF restores its normal interaction.
+  next pool rebuild stops travel at them. **Current visit** is the main place to check off tasks.
 * Rule/access/backlog edits never silently resolve the visit. Confirm **Void /
   recalculate current visit** for an administrative void; its original snapshot
   stays in history. This recalculates future availability. Use **Set current tile**
@@ -106,17 +105,44 @@ are still needed, so the application is not fully offline.
   recovery visit in an already-unlocked chunk.
 * Manual unlocks update the connection graph, pool and journal without creating gameplay visits.
   Void an unresolved current visit before manually re-locking its chunk.
-* Roll 2/5 and random Unpick are hidden and guarded. Random Start Always is ignored
-  while enabled; after the first roll, the reachable travel pool is authoritative.
-* Turning mode OFF restores normal rolling and retains the local visit journal.
+* Roll 2/5, random Unpick, and the inherited region-wide Random Start settings are
+  unavailable. After the first roll, the reachable travel pool is authoritative.
   Every free unlocked tile is blue and labelled **FREE**, reachable encounters are
   teal and labelled **TASK**, and the current tile has a gold border. Green numbered tiles are the exact reachable new-tile
   candidates; hidden legacy borders cannot be clicked while the mode is active.
 
+### New-account initialization
+
+A fresh profile recommends and preselects Druidic Ritual. Its completion is written
+to the same stable completion store as an ordinary checked task, so Herblore and
+quest-gated source checks see the real initialization state. The panel keeps the
+route to one line and links a level-3 bear cub safespot. Its 250 XP reward sets the
+fresh actual Herblore level to 3. Pandemonium similarly sets Sailing to level 4
+from its 400 XP reward. Turning either choice off before starting restores the
+previous level unless the player has edited it since.
+
+The standard first-roll pool is an explicit, reviewed list of 179 low-risk surface
+tiles. It excludes the Morytania quest chain, desert heat and other harsh desert
+starts, Prifddinas and Tirannwn access gates, isolated quest locations, dangerous
+activity interiors, Mount Karuulm, sulphur damage, and similar level-3 traps.
+Varlamore, Wilderness, and ocean starts are separate pre-roll switches:
+
+* Varlamore applies Children of the Sun and adds 24 ordinary surface tiles.
+* Wilderness adds two locations beyond the safe-side border tiles already in the
+  standard pool: the east side of Ferox and nearby low-risk woodland.
+* Ocean applies Pandemonium and adds seven beginner waters near Port Sarim. It is
+  explicitly labelled experimental until an account completes a full ocean run.
+
+Enabled groups receive equal start odds before the tile is chosen within a group,
+so the number of ocean squares cannot dominate the outcome. The first roll seeds
+section `1`, or water section `W1`, as the arrival section. This avoids showing the
+advanced section picker before the player has even received a task. Start options
+disappear and become immutable after the first tile or imported progress.
+
 ### Reset and continue a played run
 
-**Reset map & run** is directly below the mode toggle, outside any collapsed
-section. **Run setup · continue or reset** contains export/import and continuation controls:
+**Reset map & run** is at the top of the run panel. **Continue or import a run**
+contains export/import and continuation controls:
 
 1. **Reset map & run** clears this local profile's geography,
    completions, equipment, levels, rules/settings, backlogs, overrides and journal

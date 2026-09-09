@@ -31,6 +31,15 @@
 #rl-frontiers input { width: 48px; padding: 5px; color: inherit; background: var(--color4, #fff); border: 1px solid #888; }
 #rl-frontiers small { flex-basis: 100%; text-align: right; opacity: .75; }
 #rl-panel .rl-preset { margin: 10px 0; padding: 8px; border: 1px solid #8886; border-radius: 4px; }
+#rl-panel .rl-start-setup { margin: 12px 0; padding: 0 0 12px; }
+#rl-panel .rl-start-setup[hidden] { display: none !important; }
+#rl-panel .rl-start-option { display: flex; align-items: flex-start; gap: 2px; padding: 7px 8px; margin: 5px 0; border: 1px solid #8885; border-radius: 5px; background: #fff2; cursor: pointer; }
+#rl-panel .rl-start-option span { display: grid; gap: 1px; }
+#rl-panel .rl-start-option small { opacity: .78; }
+#rl-panel .rl-start-option em { color: #176c54; font-size: 11px; font-style: normal; text-transform: uppercase; }
+#rl-panel .rl-start-route { margin: 5px 0 10px 27px; font-size: 12px; }
+#rl-panel .rl-start-route a { color: #08795b; font-weight: bold; }
+#rl-panel .rl-start-grid { display: grid; gap: 2px; }
 #rl-panel .rl-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
 #rl-panel .rl-toolbar select { min-width: 0; flex: 1 1 220px; padding: 6px; color: inherit; background: var(--color4, #fff); border: 1px solid #888; border-radius: 4px; }
 #rl-panel .rl-enabler-record { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 7px 0; border-bottom: 1px solid #8884; }
