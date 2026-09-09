@@ -1,6 +1,6 @@
 # Boardlocked
 
-Boardlocked is a local-first progression mode for the Old School RuneScape
+Boardlocked is a progression mode for the Old School RuneScape
 [Chunk Picker V2](https://github.com/source-chunk/chunk-picker-v2). Instead of completing
 every possible task in a chunk, a run advances one visit at a time through reachable
 chunks, equipment upgrades, and skill progression.
