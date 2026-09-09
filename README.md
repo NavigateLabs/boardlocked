@@ -11,8 +11,7 @@ Open:
 
 **[https://navigatelabs.github.io/boardlocked/](https://navigatelabs.github.io/boardlocked/)**
 
-Boardlocked starts directly in this mode and cannot be switched back to the original
-Chunk Picker flow. Use the task icon in the top-right to reopen the run panel.
+Use the task icon in the top-right to reopen the run panel.
 
 ## How Boardlocked plays
 
