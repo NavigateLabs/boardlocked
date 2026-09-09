@@ -1,0 +1,71 @@
+/* Boardlocked owns the run flow while retaining the map and data views. */
+#bl-panel { position: fixed; top: 55px; right: 12px; bottom: 12px; z-index: 2200; box-sizing: border-box; width: min(440px, calc(100vw - 24px)); overflow: auto; overscroll-behavior: contain; padding: 18px; background: var(--color3, #eee); color: var(--colorText, #202020); border: 2px solid #377e68; border-radius: 8px; box-shadow: 0 6px 25px #0006; font: 14px/1.45 Arial, sans-serif; text-align: left; }
+#bl-panel[hidden] { display: none !important; }
+#bl-panel header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#bl-panel h2 { font-size: 20px; margin: 0; }
+#bl-panel h3 { font-size: 17px; margin: 12px 0 8px; }
+#bl-panel h4 { font-size: 14px; margin: 12px 0 5px; }
+#bl-panel p { margin: 8px 0; }
+#bl-panel section { border-bottom: 1px solid #8886; padding-bottom: 12px; }
+#bl-panel button, #bl-panel .bl-file { color: inherit; background: var(--color4, #fff); border: 1px solid #888; border-radius: 4px; padding: 6px 9px; cursor: pointer; font: inherit; }
+#bl-panel button:disabled { opacity: .5; cursor: default; }
+#bl-panel button:focus-visible, #bl-panel input:focus-visible, #bl-panel textarea:focus-visible, #bl-panel summary:focus-visible { outline: 3px solid #008866; outline-offset: 2px; }
+#bl-panel .bl-primary { width: 100%; background: #175640; color: #fff; padding: 10px; font-weight: bold; }
+#bl-panel input[type=checkbox] { appearance: auto; width: 17px; height: 17px; flex: none; margin: 2px 8px 0 0; }
+#bl-panel .bl-toggle, #bl-panel .bl-task > label { display: flex; align-items: flex-start; cursor: pointer; }
+#bl-panel .bl-task { padding: 8px 0; border-bottom: 1px solid #8884; overflow-wrap: anywhere; }
+#bl-panel .bl-task-tools { margin: 3px 0 0 25px; font-size: 12px; }
+#bl-panel .bl-task-tools summary { font-weight: normal; opacity: .8; }
+#bl-panel .bl-task > small { display: block; margin-left: 25px; }
+#bl-panel .bl-task-tools button { padding: 2px 5px; font-size: 12px; }
+#bl-panel .bl-task-tools small { flex: 1 0 100%; }
+#bl-panel .bl-task-debug { padding: 7px; background: #0001; border-radius: 3px; }
+#bl-panel details { margin: 10px 0; }
+#bl-panel summary { cursor: pointer; font-weight: bold; }
+#bl-panel textarea, #bl-panel input[type=search] { box-sizing: border-box; width: 100%; margin: 6px 0; padding: 8px; color: inherit; background: var(--color4, #fff); border: 1px solid #888; border-radius: 3px; font: inherit; }
+#bl-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow-y: auto; font: 12px/1.45 monospace; }
+#bl-levels, #bl-frontiers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 15px; margin: 10px 0; }
+#bl-levels label, #bl-frontiers label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+#bl-levels input { width: 48px; padding: 5px; color: inherit; background: var(--color4, #fff); border: 1px solid #888; }
+#bl-frontiers label { flex-wrap: wrap; }
+#bl-frontiers input { width: 48px; padding: 5px; color: inherit; background: var(--color4, #fff); border: 1px solid #888; }
+#bl-frontiers small { flex-basis: 100%; text-align: right; opacity: .75; }
+#bl-panel .bl-preset { margin: 10px 0; padding: 8px; border: 1px solid #8886; border-radius: 4px; }
+#bl-panel .bl-start-setup { margin: 12px 0; padding: 0 0 12px; }
+#bl-panel .bl-start-setup[hidden] { display: none !important; }
+#bl-panel .bl-start-option { display: flex; align-items: flex-start; gap: 2px; padding: 7px 8px; margin: 5px 0; border: 1px solid #8885; border-radius: 5px; background: #fff2; cursor: pointer; }
+#bl-panel .bl-start-option span { display: grid; gap: 1px; }
+#bl-panel .bl-start-option small { opacity: .78; }
+#bl-panel .bl-start-option em { color: #176c54; font-size: 11px; font-style: normal; text-transform: uppercase; }
+#bl-panel .bl-start-route { margin: 5px 0 10px 27px; font-size: 12px; }
+#bl-panel .bl-start-route a { color: #08795b; font-weight: bold; }
+#bl-panel .bl-start-grid { display: grid; gap: 2px; }
+#bl-panel .bl-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+#bl-panel .bl-toolbar select { min-width: 0; flex: 1 1 220px; padding: 6px; color: inherit; background: var(--color4, #fff); border: 1px solid #888; border-radius: 4px; }
+#bl-panel .bl-enabler-record { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 7px 0; border-bottom: 1px solid #8884; }
+#bl-panel .bl-enabler-record small { grid-column: 1; overflow-wrap: anywhere; }
+#bl-panel .bl-enabler-record button { grid-column: 2; grid-row: 1 / span 2; }
+#bl-panel .bl-file input { max-width: 150px; display: block; font-size: 11px; }
+#bl-panel .bl-muted, #bl-storage-label { opacity: .8; font-size: 12px; }
+#bl-panel .bl-save-warning { padding: 7px 9px; background: #fff3cd; color: #5d4600; border: 1px solid #caa83b; border-radius: 4px; font-size: 12px; }
+#bl-panel #bl-export { width: 100%; font-weight: bold; }
+#bl-panel .bl-map-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0 12px; font-size: 12px; }
+#bl-panel .bl-map-legend span { display: inline-flex; align-items: center; gap: 5px; }
+#bl-panel .bl-map-legend i { display: inline-block; width: 13px; height: 13px; box-sizing: border-box; border: 2px solid; }
+#bl-panel .bl-key-current { border-color: #d99b00 !important; background: #ffd16655; }
+#bl-panel .bl-key-free { border-color: #3a9bdc !important; border-style: dashed !important; background: #3a9bdc44; }
+#bl-panel .bl-key-encounter { border-color: #159b79 !important; border-style: dashed !important; background: #27d8ac33; }
+#bl-panel .bl-key-boundary { border-color: #184f18 !important; background: #64ff6480; }
+#bl-message:not(:empty) { padding: 9px; background: #d8ecd9; color: #153c33; border-radius: 4px; }
+#bl-message.bl-error { background: #ffe0d9; color: #8d2113; }
+#bl-unassigned button { display: block; width: 100%; text-align: left; margin-top: 5px; overflow-wrap: anywhere; }
+#bl-panel .bl-past-task { display: flex; align-items: flex-start; padding: 6px 0; }
+#bl-panel .bl-danger { border-color: #a84d40; color: #a02c20; }
+#bl-panel #bl-reset { display: block; width: 100%; margin: 12px 0; font-weight: bold; }
+#bl-panel #bl-reset[hidden] { display: none !important; }
+.bl-enabled .menu9 { display: none !important; }
+.bl-enabled .pick, .bl-enabled .roll2, .bl-enabled .unpick, .bl-enabled .randomstartalways-setting { display: none !important; }
+.bl-enabled #boardlocked-panel-button { display: block; position: absolute; top: 0; right: 58px; height: 50px; padding: 0 5px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.bl-enabled #boardlocked-panel-button:focus-visible { outline: 3px solid #008866; outline-offset: -3px; }
+.bl-enabled #boardlocked-panel-button .gomobiletasks { display: block !important; position: static; font-size: 44px; }
+@media (max-width: 600px) { #bl-panel { top: 8px; right: 8px; bottom: 8px; width: calc(100vw - 16px); padding: 14px; } }

@@ -5,10 +5,10 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
-const R = require('../roguelike');
-const annotations = require('../roguelike-data');
+const R = require('../boardlocked');
+const annotations = require('../boardlocked-data');
 const chunkData = require('../chunkpicker-chunkinfo-export.json');
-const { makeRequest, usePreset, runWorker, declaration, declarationFrom } = require('./roguelikeTestHarness');
+const { makeRequest, usePreset, runWorker, declaration, declarationFrom } = require('./boardlockedTestHarness');
 const fresh = () => R.normalizeState();
 const origin = (id, sectionId = null) => ({ chunkId: id, sectionId, sourceType: 'objects', sourceName: 'Resource', reason: 'Action source' });
 const task = (id, locations = ['1000'], rest = {}) => ({ taskId: id, name: id, displayName: id, skill: 'Woodcutting',
@@ -68,6 +68,8 @@ test('initialization quests name every stable step, including final completion',
         assert.ok(names.includes(annotations.initialization.questTasks[key]));
         assert.ok(names.every(name => typeof require('../tasksMap.json')[name] === 'string'));
     }
+    assert.deepEqual(annotations.initialization.levelFloors,
+        { druidicRitual: { Herblore: 3 }, ocean: { Sailing: 5 } });
 });
 
 test('starting roll gives enabled groups equal odds before choosing a tile', () => {
@@ -78,6 +80,57 @@ test('starting roll gives enabled groups equal odds before choosing a tile', () 
     const chosen = R.chooseStartingCandidate(candidates, starting, () => rolls.shift());
     assert.equal(starting.groupByLocation[chosen.locationId], 'varlamore');
     assert.equal(chosen.locationId, starting.groups.find(group => group.id === 'varlamore').locationIds.at(-1));
+    assert.equal(chosen.metadata.arrivalMedium, 'land');
+    assert.ok(chosen.metadata.entrySections.every(section => !section.startsWith('W')));
+});
+
+test('every released export version migrates without dropping progress', () => {
+    for (let version = 1; version <= 7; version++) {
+        const saved = fresh(); saved.version = version;
+        if (version < 6) {
+            delete saved.initialization; delete saved.initializationApplied;
+            delete saved.initializationTaskIds; delete saved.initializationLevelFloors;
+        }
+        if (version < 7) delete saved.travelAnchorSections;
+        saved.actualLevels.Cooking = 42;
+        saved.visitHistory = [{ visitNumber: 1, timestamp: '2026-01-01T00:00:00.000Z', locationId: '12850',
+            chunkName: 'Lumbridge', kind: 'new', candidateTaskIds: ['t_saved'], candidateTasks: {
+                t_saved: { name: 'Saved task', skill: 'Cooking' }
+            }, status: 'resolved', resolution: 'task_completed', resolvedTaskId: 't_saved', note: 'keep me' }];
+        const oldStateField = 'rogue' + 'likeState';
+        const payload = { format: version <= 6 ? 'chunk-picker-' + 'rogue' + 'like' : 'chunk-picker-boardlocked',
+            version, legacy: { tempChunks: { unlocked: { '12850': '12850' } } } };
+        payload[version <= 6 ? oldStateField : 'boardlockedState'] = saved;
+        const migrated = R.normalizeRunExport(payload);
+        assert.equal(migrated.state.version, 7);
+        assert.equal(migrated.state.actualLevels.Cooking, 42);
+        assert.equal(migrated.state.visitHistory[0].resolvedTaskId, 't_saved');
+        assert.equal(migrated.state.visitHistory[0].note, 'keep me');
+        assert.equal(migrated.legacy.tempChunks.unlocked['12850'], '12850');
+    }
+});
+
+test('browser save envelope validates state and legacy progress together', () => {
+    const payload = { format: 'boardlocked-browser-save', version: 1, savedAt: '2026-01-01T00:00:00.000Z',
+        boardlockedState: fresh(), legacy: { checkedAllTasks: { Cooking: { Chicken: true } } } };
+    const restored = R.normalizeBrowserSave(JSON.stringify(payload));
+    assert.equal(restored.boardlockedState.version, 7);
+    assert.equal(restored.legacy.checkedAllTasks.Cooking.Chicken, true);
+    assert.throws(() => R.normalizeBrowserSave('{"bad":true}'), /Invalid Boardlocked browser save/);
+});
+
+test('ocean starts explicitly arrive on water while enabled land starts stay on land', () => {
+    const starting = R.deriveStartingPool(chunkData, annotations,
+        { varlamore: true, wilderness: true, ocean: true });
+    const candidates = starting.ids.map(locationId => ({ kind: 'frontier', locationId }));
+    const ocean = R.chooseStartingCandidate(candidates, starting, () => 0.99);
+    assert.equal(ocean.metadata.startGroup, 'ocean');
+    assert.equal(ocean.metadata.arrivalMedium, 'water');
+    assert.ok(ocean.metadata.entrySections.every(section => section.startsWith('W')));
+    const land = R.chooseStartingCandidate(candidates, starting, () => 0);
+    assert.equal(land.metadata.startGroup, 'standard');
+    assert.equal(land.metadata.arrivalMedium, 'land');
+    assert.ok(land.metadata.entrySections.every(section => !section.startsWith('W')));
 });
 
 test('pool includes every frontier and live revisit exactly once', () => {
@@ -128,22 +181,77 @@ test('travel graph respects accessible sections and can enter any section of a l
         { '1000': { '1': true, '2': true }, '2000': { '1': true } }, ['3000']);
     assert.deepEqual(opened['1000'], ['2000', '3000']);
 });
+test('section-aware travel never crosses from land into disconnected water', () => {
+    const data = { sections: {
+        '1000': { '1': ['2000-1'], W1: ['3000-W1'] },
+        '2000': { '1': ['1000-1'] }, '3000': { W1: ['1000-W1'] }
+    } };
+    const unlocked = { '1000': '1000' }, frontier = ['2000', '3000'];
+    const landGraph = R.buildTravelGraph(data, unlocked, { '1000': { '1': true } }, frontier);
+    const landPool = R.derivePool(frontier, unlocked, [], null, landGraph, '1000', ['1']);
+    assert.deepEqual(landPool.candidates.map(candidate => [candidate.locationId, candidate.metadata.entrySections]), [['2000', ['1']]]);
+    const waterGraph = R.buildTravelGraph(data, unlocked, { '1000': { W1: true } }, frontier);
+    const waterPool = R.derivePool(frontier, unlocked, [], null, waterGraph, '1000', ['W1']);
+    assert.deepEqual(waterPool.candidates.map(candidate => [candidate.locationId, candidate.metadata.entrySections]), [['3000', ['W1']]]);
+});
+test('Eagles Peak land route never opens its parallel ocean sections or Sailing drops', () => {
+    const unlocked = { '9270': '9270', '9271': '9271' };
+    const manualSections = R.inferConnectedSections(chunkData, unlocked, { '9270': { '1': true } });
+    assert.deepEqual(manualSections, { '9270': { '1': true }, '9271': { '1': true } });
+    const request = usePreset(makeRequest(Object.keys(unlocked)), 'Boardlocked Chunker');
+    request.manualSections = manualSections;
+    request.boardlocked.state.actualLevels.Sailing = 4;
+    request.checkedAllTasks = { Quest: {} };
+    for (const [name, meta] of Object.entries(chunkData.challenges.Quest)) {
+        if (meta.BaseQuest === 'Pandemonium') request.checkedAllTasks.Quest[name] = true;
+    }
+    request.boardlocked.checkedAllTasks = request.checkedAllTasks;
+    const result = runWorker(request).result;
+    assert.deepEqual(result.sections['9270'], { '1': true });
+    assert.deepEqual(result.sections['9271'], { '1': true });
+    assert.ok(!result.tasks.some(task => /inky paint/i.test(task.name)));
+});
+test('a mixed reachable border records both arrival media without exposing unrelated sections', () => {
+    const data = { sections: {
+        '1000': { '1': ['2000-1'], W1: ['2000-W1'] },
+        '2000': { '1': ['1000-1'], W1: ['1000-W1'], W2: ['3000-W1'] },
+        '3000': { W1: ['2000-W2'] }
+    } };
+    const unlocked = { '1000': '1000' }, graph = R.buildTravelGraph(data, unlocked,
+        { '1000': { '1': true, W1: true } }, ['2000']);
+    const pool = R.derivePool(['2000'], unlocked, [], null, graph, '1000', ['1', 'W1']);
+    assert.deepEqual(pool.candidates[0].metadata.entrySections, ['1', 'W1']);
+    const visit = R.startVisit(R.normalizeState(), pool.candidates[0]);
+    assert.equal(visit.currentVisit.arrivalMedium, 'mixed');
+    assert.deepEqual(visit.currentVisit.arrivalSections, ['1', 'W1']);
+});
 test('an imported map rebuilds transient frontier choices from persistent connections', () => {
     const data = { sections: { '1000': { '0': ['2000'] }, '2000': { '0': ['1000', '3000'] }, '3000': { '0': ['2000'] } } };
     assert.deepEqual(R.deriveConnectedFrontier(data, { '1000': '1000', '2000': '2000' }, ['1000', '2000', '3000']), ['3000']);
     assert.deepEqual(R.deriveConnectedFrontier(data, { '1000': '1000' }, ['1000', '2000', '3000'], { '2000': true }), []);
 });
-test('unlocked borders restore missing import section seeds without reopening explicit closures', () => {
+test('section inference propagates only from proven seeds and preserves explicit closures', () => {
     const data = { sections: {
         '1000': { '1': ['2000-2'], '3': ['3000-1'] },
         '2000': { '2': ['1000-1'] }, '3000': { '1': ['1000-3'] }
     } };
     const inferred = R.inferConnectedSections(data, { '1000': '1000', '2000': '2000', '3000': '3000' },
         { '1000': { '3': false } });
-    assert.deepEqual(inferred, { '1000': { '1': true, '3': false }, '2000': { '2': true }, '3000': { '1': true } });
+    assert.deepEqual(inferred, { '1000': { '3': false } });
+    const seeded = R.inferConnectedSections(data, { '1000': '1000', '2000': '2000', '3000': '3000' },
+        { '1000': { '1': true, '3': false } });
+    assert.deepEqual(seeded, { '1000': { '1': true, '3': false }, '2000': { '2': true } });
     const limited = R.inferConnectedSections(data, { '1000': '1000', '2000': '2000' }, {}, (from, to) =>
         ![from + '>' + to, to + '>' + from].includes('1000-1>2000-2'));
     assert.deepEqual(limited, {});
+});
+test('visit snapshots include only tasks in the sections actually reached', () => {
+    const state = R.startVisit(R.normalizeState(), { kind: 'frontier', locationId: '1000',
+        metadata: { entrySections: ['1'] } });
+    const list = [task('land', ['1000'], { activeOrigins: [origin('1000', '1')] }),
+        task('water', ['1000'], { activeOrigins: [origin('1000', 'W1')] })];
+    const snap = R.snapshotVisit(state, list);
+    assert.deepEqual(snap.currentVisit.candidateTaskIds, ['land']);
 });
 test('travel anchor is inferred from current visit, saved anchor, history, then unlock order', () => {
     const unlocked = { '1000': '1000', '2000': '2000', '3000': '3000' };
@@ -158,9 +266,19 @@ test('setting an anchor is journaled and starting any visit moves the anchor', (
     let state = R.setTravelAnchor(fresh(), '2000', 'import correction', '2026-09-09T13:00:00.000Z');
     assert.equal(state.travelAnchor, '2000');
     assert.deepEqual(state.adminHistory.at(-1), { timestamp: '2026-09-09T13:00:00.000Z', action: 'set_travel_anchor',
-        locationId: '2000', reason: 'import correction' });
+        locationId: '2000', sectionId: null, reason: 'import correction' });
     state = R.startVisit(state, { kind: 'frontier', locationId: '3000' });
     assert.equal(state.travelAnchor, '3000');
+});
+test('legacy anchor migration chooses one safe medium and preserves water-only runs', () => {
+    const data = { sections: { '1000': { '1': [], '2': [], W1: [], W2: [] } } };
+    const state = fresh(); state.travelAnchor = '1000'; state.travelAnchorSections = null;
+    assert.deepEqual(R.inferLegacyAnchorSections(data, state, { '1000': { '1': true, W1: true } }), ['1']);
+    assert.deepEqual(R.inferLegacyAnchorSections(data, state, { '1000': { W1: true, W2: true } }), ['W1']);
+    assert.equal(R.inferLegacyAnchorSections(data, state, {}), null);
+    const exact = R.setTravelAnchor(state, '1000-W2', 'correct old water position');
+    assert.equal(exact.travelAnchor, '1000');
+    assert.deepEqual(exact.travelAnchorSections, ['W2']);
 });
 test('version 4 migration preserves progression and derives its anchor from the visit', () => {
     const old = fresh(); old.version = 4; delete old.travelAnchor; old.progressionHighWater.Cooking = 27;
@@ -304,7 +422,7 @@ test('malformed and future-version saves are rejected without losing an existing
 test('stable task IDs merge intermediate and highest representations', () => {
     assert.equal(R.taskId('Do task', 'Woodcutting', { 'Do task': '123' }), '123');
     assert.equal(R.taskId('Do task', 'Cooking', { 'Do task': '123' }), '123');
-    assert.match(R.taskId('Custom', 'Extra'), /^rl_manual_/);
+    assert.match(R.taskId('Custom', 'Extra'), /^bl_manual_/);
 });
 test('completion adapter reads stable IDs, legacy names and obtained gear', () => {
     const t = task('ID', ['1000'], { name: 'Equip item', skill: 'BiS', equipmentName: 'Tool' });
@@ -497,12 +615,12 @@ test('unlocked setup parser preserves order, deduplicates, validates sections an
 
 test('actual Cooking data skips level-one bread after chicken, including after reload', () => {
     const request = makeRequest(['5942']);
-    const catalog = R.buildTaskCatalog(request.chunkInfo, request.roguelike.tasksMap);
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
     const chicken = catalog.find(t => /cooked chicken/.test(t.name));
     const bread = catalog.find(t => /Bake a loaf/.test(t.name));
     assert.equal(chicken.skilling, true); assert.equal(bread.skilling, true);
     const legacy = JSON.parse(JSON.stringify({ checkedAllTasks: { Cooking: { [chicken.taskId]: true } } }));
-    const initialized = R.initializeProgression(fresh(), catalog, legacy, request.roguelike.tasksMap);
+    const initialized = R.initializeProgression(fresh(), catalog, legacy, request.boardlocked.tasksMap);
     const reloaded = R.normalizeState(JSON.parse(JSON.stringify(initialized)));
     const task = R.adaptTasks([{ ...bread, origins: [origin('5942')] }], legacy, reloaded, request.chunks, {}, {}, catalog)[0];
     assert.equal(task.eligible, false); assert.equal(task.completed, false);
@@ -510,14 +628,14 @@ test('actual Cooking data skips level-one bread after chicken, including after r
 });
 
 test('Cooking uses a 15-level rolling window for gradual chicken-to-pie-to-fish progression', () => {
-    const request = makeRequest(['5942']), catalog = R.buildTaskCatalog(request.chunkInfo, request.roguelike.tasksMap);
+    const request = makeRequest(['5942']), catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
     const find = pattern => catalog.find(task => task.skill === 'Cooking' && pattern.test(task.displayName));
     const chicken = find(/cooked chicken/), bread = find(/Bake a loaf/), pie = find(/redberry pie/),
         snail = find(/thin snail/), salmon = find(/Cook a salmon/);
     assert.ok([chicken, bread, pie, snail, salmon].every(Boolean));
     const located = [chicken, bread, pie, snail, salmon].map(task => ({ ...task, origins: [origin('5942')], available: true }));
     let legacy = { checkedAllTasks: { Cooking: { [chicken.name]: true } } };
-    let state = R.initializeProgression(fresh(), catalog, legacy, request.roguelike.tasksMap);
+    let state = R.initializeProgression(fresh(), catalog, legacy, request.boardlocked.tasksMap);
     let tasks = R.adaptTasks(located, legacy, state, request.chunks, {}, {}, catalog);
     assert.equal(state.progressionHighWater.Cooking, 1); assert.equal(R.progressionWindow('Cooking'), 15);
     assert.equal(tasks.find(task => task.taskId === bread.taskId).superseded, true);
@@ -525,7 +643,7 @@ test('Cooking uses a 15-level rolling window for gradual chicken-to-pie-to-fish 
     assert.equal(tasks.find(task => task.taskId === snail.taskId).eligible, true);
     assert.equal(tasks.find(task => task.taskId === salmon.taskId).progressionBlocked, true);
     legacy = { checkedAllTasks: { Cooking: { [pie.name]: true } } };
-    state = R.initializeProgression(fresh(), catalog, legacy, request.roguelike.tasksMap);
+    state = R.initializeProgression(fresh(), catalog, legacy, request.boardlocked.tasksMap);
     tasks = R.adaptTasks(located, legacy, state, request.chunks, {}, {}, catalog);
     assert.equal(state.progressionHighWater.Cooking, 10);
     assert.equal(tasks.find(task => task.taskId === salmon.taskId).eligible, true);
@@ -568,7 +686,7 @@ test('metadata classification lets only ordinary XP and direct item-use actions 
 
 test('live acceptance actions retain exact levels without actual-level bypass', () => {
     const request = makeRequest(['6197', '5942']);
-    const catalog = R.buildTaskCatalog(request.chunkInfo, request.roguelike.tasksMap);
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
     const find = (skill, pattern) => catalog.find(task => task.skill === skill && pattern.test(task.name));
     const actions = [find('Attack', /bronze weapon/), find('Attack', /iron weapon/), find('Woodcutting', /^Chop ~\|logs/),
         find('Woodcutting', /bronze axe/), find('Woodcutting', /iron axe/), find('Woodcutting', /^Chop ~\|oak logs/), find('Woodcutting', /^Chop ~\|yew logs/)];
@@ -579,10 +697,10 @@ test('live acceptance actions retain exact levels without actual-level bypass', 
 });
 
 test('live acceptance worker output replaces unavailable axe actions with specific Enabler acquisitions', () => {
-    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Roguelike Chunker');
-    request.roguelike.state.actualLevels.Attack = 99; request.roguelike.state.actualLevels.Woodcutting = 99;
-    const result = runWorker(request).result, catalog = R.buildTaskCatalog(request.chunkInfo, request.roguelike.tasksMap);
-    const state = R.initializeProgression(request.roguelike.state, catalog, {}, request.roguelike.tasksMap);
+    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
+    request.boardlocked.state.actualLevels.Attack = 99; request.boardlocked.state.actualLevels.Woodcutting = 99;
+    const result = runWorker(request).result, catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const state = R.initializeProgression(request.boardlocked.state, catalog, {}, request.boardlocked.tasksMap);
     const tasks = R.adaptTasks(result.tasks, {}, state, request.chunks, result.sections, request.manualSections, catalog);
     for (const pattern of [/bronze weapon/, /iron weapon/]) {
         assert.ok(tasks.some(task => pattern.test(task.name) && task.eligible), pattern);
@@ -604,18 +722,18 @@ test('live acceptance worker output replaces unavailable axe actions with specif
 });
 
 test('bronze axe acquisition satisfies the base family, activates future Woodcutting, and leaves the visit snapshot fixed', () => {
-    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Roguelike Chunker');
-    const catalog = R.buildTaskCatalog(request.chunkInfo, request.roguelike.tasksMap);
+    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
     const beforeResult = runWorker(request).result;
-    const beforeTasks = R.adaptTasks(beforeResult.tasks, {}, request.roguelike.state, request.chunks, beforeResult.sections, request.manualSections, catalog);
+    const beforeTasks = R.adaptTasks(beforeResult.tasks, {}, request.boardlocked.state, request.chunks, beforeResult.sections, request.manualSections, catalog);
     const bronze = beforeTasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Bronze axe');
     assert.ok(bronze?.eligible);
-    let visit = R.snapshotVisit(R.startVisit(request.roguelike.state, { kind: 'revisit', locationId: '6197' }), beforeTasks);
+    let visit = R.snapshotVisit(R.startVisit(request.boardlocked.state, { kind: 'revisit', locationId: '6197' }), beforeTasks);
     const snapshotIds = visit.currentVisit.candidateTaskIds.slice();
     visit.acquiredEnablers['Bronze axe'] = { evidenceTaskId: bronze.taskId };
     visit = R.resolveVisit(visit, new Set([bronze.taskId]));
     assert.equal(visit.currentVisit.resolution, 'task_completed');
-    request.roguelike.state = visit;
+    request.boardlocked.state = visit;
     const afterResult = runWorker(request).result;
     const afterTasks = R.adaptTasks(afterResult.tasks, {}, visit, request.chunks, afterResult.sections, request.manualSections, catalog);
     assert.ok(afterTasks.some(task => task.name === 'Chop ~|logs|~' && task.eligible));
@@ -626,10 +744,10 @@ test('bronze axe acquisition satisfies the base family, activates future Woodcut
 });
 
 test('iron axe acquired first satisfies the base family without requiring bronze afterward', () => {
-    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Roguelike Chunker');
-    request.roguelike.state.acquiredEnablers['Iron axe'] = { manual: true };
-    const result = runWorker(request).result, catalog = R.buildTaskCatalog(request.chunkInfo, request.roguelike.tasksMap);
-    const tasks = R.adaptTasks(result.tasks, {}, request.roguelike.state, request.chunks, result.sections, request.manualSections, catalog);
+    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
+    request.boardlocked.state.acquiredEnablers['Iron axe'] = { manual: true };
+    const result = runWorker(request).result, catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections, request.manualSections, catalog);
     assert.ok(tasks.some(task => task.name === 'Chop ~|logs|~' && task.eligible));
     assert.ok(tasks.some(task => /Chop with an ~\|iron axe/.test(task.name) && task.eligible));
     assert.ok(!tasks.some(task => task.taskClass === 'enabler' && /bronze axe/i.test(task.name)));
@@ -641,41 +759,41 @@ test('generic bronze weapon completion cannot prove ownership of a specific axe'
     const generic = Object.keys(request.chunkInfo.challenges.Attack).find(name => /bronze weapon/.test(name));
     const old = R.normalizeState({ ...fresh(), version: 2, enablersInitialized: undefined, acquiredEnablers: undefined });
     const recovered = R.recoverAcquiredEnablers(old, { checkedAllTasks: { Attack: { [generic]: true } } },
-        request.chunkInfo, request.roguelike.tasksMap, require('../roguelike-data'));
+        request.chunkInfo, request.boardlocked.tasksMap, require('../boardlocked-data'));
     assert.equal(recovered.enablersInitialized, true);
     assert.equal(R.own(recovered.acquiredEnablers, 'Bronze axe'), false);
     const specific = Object.keys(request.chunkInfo.challenges.Woodcutting).find(name => /Chop with a ~\|bronze axe/.test(name));
     const proven = R.recoverAcquiredEnablers(old, { checkedAllTasks: { Woodcutting: { [specific]: true } } },
-        request.chunkInfo, request.roguelike.tasksMap, require('../roguelike-data'));
+        request.chunkInfo, request.boardlocked.tasksMap, require('../boardlocked-data'));
     assert.equal(R.own(proven.acquiredEnablers, 'Bronze axe'), true);
 });
 
 test('actual Woodcutting 99 does not bypass a missing persistent axe', () => {
-    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Roguelike Chunker');
-    request.roguelike.state.actualLevels.Woodcutting = 99;
-    const result = runWorker(request).result, catalog = R.buildTaskCatalog(request.chunkInfo, request.roguelike.tasksMap);
-    const tasks = R.adaptTasks(result.tasks, {}, request.roguelike.state, request.chunks, result.sections, request.manualSections, catalog);
+    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
+    request.boardlocked.state.actualLevels.Woodcutting = 99;
+    const result = runWorker(request).result, catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections, request.manualSections, catalog);
     const chop = tasks.find(task => task.name === 'Chop ~|logs|~');
     assert.equal(chop.eligible, false); assert.match(chop.eligibilityReason, /not acquired/);
 });
 
 test('an acquired higher-tier tool cannot satisfy an action before its use level', () => {
-    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Roguelike Chunker');
-    request.roguelike.state.acquiredEnablers['Steel axe'] = { manual: true };
-    request.roguelike.state.actualLevels.Woodcutting = 1;
+    const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
+    request.boardlocked.state.acquiredEnablers['Steel axe'] = { manual: true };
+    request.boardlocked.state.actualLevels.Woodcutting = 1;
     const below = runWorker(request).result.tasks.find(task => task.name === 'Chop ~|logs|~');
     assert.equal(below.available, false); assert.match(below.accessResult.reason, /not acquired/i);
     assert.ok(!below.accessResult.persistentEnablers[0].usableItems.includes('Steel axe'));
-    request.roguelike.state.actualLevels.Woodcutting = 6;
+    request.boardlocked.state.actualLevels.Woodcutting = 6;
     const usable = runWorker(request).result.tasks.find(task => task.name === 'Chop ~|logs|~');
     assert.equal(usable.available, true);
     assert.ok(usable.accessResult.persistentEnablers[0].usableItems.includes('Steel axe'));
 });
 
 test('BIS Skilling can retain an iron tool upgrade without duplicating it as a base Enabler', () => {
-    const request = usePreset(makeRequest(['6197']), 'Roguelike Chunker');
+    const request = usePreset(makeRequest(['6197']), 'Boardlocked Chunker');
     request.rules['BIS Skilling'] = true;
-    request.roguelike.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
     const result = runWorker(request).result;
     const upgrade = result.tasks.find(task => task.taskClass === 'bis' && task.bisSet === 'BIS Axe' && /iron axe/i.test(task.name));
     assert.ok(upgrade); assert.match(upgrade.bisReason, /BIS Skilling · BIS Axe/);
@@ -720,10 +838,10 @@ test('acquired Enabler state and stable acquisition IDs round-trip without guess
     assert.equal(R.enablerItemFromTaskId(R.enablerTaskId('Iron axe')), 'Iron axe');
 });
 
-test('older states migrate to v6, exact completions replace automatic tiers, and explicit tier edits survive', () => {
+test('older states migrate to v7, exact completions replace automatic tiers, and explicit tier edits survive', () => {
     const migrated = R.normalizeState({ version: 1, enabled: true, visitHistory: [], actualLevels: { Cooking: 42 },
         derivedPool: ['stale'], origins: ['stale'] });
-    assert.equal(migrated.version, 6); assert.equal(migrated.actualLevels.Cooking, 42);
+    assert.equal(migrated.version, 7); assert.equal(migrated.actualLevels.Cooking, 42);
     assert.equal(migrated.progressionInitialized, false); assert.equal(migrated.derivedPool, undefined);
     const legacyFrontiers = Object.fromEntries(R.SKILLS.map(skill => [skill, skill === 'Cooking' ? 4 : 0]));
     const explicit = R.normalizeState({ version: 2, enabled: true, visitHistory: [], progressionFrontiers: legacyFrontiers,
@@ -743,8 +861,8 @@ test('older states migrate to v6, exact completions replace automatic tiers, and
     assert.equal(imported.globalValids, undefined);
 });
 
-test('Roguelike Chunker preset has the strict broad-progression defaults', () => {
-    const preset = declaration('rulePresets')['Roguelike Chunker'];
+test('Boardlocked Chunker preset has the strict broad-progression defaults', () => {
+    const preset = declaration('rulePresets')['Boardlocked Chunker'];
     for (const key of ['Show Skill Tasks', 'Show Quest Tasks', 'Show Diary Tasks', 'Show Best in Slot Tasks',
         'Show Best in Slot Prayer Tasks', 'Show Best in Slot Defensive Tasks',
         'Boss', 'Minigame', 'PvP Minigame', 'Collection Log', 'Pets', 'Jars', 'Forestry', 'Normal Farming',
@@ -759,26 +877,26 @@ test('Roguelike Chunker preset has the strict broad-progression defaults', () =>
 });
 
 test('strict BiS uses actual equipment levels and exposes core weapon and defensive categories', () => {
-    const request = usePreset(makeRequest(['5944', '6200']), 'Roguelike Chunker');
+    const request = usePreset(makeRequest(['5944', '6200']), 'Boardlocked Chunker');
     const low = runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
     assert.ok(low.some(task => task.equipmentName === 'Iron dagger' && /Melee BiS weapon/.test(task.bisReason)));
     assert.ok(low.some(task => task.equipmentName === 'Bronze med helm' && /Melee Tank/.test(task.bisReason)));
     assert.ok(!low.some(task => task.equipmentName === 'Rune scimitar'));
     assert.ok(!low.some(task => task.equipmentName === 'Rune kiteshield'));
-    request.roguelike.state.actualLevels.Attack = 40;
-    request.roguelike.state.actualLevels.Defence = 40;
+    request.boardlocked.state.actualLevels.Attack = 40;
+    request.boardlocked.state.actualLevels.Defence = 40;
     const high = runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
     assert.ok(high.some(task => task.equipmentName === 'Rune scimitar'));
     assert.ok(high.some(task => task.equipmentName === 'Rune kiteshield'));
 });
 
 test('strict collection tasks use actual quest points', () => {
-    const request = usePreset(makeRequest(['6193']), 'Roguelike Chunker');
+    const request = usePreset(makeRequest(['6193']), 'Boardlocked Chunker');
     const result = runWorker(request).result;
     assert.ok(!result.tasks.some(task => /imp champion scroll/i.test(task.name)));
 });
 
-test('adding Roguelike Chunker leaves the upstream Vanilla, Xtreme and Supreme presets unchanged', () => {
+test('adding Boardlocked Chunker leaves the upstream Vanilla, Xtreme and Supreme presets unchanged', () => {
     const root = path.join(__dirname, '..');
     const original = execFileSync('git', ['show', 'HEAD:index.js'], { cwd: root, maxBuffer: 5 * 1024 * 1024, encoding: 'utf8' }).replace(/\r\n/g, '\n');
     const before = declarationFrom(original, 'rulePresets'), current = declaration('rulePresets');
@@ -786,7 +904,7 @@ test('adding Roguelike Chunker leaves the upstream Vanilla, Xtreme and Supreme p
 });
 
 test('Forestry case A: tree access without a kit yields no task and explains the missing Friendly Forester', () => {
-    const request = makeRequest(['5942']); request.roguelike.state.actualLevels.Woodcutting = 99;
+    const request = makeRequest(['5942']); request.boardlocked.state.actualLevels.Woodcutting = 99;
     const result = runWorker(request).result;
     assert.ok(!result.tasks.some(task => task.sourceCategories?.some(category => category === 'Forestry' || category === 'ForestryXp')));
     const gate = result.accessDiagnostics.find(entry => entry.forestry);
@@ -795,8 +913,8 @@ test('Forestry case A: tree access without a kit yields no task and explains the
 });
 
 test('Forestry case B: kit access plus Guild-only trees still yields no eligible Forestry task', () => {
-    const request = makeRequest(['5427', '6198', '6454']); request.roguelike.state.actualLevels.Woodcutting = 99;
-    request.roguelike.state.acquiredEnablers['Forestry kit'] = { manual: true };
+    const request = makeRequest(['5427', '6198', '6454']); request.boardlocked.state.actualLevels.Woodcutting = 99;
+    request.boardlocked.state.acquiredEnablers['Forestry kit'] = { manual: true };
     const forestryObjects = new Set(Object.values(request.chunkInfo.challenges).flatMap(tasks => Object.values(tasks || {}))
         .filter(meta => meta.Category?.includes('Forestry') && meta.Objects).flatMap(meta => meta.Objects)
         .flatMap(name => R.expand(name, request.chunkInfo.codeItems.objectsPlus)));
@@ -811,9 +929,9 @@ test('Forestry case B: kit access plus Guild-only trees still yields no eligible
 });
 
 test('Forestry case C: a kit provider and non-Guild tree produce a task with separate origins and enablers', () => {
-    const request = makeRequest(['5427', '5942']); request.roguelike.state.actualLevels.Woodcutting = 99;
-    request.roguelike.state.acquiredEnablers['Forestry kit'] = { manual: true };
-    request.roguelike.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    const request = makeRequest(['5427', '5942']); request.boardlocked.state.actualLevels.Woodcutting = 99;
+    request.boardlocked.state.acquiredEnablers['Forestry kit'] = { manual: true };
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
     const result = runWorker(request).result;
     const task = result.tasks.find(task => task.sourceCategories?.includes('Forestry') && /oak trees/.test(task.name) && task.available &&
         task.accessResult.treeSource.origins.some(origin => origin.chunkId === '5942'));
@@ -824,8 +942,8 @@ test('Forestry case C: a kit provider and non-Guild tree produce a task with sep
 });
 
 test('Forestry case D: a closed non-Guild tree section cannot satisfy the tree gate', () => {
-    const request = makeRequest(['5427', '5942']); request.roguelike.state.actualLevels.Woodcutting = 99;
-    request.roguelike.state.acquiredEnablers['Forestry kit'] = { manual: true };
+    const request = makeRequest(['5427', '5942']); request.boardlocked.state.actualLevels.Woodcutting = 99;
+    request.boardlocked.state.acquiredEnablers['Forestry kit'] = { manual: true };
     const forestryObjects = new Set(Object.values(request.chunkInfo.challenges).flatMap(tasks => Object.values(tasks || {}))
         .filter(meta => meta.Category?.includes('Forestry') && meta.Objects).flatMap(meta => meta.Objects)
         .flatMap(name => R.expand(name, request.chunkInfo.codeItems.objectsPlus)));
@@ -859,22 +977,22 @@ test('real worker: strict Guild sources, enabler provenance, old-chunk reactivat
         assert.ok(target, word + ' remains a configured collection task');
         assert.ok(target.origins.some(o => o.chunkId === '5942'));
     }
-    const tasks = R.adaptTasks(result.tasks, {}, request.roguelike.state, request.chunks, result.sections, request.manualSections);
+    const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections, request.manualSections);
     let state = R.snapshotVisit(R.startVisit(fresh(), { kind: 'frontier', locationId: '5942' }), tasks);
     state = R.resolveVisit(state, new Set([cook.taskId]));
     assert.equal(state.currentVisit.resolution, 'task_completed');
     const remaining = R.adaptTasks(result.tasks, { checkedAllTasks: { Cooking: { [cook.name]: true } } }, fresh(), request.chunks, result.sections, request.manualSections);
     assert.ok(R.derivePool([], request.chunks, remaining).live.includes('5942'));
-    request.roguelike.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
     const awakenedResult = runWorker(request).result;
     const awakened = awakenedResult.tasks.find(t => t.name === oldAction.name);
     assert.equal(awakened.available, true); assert.ok(awakened.origins.some(o => o.chunkId === '6198'));
-    const awakenedOnly = R.adaptTasks([awakened], {}, request.roguelike.state, request.chunks,
+    const awakenedOnly = R.adaptTasks([awakened], {}, request.boardlocked.state, request.chunks,
         awakenedResult.sections, request.manualSections);
     assert.ok(R.derivePool([], request.chunks, awakenedOnly).live.includes('6198'));
 });
 test('real worker: higher Guild source becomes available at actual 60 while a level-90 action stays eligible', () => {
-    const request = makeRequest(['6198', '5942', '6454', '6197']); request.roguelike.state.actualLevels.Woodcutting = 60;
+    const request = makeRequest(['6198', '5942', '6454', '6197']); request.boardlocked.state.actualLevels.Woodcutting = 60;
     const { result, context } = runWorker(request);
     assert.ok(vm.runInContext('baseChunkData.shops["Perry\'s Chop-chop Shop"]', context));
     assert.ok(vm.runInContext('baseChunkData.items["Rune axe"]', context));
@@ -882,7 +1000,7 @@ test('real worker: higher Guild source becomes available at actual 60 while a le
     assert.ok(redwood); assert.ok(redwood.origins.some(o => o.chunkId === '6198'));
 });
 test('real worker: manually closed Guild section beats actual level 99', () => {
-    const request = makeRequest(['6198', '5942', '6454', '6197']); request.roguelike.state.actualLevels.Woodcutting = 99;
+    const request = makeRequest(['6198', '5942', '6454', '6197']); request.boardlocked.state.actualLevels.Woodcutting = 99;
     request.manualSections['6198']['1'] = false;
     const { result } = runWorker(request);
     assert.ok(!result.tasks.some(t => /redwood/.test(t.name)));
@@ -891,23 +1009,23 @@ test('real worker: manually closed Guild section beats actual level 99', () => {
 test('imported Woodcutting Guild route opens through a free tile, then stops there after axe acquisition', () => {
     const chunkIds = ['5942', '6197', '6198', '6199', '6454'];
     function route(acquiredAxe) {
-        const request = usePreset(makeRequest(chunkIds), 'Roguelike Chunker');
-        request.manualSections = R.inferConnectedSections(request.chunkInfo, request.chunks, {});
+        const request = usePreset(makeRequest(chunkIds), 'Boardlocked Chunker');
+        request.manualSections = R.inferConnectedSections(request.chunkInfo, request.chunks, { '6199': { '1': true } });
         request.checkedAllTasks = { Woodcutting: { 'Access the ~|Woodcutting Guild|~': true } };
         const state = fresh();
         if (acquiredAxe) {
             state.acquiredEnablers['Bronze axe'] = { manual: true };
             state.enablersInitialized = true;
         }
-        request.roguelike.state = state;
-        request.roguelike.checkedAllTasks = request.checkedAllTasks;
+        request.boardlocked.state = state;
+        request.boardlocked.checkedAllTasks = request.checkedAllTasks;
         const { result } = runWorker(request);
-        const catalog = R.buildTaskCatalog(request.chunkInfo, request.roguelike.tasksMap);
+        const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
         const tasks = R.adaptTasks(result.tasks, { checkedAllTasks: request.checkedAllTasks }, state,
             request.chunks, result.sections, request.manualSections, catalog);
         const boundary = R.deriveConnectedFrontier(request.chunkInfo, request.chunks, request.chunkInfo.walkableChunks, {});
         const graph = R.buildTravelGraph(request.chunkInfo, request.chunks, result.sections, boundary);
-        return R.derivePool(boundary, request.chunks, tasks, null, graph, '6199');
+        return R.derivePool(boundary, request.chunks, tasks, null, graph, '6199', ['1']);
     }
     const before = route(false);
     assert.ok(before.reachableFree.includes('6198'));
@@ -926,8 +1044,8 @@ test('weapon choices retain every current upgrade and remove options at or below
         request.chunkInfo.chunks['6197'].Sections['1'] = { Spawn: { 'Bronze sword': 1 }, Object: { Tree: 1 } };
         request.chunkInfo.chunks['6454'].Sections['1'] = { Shop: { "Perry's Chop-chop Shop": true } };
         request.chunkInfo.shopItems["Perry's Chop-chop Shop"] = { 'Rune sword': 1 };
-        request.roguelike.state.actualLevels.Woodcutting = level;
-        request.roguelike.state.actualLevels.Attack = 40;
+        request.boardlocked.state.actualLevels.Woodcutting = level;
+        request.boardlocked.state.actualLevels.Attack = 40;
         if (owned) request.manualEquipment[owned] = true;
         return runWorker(request).result.tasks.filter(t => t.skill === 'BiS');
     };
@@ -941,9 +1059,9 @@ test('weapon choices retain every current upgrade and remove options at or below
 });
 
 test('bronze dagger ownership exposes both iron dagger and rune scimitar as strict role upgrades', () => {
-    const request = usePreset(makeRequest(['5944', '6200']), 'Roguelike Chunker');
-    request.roguelike.state.actualLevels.Attack = 40;
-    request.roguelike.state.actualLevels.Defence = 40;
+    const request = usePreset(makeRequest(['5944', '6200']), 'Boardlocked Chunker');
+    request.boardlocked.state.actualLevels.Attack = 40;
+    request.boardlocked.state.actualLevels.Defence = 40;
     request.manualEquipment['Bronze dagger'] = true;
     const weapons = runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
     const iron = weapons.find(task => task.equipmentName === 'Iron dagger');
@@ -985,7 +1103,9 @@ test('mode off: pick/roll2/unpick implementations retain original bodies after o
     const root = path.join(__dirname, '..');
     const original = execFileSync('git', ['show', 'HEAD:index.js'], { cwd: root, maxBuffer: 5 * 1024 * 1024, encoding: 'utf8' }).replace(/\r\n/g, '\n');
     const current = fs.readFileSync(path.join(root, 'index.js'), 'utf8').replace(/\r\n/g, '\n');
-    const withoutDispatch = source => source.replace(/^    if \(window\.roguelikeController\?\.enabled\(\)\).*\n/m, '');
+    const oldController = 'rogue' + 'likeController';
+    const dispatchPattern = new RegExp('^    if \\(window\\.(?:boardlockedController|' + oldController + ')\\?\\.enabled\\(\\)\\).*\\n', 'm');
+    const withoutDispatch = source => source.replace(dispatchPattern, '');
     for (const name of ['pickCanvas', 'roll2Canvas', 'unpickCanvas']) {
         const fn = code => code.slice(code.indexOf('let ' + name + ' = function'), code.indexOf('\n}', code.indexOf('let ' + name + ' = function')) + 2);
         assert.equal(withoutDispatch(fn(current)), withoutDispatch(fn(original)));
@@ -993,7 +1113,7 @@ test('mode off: pick/roll2/unpick implementations retain original bodies after o
 });
 test('production mode logic contains no hard-coded seed or equipment exceptions', () => {
     const root = path.join(__dirname, '..');
-    for (const file of ['roguelike.js', 'roguelike-worker.js', 'roguelike-ui.js']) {
+    for (const file of ['boardlocked.js', 'boardlocked-worker.js', 'boardlocked-ui.js']) {
         const code = fs.readFileSync(path.join(root, file), 'utf8');
         assert.doesNotMatch(code, /6198|6197|5942|6454|bronze axe|rune axe/i);
     }

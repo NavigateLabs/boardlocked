@@ -37,11 +37,11 @@ original files and README stays intact.
 
 ## Implementation boundaries
 
-`roguelike.js` contains pure browser/Node helpers for versioned state, task
+`boardlocked.js` contains pure browser/Node helpers for versioned state, task
 identity and completion adaptation, origins, strict gates, pools, and visits.
-`roguelike-ui.js` owns the visit panel, journal, overrides and worker lifecycle.
-`roguelike-worker.js` supplies small hooks that switch source/area/section prerequisites
-to actual-state checks only for a roguelike request.
+`boardlocked-ui.js` owns the visit panel, journal, overrides and worker lifecycle.
+`boardlocked-worker.js` supplies small hooks that switch source/area/section prerequisites
+to actual-state checks only for a boardlocked request.
 
 One global strict worker calculation supplies the Boardlocked panel while the
 inherited Active Tasks panel remains hidden.
@@ -50,10 +50,10 @@ item/task graph resolve provenance from the final validated source data. Fixed
 action anchors outrank enabling tools; portable processing needs a resource anchor
 or an explicit override. Ambiguity is diagnostic, never a last-unlocked heuristic.
 
-The persistent state is version 6: `enabled`, `actualLevels` (HP 10, other skills
+The persistent state is version 7: `enabled`, `actualLevels` (HP 10, other skills
 1), per-skill `progressionHighWater`, progression/preset initialization flags,
 the additive preset revision, first-run `initialization` choices and their applied
-quest completions, `acquiredEnablers`, `travelAnchor`, `currentVisit`, `visitHistory`,
+quest completions, `acquiredEnablers`, `travelAnchor`, `travelAnchorSections`, `currentVisit`, `visitHistory`,
 `originOverrides`, `accessOverrides`, and an
 administrative journal. Pools, source indexes and atomic tasks are derived.
 Visits snapshot stable task IDs and compact display/category metadata only after recalculation. Completion resolves any
@@ -61,8 +61,9 @@ one snapshot candidate; changes in eligibility never manufacture completion.
 Administrative void/recalculate is explicit, confirmed and journalled.
 
 Roll candidates have `{kind, locationId, weight: 1, metadata}`. The current tile is
-the travel anchor. The pool follows the map's section connection graph from that
-anchor, passes through contiguous unlocked tiles with zero eligible tasks, and
+the travel anchor. The pool follows the map's section connection graph from the
+exact arrival section or sections, passes through contiguous accessible sections
+with zero eligible tasks, and
 stops at the first encounter or locked frontier tile on each path. Every distinct
 destination gets one ticket regardless of distance or task count. The current tile
 is a candidate only as a deadlock fallback when it still has tasks and there is no
@@ -81,7 +82,7 @@ node scripts/serveLocal.js
 
 Open **http://127.0.0.1:8080/?local=default**. Boardlocked is the only run mode;
 the panel opens automatically. No build or package installation is required.
-A fresh local profile applies the **Roguelike Chunker** preset during initialization.
+A fresh local profile applies the **Boardlocked Chunker** preset during initialization.
 Use `?local=profile-name` for a separate run. Existing public CDN libraries
 are still needed, so the application is not fully offline.
 
@@ -116,8 +117,10 @@ are still needed, so the application is not fully offline.
 A fresh profile recommends and preselects Druidic Ritual. Its completion is written
 to the same stable completion store as an ordinary checked task, so Herblore and
 quest-gated source checks see the real initialization state. The panel keeps the
-route to one line and links a level-3 bear cub safespot. Its 250 XP reward sets the
-fresh actual Herblore level to 3. Pandemonium similarly sets Sailing to level 4
+route to one line and links no-cannon level-3 bear cub flinching notes. The method
+is to attack once, retreat behind a tree or rock until the health bar disappears,
+and repeat. Its 250 XP reward sets the
+fresh actual Herblore level to 3. Pandemonium similarly sets Sailing to level 5
 from its 400 XP reward. Turning either choice off before starting restores the
 previous level unless the player has edited it since.
 
@@ -131,12 +134,15 @@ Varlamore, Wilderness, and ocean starts are separate pre-roll switches:
 * Wilderness adds two locations beyond the safe-side border tiles already in the
   standard pool: the east side of Ferox and nearby low-risk woodland.
 * Ocean applies Pandemonium and adds seven beginner waters near Port Sarim. It is
-  explicitly labelled experimental until an account completes a full ocean run.
+  an additional equal-chance group, so land remains possible while land groups are
+  enabled. It is explicitly labelled experimental until an account completes a full ocean run.
 
 Enabled groups receive equal start odds before the tile is chosen within a group,
-so the number of ocean squares cannot dominate the outcome. The first roll seeds
-section `1`, or water section `W1`, as the arrival section. This avoids showing the
-advanced section picker before the player has even received a task. Start options
+so the number of ocean squares cannot dominate the outcome. The first roll records
+the curated land or water arrival section and labels the result `LAND`, `WATER`, or
+`MIXED`. Every later roll carries the connected destination section into the new
+chunk. Disconnected land and water sections never imply one another; both are
+opened only when both are reachable through real borders. Start options
 disappear and become immutable after the first tile or imported progress.
 
 ### Reset and continue a played run
@@ -147,7 +153,7 @@ contains export/import and continuation controls:
 1. **Reset map & run** clears this local profile's geography,
    completions, equipment, levels, rules/settings, backlogs, overrides and journal
    after confirmation. It reloads all legacy globals and retains only whether
-   Roguelike Mode was enabled. It never clears another profile or backend map.
+   the Boardlocked state. It never clears another profile or backend map.
    This full reset is available on `?local=...` runs. Export first if you want a copy.
 2. **Add unlocked chunks** accepts chunk IDs in unlock order, separated by commas,
    spaces or arrows. It adds permanent geography and normal neighboring frontier
@@ -164,9 +170,9 @@ contains export/import and continuation controls:
 5. Current progress classifies every unlocked chunk automatically. A chunk with an
    eligible unfinished task is an encounter; otherwise it is a free travel tile.
    This is derived on every recalculation and is never stored as an import flag.
-   Missing transient section seeds are reconstructed from connections between
-   permanently unlocked chunks. Explicitly closed sections and incomplete
-   connection requirements remain closed.
+   Missing section access propagates only from a proven manual or arrival seed.
+   A shared chunk border alone does not open disconnected land or water sections.
+   Explicitly closed sections and incomplete connection requirements remain closed.
 6. Import chooses the current visit location when present, then a saved travel
    anchor, visit history, and the latest unlock-order entry. **Set current tile**
    corrects that administrative starting point without creating a visit.
@@ -248,15 +254,15 @@ prove possession of that exact item. Generic alternatives such as `Wield a bronz
 weapon` never prove which member was obtained. Acquisition itself never advances
 skill progression.
 
-### Roguelike Chunker rule preset
+### Boardlocked Chunker rule preset
 
-The preset is a normal Rules-modal preset and can be applied there. The Roguelike
-panel shows **Rules: Roguelike Chunker** only while every rule exactly matches;
-otherwise it shows **Rules: Roguelike Custom**. **Reset Roguelike preset** restores it.
-The first enable applies it once; later off/on toggles preserve customization.
-Existing Roguelike profiles receive the new Defensive BiS default once; afterward
+The preset is a normal Rules-modal preset and can be applied there. The Boardlocked
+panel shows **Rules: Boardlocked Chunker** only while every rule exactly matches;
+otherwise it shows **Rules: Boardlocked Custom**. **Reset Boardlocked preset** restores it.
+Fresh profiles apply it once; later reloads preserve customization.
+Existing Boardlocked profiles receive the new Defensive BiS default once; afterward
 the rule can still be turned off normally.
-An existing enabled clue-log choice is preserved during first-enable migration;
+An existing enabled clue-log choice is preserved during initial preset migration;
 the fresh/reset preset leaves clue tasks off.
 
 Boolean rules ON are: Rare Drop, Construction Milestone, Construction
@@ -280,7 +286,7 @@ diff. Fixed objects/NPCs/monsters take priority over enabling tools. Acquisition
 sources and primary consumed resources anchor portable processing. The existing
 generic cooking-object group is portable; a marked ingredient supplies its anchor.
 Multiple genuine origins share one task ID and global completion. Ambiguous
-entries stay visible as **Unassigned Roguelike Tasks**, outside the roll pool until
+entries stay visible as **Unassigned Boardlocked Tasks**, outside the roll pool until
 metadata or an override supplies an origin.
 
 Strict prerequisites reuse `taskUnlocks`, `Nonskill`, `sectionsLimits`, manual
@@ -301,7 +307,7 @@ Forestry has an additional conjunctive gate. A task needs a Forestry kit actuall
 recorded as acquired and an
 eligible tree object in accessible geography. Tree objects in the existing
 `Woodcutting guild[+]` group are removed by the small annotation in
-`roguelike-data.js`. The task action stays attributed to its real tree/facility;
+`boardlocked-data.js`. The task action stays attributed to its real tree/facility;
 the kit provider and tree requirement are exposed separately under `enablers`.
 Before acquisition, its task and provenance come through the existing `Forestry
 kit` → `Friendly Forester` metadata. After acquisition, that provider does not
@@ -334,18 +340,22 @@ visit history is not sent to the worker.
 
 ## Persistence and schema
 
-Fork state uses localStorage keys:
+Current local profiles use one atomic browser-save envelope plus one rotating
+recovery copy:
 
 ```text
-chunk-picker-v2:roguelike:v1:<map ID>:map
-chunk-picker-v2:roguelike:v1:<map ID>:sandbox
-chunk-picker-v2:roguelike:v1:local:<profile>
+chunk-picker-v2:boardlocked-run:v2:<profile>
+chunk-picker-v2:boardlocked-run:v2:<profile>:backup
 ```
+
+The envelope contains Boardlocked state and the inherited geography/completion
+snapshot together. Older split browser keys remain read-only migration sources,
+so an existing run automatically moves forward on first load.
 
 ```javascript
 {
-  version: 5,
-  enabled: false,
+  version: 7,
+  enabled: true,
   actualLevels: { /* all 24 skills */ },
   progressionHighWater: { /* all 24 skills: 0..99 */ },
   progressionInitialized: false,
@@ -355,6 +365,7 @@ chunk-picker-v2:roguelike:v1:local:<profile>
   },
   enablersInitialized: true,
   travelAnchor: null, // current chunk ID used to build the reachable travel pool
+  travelAnchorSections: null, // exact land/water sections occupied on arrival
   currentVisit: null,
   visitHistory: [],
   originOverrides: { /* stable task ID: [chunk or chunk-section, ...] */ },
@@ -364,6 +375,8 @@ chunk-picker-v2:roguelike:v1:local:<profile>
 // A visit:
 {
   visitNumber, timestamp, locationId, chunkName,
+  arrivalSections: [],
+  arrivalMedium, // land | water | mixed | whole
   kind, // new | revisit | stay | admin
   status, // pending_calculation | task_required | resolved
   candidateTaskIds: [],
@@ -376,21 +389,25 @@ chunk-picker-v2:roguelike:v1:local:<profile>
 Snapshot metadata keeps invalidated candidates readable/completable after reload.
 Derived pools, free/encounter classification, the travel graph, availability,
 source indexes and task origins are rebuilt.
-Unresolved visits keep rolling locked after reload. Enabling an existing map
-creates no retroactive visit. Missing state defaults OFF. Malformed/future-version
-fork saves are rejected visibly and are not automatically overwritten.
+Unresolved visits keep rolling locked after reload. Malformed/future-version
+saves are rejected visibly and are never automatically overwritten. If the newest
+browser envelope is malformed, the previous valid envelope is restored and promoted.
 
-**Export run** includes fork state plus legacy geography, rules, completions and
-manual settings. **Import run** confirms replacement: local profiles restore
+**Download backup** includes Boardlocked state plus inherited geography, rules,
+completions and manual settings. **Import backup** confirms replacement: local profiles restore
 persistent geography, unlock order, rules, actual levels, completions, equipment,
 backlogs, manual choices, overrides, exact progression marks, acquired Enablers, and visit history. It
 discards imported `selected`/`potential` candidates and any unknown derived fields,
 then reruns sections, sources, atomic tasks, progression, tile classification, and
 the reachable roll pool from the imported facts. If the export predates the travel
 anchor, the importer infers it from the current visit or latest unlock-order entry.
-Existing backend maps import only fork state, retaining their original
-legacy save mechanism. Local-profile legacy data is saved separately at
-`chunk-picker-v2:local-run:v1:<profile>`.
+For pre-v7 runs that did not record the occupied section, migration chooses a
+recorded land section when both land and water were historically marked open;
+water-only histories remain water. **Set current tile / section** accepts values
+such as `9270-1` or `9270-W1` when that old ambiguity needs correction.
+Old export versions and the pre-rename export field are accepted and migrated in
+memory before the current format is saved. Existing backend maps import only
+Boardlocked state, retaining their original save mechanism.
 
 If the imported run has an unresolved current visit, import keeps its visit number,
 location and note but clears its saved candidate snapshot. The current application
@@ -398,16 +415,19 @@ then rebuilds that visit from the imported chunks, completions, levels, equipmen
 enablers and rules. Resolved history remains historical and is not rewritten.
 
 Version-1/2 imports have no explicit Enabler state. Migration recovers only
-canonical `rl_enabler_item_*` completion IDs, exact completed tool-use or specific
+canonical legacy Enabler completion IDs, exact completed tool-use or specific
 item-acquisition tasks, and exact manual-equipment records. Levels, theoretical
 sources and generic equipment-tier tasks are never used as evidence. Anything
 else can be restored in the Acquired Enablers editor.
 
 Local profiles use the existing sandbox/test save guard and do not save to the
-upstream database. On regular maps, ordinary legacy edits still use the original
-save path; actual levels, overrides and visits never enter its payload. Storage
-is browser/origin/port-specific and does not sync across devices. Export before
-clearing browser data or moving to another browser/origin.
+upstream database. On regular maps, ordinary inherited edits still use the original
+save path; actual levels, overrides and visits never enter its payload. Browser
+storage is origin-specific and does not sync across devices. Clearing cookies/site
+data, resetting the browser, or changing browser/device can remove both the current
+copy and its browser recovery copy. Players must keep a downloaded JSON backup
+outside the browser; the warning and **Download backup** button stay at the top of
+the run panel.
 
 ## Diagnostics and manual overrides
 
@@ -446,9 +466,9 @@ and source backlog controls remain available.
 Console inspection is also available:
 
 ```javascript
-roguelikeController.debug().pool
-roguelikeController.debug().pool.byLocation['5942'] // task IDs keeping it live
-roguelikeController.debug().tasks.filter(t => t.origins.some(o => o.chunkId === '5942'))
+boardlockedController.debug().pool
+boardlockedController.debug().pool.byLocation['5942'] // task IDs keeping it live
+boardlockedController.debug().tasks.filter(t => t.origins.some(o => o.chunkId === '5942'))
 ```
 
 ## Known limitations and required metadata
@@ -473,9 +493,9 @@ roguelikeController.debug().tasks.filter(t => t.origins.some(o => o.chunkId === 
   prerequisite; using it as a furnace could therefore restore recursive Smithing
   reachability. `Boss Level` and `Slayer Equipment` also default OFF conservatively.
 * Current-access BiS uses the existing role-specific comparison scores with
-  filtered sources and actual Roguelike equipment requirements. Base
+  filtered sources and actual Boardlocked equipment requirements. Base
   Melee/Ranged/Magic, Prayer, and defensive comparisons are enabled. For weapons,
-  Roguelike retains every currently obtainable item that is strictly better than
+  Boardlocked retains every currently obtainable item that is strictly better than
   the best owned item for at least one enabled role. It does not collapse the list
   to the strongest item in the chunk, and equal-score alternatives remain choices
   when both improve the owned baseline. An item at or below the owned role score
@@ -506,24 +526,24 @@ migrate the schema version explicitly.
 ## Changed files and verification
 
 Existing files: `index.html`, `index.js`, `worker.js` (small integration hooks).
-New files: this document, `roguelike-data.js`, `roguelike.js`, `roguelike-worker.js`, `roguelike-ui.js`,
-`roguelike.css`, `scripts/serveLocal.js`, `scripts/validateJSON.js`,
-`scripts/roguelikeTestHarness.js`, `scripts/testRoguelike.js`,
-`scripts/smokeRoguelike.js`. No task-data, task-map or attribution changes.
+New files: this document, `boardlocked-data.js`, `boardlocked.js`, `boardlocked-worker.js`, `boardlocked-ui.js`,
+`boardlocked.css`, `scripts/serveLocal.js`, `scripts/validateJSON.js`,
+`scripts/boardlockedTestHarness.js`, `scripts/testBoardlocked.js`,
+`scripts/smokeBoardlocked.js`. No task-data, task-map or attribution changes.
 
 Dependency-free checks:
 
 ```powershell
-node --test scripts/testRoguelike.js
+node --test scripts/testBoardlocked.js
 node scripts/validateJSON.js
 ```
 
-**92 tests pass**: connected travel/free-tile traversal, imported section recovery and post-Enabler route changes, pool/visit/completion/provenance cases, imported active-visit recalculation, actual access versus task
+**104 tests pass**: connected section-level land/water travel, the Eagles' Peak ocean-leak regression, imported section recovery and post-Enabler route changes, pool/visit/completion/provenance cases, imported active-visit recalculation, actual access versus task
 level, dynamic geography gates, source backlogs, regional and extremely rare
 collection acquisition, per-skill rolling progression, task classification, state/import
 migration, persistent tool acquisition and equivalence, consumable exclusion,
 old-chunk awakening, exact-item recovery, the exact preset, all four Forestry gate cases, current-access BiS
-progression, multi-weapon upgrades above owned baselines, and mode-OFF parity with
+progression, multi-weapon upgrades above owned baselines, and disabled-dispatch parity with
 the original local-clone worker/rolling bodies. The harness uses the actual data
 and Xtreme preset in Node's VM; it skips only the unused external lodash import.
 
@@ -532,25 +552,25 @@ The original `scripts/validateJSON.sh` was attempted using Git Bash. It requires
 repository JSON data files successfully.
 
 Optional browser smoke test: start the local server, provide Playwright, and use
-installed Edge (or install Playwright's Chromium and omit RL_BROWSER_CHANNEL):
+installed Edge (or install Playwright's Chromium and omit BL_BROWSER_CHANNEL):
 
 ```powershell
 npm install --prefix "$env:TEMP\chunk-picker-browser-tools" playwright
 $env:NODE_PATH="$env:TEMP\chunk-picker-browser-tools\node_modules"
-$env:RL_BROWSER_CHANNEL='msedge'
-node scripts/smokeRoguelike.js
+$env:BL_BROWSER_CHANNEL='msedge'
+node scripts/smokeBoardlocked.js
 ```
 
 The smoke test has an isolated profile, blocks upstream database/analytics calls,
-and writes screenshots/export JSON to `$env:TEMP\chunk-picker-roguelike-smoke`.
-RL_TEST_URL and RL_SCREENSHOT_DIR override the URL/output directory.
+and writes screenshots/export JSON to `$env:TEMP\chunk-picker-boardlocked-smoke`.
+BL_TEST_URL and BL_SCREENSHOT_DIR override the URL/output directory.
 
 The desktop/mobile run exercises Rules-modal access, preset status,
 **6198 → 5942 → 6454 → 6197**, free visits,
 completing one chicken task, bronze-axe acquisition, immutable visit snapshots,
 old-chunk reactivation, consecutive actual revisits
 without geography/unlock-order changes, reload with blocked rolling, rapid level
-edits, admin visit/void, version-5 export with acquired Enablers, clean-profile import with deliberately
+edits, admin visit/void, version-7 export with acquired Enablers, clean-profile import with deliberately
 stale derived fields, and optional normal task reference. It also
 checks reset cancellation, a full reset isolated from another profile, continuation
 through the real setup controls, manual Enabler add/remove, past-task recording, equal-level Cooking exclusion

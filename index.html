@@ -2,16 +2,16 @@
 <head>
   <link rel="stylesheet" href="./index.css?v=6.9.66" />
   <meta charset="UTF-8">
-  <meta name="description" content="Boardlocked is a local-first roguelike chunk progression mode for Old School RuneScape.">
+  <meta name="description" content="Boardlocked is a local-first chunk progression mode for Old School RuneScape.">
   <meta name="author" content="NavigateLabs">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
   <meta property="og:url" content="https://navigatelabs.github.io/boardlocked/">
-  <meta property="og:description" content="A local-first roguelike chunk progression mode for Old School RuneScape.">
+  <meta property="og:description" content="A local-first chunk progression mode for Old School RuneScape.">
   <meta property="og:title" content="Boardlocked">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:url" content="https://navigatelabs.github.io/boardlocked/">
   <meta name="twitter:title" content="Boardlocked">
-  <meta name="twitter:description" content="A local-first roguelike chunk progression mode for Old School RuneScape.">
+  <meta name="twitter:description" content="A local-first chunk progression mode for Old School RuneScape.">
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-easing/1.3/jquery.easing.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.20/lodash.min.js"></script>
@@ -53,12 +53,12 @@
 
 <div class='body' data-role="page" ondragstart="() => {return false;}" ondrop="() => {return false;}">
   <script src="./tooltip.js?v=6.9.66"></script>
-  <script src="./modal.js?v=6.9.66-rl1"></script>
-  <script src="./roguelike-data.js?v=3"></script>
-  <script src="./roguelike.js?v=10"></script>
-  <script src="./index.js?v=6.9.66-rl6"></script>
-  <script src="./roguelike-ui.js?v=17"></script>
-  <link rel="stylesheet" href="./roguelike.css?v=9">
+  <script src="./modal.js?v=6.9.66-bl1"></script>
+  <script src="./boardlocked-data.js?v=4"></script>
+  <script src="./boardlocked.js?v=11"></script>
+  <script src="./index.js?v=6.9.66-bl7"></script>
+  <script src="./boardlocked-ui.js?v=18"></script>
+  <link rel="stylesheet" href="./boardlocked.css?v=10">
   <ul class='active-context-menu'>
     <li onclick="switchActiveContext(event, 'backlog')">Backlog</li>
     <li onclick="switchActiveContext(event, 'backlog note')">Backlog Options</li>
@@ -100,8 +100,8 @@
     <span class='topbar-item topbar-item-3'></span>
     <span class='topbar-item topbar-item-2'></span>
     <div><span onclick='openSearch()'><i class="gosearch fa-solid fa-search" title='Search My Chunks'></i></span></div>
-    <div><button id="boardlocked-panel-button" type="button" class="noscroll" aria-controls="rl-panel"
-      aria-expanded="false" aria-label="Open Boardlocked run panel" onclick="window.roguelikeController?.open()"><i
+    <div><button id="boardlocked-panel-button" type="button" class="noscroll" aria-controls="bl-panel"
+      aria-expanded="false" aria-label="Open Boardlocked run panel" onclick="window.boardlockedController?.open()"><i
       class="gomobiletasks fa-solid fa-tasks" title='Open Boardlocked run'></i></button></div>
   </div>
   <div id='entry-menu'>
@@ -413,7 +413,7 @@
       <div class='title'>About Boardlocked</div>
     </div>
     <div class='inner-content9'>
-      <p>Boardlocked is a local-first roguelike progression fork of Chunk Picker V2.</p>
+      <p>Boardlocked is a local-first progression fork of Chunk Picker V2.</p>
       <p>Runs are stored in your browser and can be moved between devices with the export and import controls.</p>
       <p><a href='https://github.com/NavigateLabs/boardlocked' target='_blank'>View the Boardlocked repository</a></p>
     </div>

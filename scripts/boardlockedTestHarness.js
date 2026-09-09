@@ -2,8 +2,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { execFileSync } = require('node:child_process');
 const root = path.join(__dirname, '..');
-const R = require('../roguelike');
+const R = require('../boardlocked');
 const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8').replace(/\r\n/g, '\n');
 
 // Use the clone's actual default objects and presets, not a second task/config database.
@@ -35,7 +36,7 @@ function makeRequest(chunkIds = [], strict = true) {
     result.secondaryPrimaryNum = '1/' + result.rules['Secondary Primary Amount'];
     result.clueCompleteNum = result.rules['Collection Log Clues Amount'];
     result.manualSections = Object.fromEntries(chunkIds.map(id => [String(id), { '1': true }]));
-    if (strict) result.roguelike = { state: R.normalizeState(), checkedAllTasks: {}, tasksMap: ids, unlocked: { ...result.chunks } };
+    if (strict) result.boardlocked = { state: R.normalizeState(), checkedAllTasks: {}, tasksMap: ids, unlocked: { ...result.chunks } };
     return result;
 }
 function usePreset(request, name) {
@@ -59,7 +60,11 @@ function runWorker(request, options = {}) {
                 if (/\b_\./.test(fs.readFileSync(path.join(root, 'worker.js'), 'utf8'))) throw new Error('Harness requires the legacy lodash dependency');
                 continue;
             }
-            vm.runInContext(fs.readFileSync(path.join(root, url.split('?')[0]), 'utf8'), context, { filename: url });
+            const relative = url.split('?')[0].replace(/^\.\//, '');
+            const currentPath = path.join(root, relative);
+            const source = fs.existsSync(currentPath) ? fs.readFileSync(currentPath, 'utf8') :
+                execFileSync('git', ['show', 'HEAD:' + relative], { cwd: root, maxBuffer: 5 * 1024 * 1024, encoding: 'utf8' });
+            vm.runInContext(source, context, { filename: url });
         }
     };
     const code = options.code || fs.readFileSync(path.join(root, 'worker.js'), 'utf8');
@@ -68,7 +73,7 @@ function runWorker(request, options = {}) {
     vm.runInContext('onmessage({data: request})', context, { timeout: 120000 });
     const failure = messages.find(message => message.type === 'error');
     if (failure) throw failure.err;
-    const result = messages.findLast(message => message.type === (request.roguelike ? 'roguelike' : 'current'));
+    const result = messages.findLast(message => message.type === (request.boardlocked ? 'boardlocked' : 'current'));
     if (!result) throw new Error('Worker returned no final result: ' + messages.map(m => m.type).join(', '));
     return { result: structuredClone(result), context, messages };
 }

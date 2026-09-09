@@ -11,15 +11,16 @@ Open:
 
 **[https://navigatelabs.github.io/boardlocked/](https://navigatelabs.github.io/boardlocked/)**
 
-Use the task icon in the top-right to reopen to open the panel.
+Use the task icon in the top-right to reopen the panel.
 
 ## How Boardlocked plays
 
-- Roll from the first reachable new tile or unfinished tile in each direction.
+- Roll from the first reachable new tile or unfinished task tile in each direction.
 - Cross taskless `FREE` tiles automatically while building the roll pool.
-- Complete any one task from the current tile before rolling again.
+- Complete any one task offered for the current tile before rolling again.
 - Recalculate routes when a completed task unlocks an item, level, or connection.
-- Keep skill tasks moving forward through per-skill progression windows. (i.e. for most skills this is +15, so you cant cut yew before you have cut and found 60-15=45=maple, or anything else in that window)
+- Keep skill tasks moving forward through a window tuned for each skill. Woodcutting
+  uses +15, so a level-60 yew task needs a completed level-45-or-higher milestone.
 - Offer every obtainable weapon upgrade that improves on equipment already acquired.
 - Import old runs while recalculating goals against the current rules and task data.
 
@@ -31,23 +32,41 @@ Prifddinas, quest-locked islands, damaging environments, guild interiors, and
 other poor level-3 starts.
 
 **Druidic Ritual is recommended and enabled by default.** The route is:
-pick up the iron dagger from the goblin house in Lumbridge, kill a lvl 3 rat in lumbridge swamp for raw rat meat, buy raw
-chicken and beef from Wydin's Food Store in Port Sarim, use this
-[level-3 bear cub safespot](https://www.youtube.com/watch?v=YcvoAOKZF1Q), then
+pick up the iron dagger in the goblin house in Lumbridge, kill a level 3 rat in
+Lumbridge Swamp for raw rat meat, buy raw chicken and beef from Wydin's Food
+Store in Port Sarim, then use this
+no-cannon method on a bear cub: attack once, step behind a tree or rock until
+its health bar disappears, and repeat. These
+[level-3 flinching notes](https://www.reddit.com/r/UniqueIronmen/comments/1bjsowt)
+describe the same method. Then
 [finish Druidic Ritual](https://oldschool.runescape.wiki/w/Druidic_Ritual).
-Enabling this option assumes you have done these steps before starting your account.
+Enabling this option assumes you complete the route before starting the rolled
+account. Boardlocked records the quest and its level-3 Herblore result.
 
 Three optional start groups are available before the first roll:
 
-- **Varlamore:** adds selected starts and records, assumes you have completed Children of the Sun before rolling.
+- **Varlamore:** adds selected starts and assumes you completed Children of the Sun before rolling.
 - **Wilderness:** adds a small set of shallow, low-risk tiles. PvP risk still applies.
-- **Ocean (experimental):** adds beginner waters near Port Sarim, assumes Pandemonium as a quest you have done before starting, and starts Sailing at level 4-5. Very untested and experimental :b But IN THEORY it should work with no problems, so feel free to select it.
+- **Ocean (experimental):** adds an equal-chance group of beginner waters near Port Sarim, assumes you completed Pandemonium, and starts Sailing at level 5 from its 400 XP reward. Land remains a possible result while other groups are enabled. This route is still largely untested.
 
 Each enabled group has the same chance to be selected, then every tile within that
-group has the same chance. The first roll automatically selects the start tile.
+group has the same chance. The result clearly says `LAND`, `WATER`, or `MIXED`.
+Later rolls retain the exact connected sections: land never grants water access,
+water never grants land access, and both open only when both have real connections.
+
+## Protect your save
+
+Boardlocked saves automatically in this browser and keeps the previous valid save
+as a recovery copy. Site updates migrate older saves automatically; they do not
+reset chunks, completions, levels, equipment, or visit history.
+
+Browser storage is still local. **Clearing cookies/site data, resetting the browser,
+or moving to another browser or device can delete it.** Use **Download backup** in
+the run panel regularly and keep the JSON file outside the browser. **Import backup**
+restores old Boardlocked exports as well as the current format.
 
 The full rules, controls, state model, and design notes are in
-[ROGUELIKE_MODE.md](./ROGUELIKE_MODE.md).
+[BOARDLOCKED_MODE.md](./BOARDLOCKED_MODE.md).
 
 ## Run locally
 

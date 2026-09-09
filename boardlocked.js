@@ -2,10 +2,10 @@
 (function (root, factory) {
     const api = factory();
     if (typeof module === 'object' && module.exports) module.exports = api;
-    else root.Roguelike = api;
+    else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 6;
+    const VERSION = 7;
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
         'Cooking', 'Woodcutting', 'Fletching', 'Fishing', 'Firemaking', 'Crafting', 'Smithing',
         'Mining', 'Herblore', 'Agility', 'Thieving', 'Slayer', 'Farming', 'Runecraft', 'Hunter',
@@ -14,14 +14,15 @@
     const copy = value => JSON.parse(JSON.stringify(value));
     const cleanName = name => String(name).replace(/\{\d+\}/g, '').replace(/^Kill .*? ~/u, 'Kill X ~');
     const taskId = (name, skill, map = {}) => String(map[cleanName(name)] || map[name] ||
-        ('rl_manual_' + encodeURIComponent(skill) + '_' + encodeURIComponent(cleanName(name))));
+        ('bl_manual_' + encodeURIComponent(skill) + '_' + encodeURIComponent(cleanName(name))));
     const displayName = name => String(name).replace(/[~|*]/g, '');
     const stripMarkup = value => String(value || '').replace(/<[^>]*>/g, '').replace(/\u200b/g, '').trim();
     const canonicalItemKey = name => String(name || '').replaceAll('*', '');
-    const enablerTaskId = itemKey => 'rl_enabler_item_' + encodeURIComponent(canonicalItemKey(itemKey));
+    const enablerTaskId = itemKey => 'bl_enabler_item_' + encodeURIComponent(canonicalItemKey(itemKey));
     const enablerItemFromTaskId = id => {
-        const prefix = 'rl_enabler_item_';
-        if (!String(id).startsWith(prefix)) return null;
+        const prefixes = ['bl_enabler_item_', 'r' + 'l_enabler_item_'];
+        const prefix = prefixes.find(value => String(id).startsWith(value));
+        if (!prefix) return null;
         try { return decodeURIComponent(String(id).slice(prefix.length)); } catch (_) { return null; }
     };
     // Forward windows are deliberately smaller for dense skills and wider for
@@ -38,15 +39,16 @@
     const progressionWindow = skill => PROGRESSION_WINDOWS[skill] || 10;
 
     function normalizeState(input) {
-        if (input && ![1, 2, 3, 4, 5, VERSION].includes(input.version)) throw new Error('Unsupported Roguelike state version: ' + input.version);
+        if (input && ![1, 2, 3, 4, 5, 6, VERSION].includes(input.version)) throw new Error('Unsupported Boardlocked state version: ' + input.version);
         const state = { version: VERSION, enabled: false, actualLevels: {}, currentVisit: null, travelAnchor: null,
+            travelAnchorSections: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
             rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input,
             initialization: { druidicRitual: !input, varlamore: false, wilderness: false, ocean: false },
             initializationApplied: {}, initializationTaskIds: {}, initializationLevelFloors: {} };
         if (input) {
-            if (typeof input.enabled !== 'boolean' || !Array.isArray(input.visitHistory)) throw new Error('Invalid Roguelike state');
+            if (typeof input.enabled !== 'boolean' || !Array.isArray(input.visitHistory)) throw new Error('Invalid Boardlocked state');
             for (const key of ['currentVisit', 'visitHistory', 'originOverrides', 'accessOverrides', 'adminHistory']) {
                 if (input[key] !== undefined) state[key] = copy(input[key]);
             }
@@ -97,6 +99,12 @@
                 if (!anchor) throw new Error('Invalid travel anchor');
                 state.travelAnchor = anchor.chunkId;
             }
+            if (input.version >= 7 && input.travelAnchorSections != null) {
+                if (!Array.isArray(input.travelAnchorSections) || input.travelAnchorSections.some(section => !/^W?\d+$/.test(String(section)))) {
+                    throw new Error('Invalid travel anchor sections');
+                }
+                state.travelAnchorSections = [...new Set(input.travelAnchorSections.map(String))];
+            }
             if (input.version >= 3 && input.acquiredEnablers !== undefined) {
                 if (!input.acquiredEnablers || Array.isArray(input.acquiredEnablers) || typeof input.acquiredEnablers !== 'object') {
                     throw new Error('Invalid acquiredEnablers');
@@ -141,9 +149,36 @@
                 throw new Error('Invalid visit snapshot');
             }
             if (visit.status === 'resolved' && !['task_completed', 'no_tasks', 'admin_void'].includes(visit.resolution)) throw new Error('Invalid visit resolution');
+            if (visit.arrivalSections !== undefined && (!Array.isArray(visit.arrivalSections) ||
+                visit.arrivalSections.some(section => !/^W?\d+$/.test(String(section))))) throw new Error('Invalid visit arrival sections');
+            if (visit.arrivalMedium !== undefined && !['land', 'water', 'mixed', 'whole'].includes(visit.arrivalMedium)) {
+                throw new Error('Invalid visit arrival medium');
+            }
         }
         if (!state.travelAnchor && state.currentVisit) state.travelAnchor = state.currentVisit.locationId;
+        if (state.travelAnchorSections == null && state.currentVisit?.locationId === state.travelAnchor &&
+            Array.isArray(state.currentVisit.arrivalSections)) state.travelAnchorSections = [...state.currentVisit.arrivalSections];
         return state;
+    }
+
+    function normalizeRunExport(payload) {
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Not a supported Boardlocked run export');
+        const oldFormat = 'chunk-picker-' + 'rogue' + 'like';
+        if (![oldFormat, 'chunk-picker-boardlocked'].includes(payload.format) ||
+            !Number.isInteger(payload.version) || payload.version < 1 || payload.version > VERSION) {
+            throw new Error('Not a supported Boardlocked run export');
+        }
+        const oldStateField = 'rogue' + 'likeState';
+        const stateInput = payload.boardlockedState || payload[oldStateField];
+        if (!stateInput) throw new Error('Boardlocked state is missing from the export');
+        return { state: normalizeState(stateInput), legacy: payload.legacy ? copy(payload.legacy) : null, version: payload.version };
+    }
+
+    function normalizeBrowserSave(raw) {
+        const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!payload || payload.format !== 'boardlocked-browser-save' || payload.version !== 1 ||
+            !payload.boardlockedState || !payload.legacy) throw new Error('Invalid Boardlocked browser save');
+        return { ...copy(payload), boardlockedState: normalizeState(payload.boardlockedState) };
     }
 
     function deriveStartingPool(data = {}, annotations = {}, options = {}, blacklisted = {}) {
@@ -152,18 +187,24 @@
         const groupOrder = ['standard', 'varlamore', 'wilderness', 'ocean'];
         const enabled = { standard: true, varlamore: options.varlamore === true,
             wilderness: options.wilderness === true, ocean: options.ocean === true };
-        const ids = [], groupByLocation = {}, groups = [];
+        const ids = [], groupByLocation = {}, arrivalSectionsByLocation = {}, groups = [];
         for (const group of groupOrder) {
             if (!enabled[group]) continue;
             const groupIds = [];
             for (const rawId of configured[group] || []) {
                 const id = String(rawId);
                 if (!walkable.has(id) || own(blacklisted, id) || own(groupByLocation, id)) continue;
-                groupByLocation[id] = group; ids.push(id); groupIds.push(id);
+                const sections = Object.keys(data.sections?.[id] || {}).filter(section => section !== '0');
+                const water = group === 'ocean';
+                const preferred = water ? (sections.includes('W1') ? 'W1' : sections.find(section => section.startsWith('W'))) :
+                    (sections.includes('1') ? '1' : sections.find(section => !section.startsWith('W')));
+                groupByLocation[id] = group;
+                arrivalSectionsByLocation[id] = preferred ? [preferred] : [];
+                ids.push(id); groupIds.push(id);
             }
-            if (groupIds.length) groups.push({ id: group, locationIds: groupIds });
+            if (groupIds.length) groups.push({ id: group, medium: group === 'ocean' ? 'water' : 'land', locationIds: groupIds });
         }
-        return { ids, groups, groupByLocation };
+        return { ids, groups, groupByLocation, arrivalSectionsByLocation };
     }
 
     // Initial groups receive equal odds, then every tile within the selected
@@ -178,7 +219,9 @@
         const groupRoll = rng(), tileRoll = rng();
         if (groupRoll < 0 || groupRoll >= 1 || tileRoll < 0 || tileRoll >= 1) throw new Error('Random source must return [0, 1)');
         const group = available[Math.floor(groupRoll * available.length)];
-        return group.candidates[Math.floor(tileRoll * group.candidates.length)];
+        const candidate = group.candidates[Math.floor(tileRoll * group.candidates.length)];
+        return { ...candidate, metadata: { ...(candidate.metadata || {}), startGroup: group.id,
+            arrivalMedium: group.medium, entrySections: [...(startingPool.arrivalSectionsByLocation?.[candidate.locationId] || [])] } };
     }
 
     function sanitizeLegacySnapshot(input = {}, ruleKeys = [], settingKeys = []) {
@@ -228,6 +271,7 @@
     // One adapter reads the existing three completion stores. No per-origin ownership.
     function legacyFlag(store, task, presence = false) {
         const keys = [task.taskId, task.name, cleanName(task.name), task.name.replaceAll('#', '/')];
+        if (String(task.taskId).startsWith('bl_')) keys.push('r' + 'l_' + String(task.taskId).slice(3));
         // The worker projects some quest/diary tasks into skill categories. A
         // stable task is globally completed/backlogged even from that other view.
         return Object.values(store || {}).some(entries => keys.some(key =>
@@ -393,6 +437,9 @@
             }
         }
         const graph = Object.fromEntries([...allowedChunks].map(id => [id, []]));
+        const sectionGraph = Object.fromEntries([...availableLocations].map(id => [id, []]));
+        const nodesByChunk = {};
+        for (const location of availableLocations) (nodesByChunk[parseLocation(location).chunkId] ||= []).push(location);
         const edges = new Set();
         for (const [chunkId, sectionMap] of Object.entries(data.sections || {})) {
             if (!allowedChunks.has(chunkId)) continue;
@@ -404,6 +451,8 @@
                     if (!target || !allowedChunks.has(target.chunkId)) continue;
                     const to = target.chunkId + (target.sectionId ? '-' + target.sectionId : '');
                     if (!availableLocations.has(to) || !connectionAllowed(from, to)) continue;
+                    if (!sectionGraph[from].includes(to)) sectionGraph[from].push(to);
+                    if (!sectionGraph[to].includes(from)) sectionGraph[to].push(from);
                     const key = [chunkId, target.chunkId].sort().join('|');
                     if (chunkId !== target.chunkId) edges.add(key);
                 }
@@ -414,6 +463,11 @@
             graph[a].push(b); graph[b].push(a);
         }
         for (const id of Object.keys(graph)) graph[id].sort((a, b) => Number(a) - Number(b));
+        for (const id of Object.keys(sectionGraph)) sectionGraph[id].sort();
+        Object.defineProperties(graph, {
+            sectionGraph: { value: sectionGraph, enumerable: false },
+            nodesByChunk: { value: nodesByChunk, enumerable: false }
+        });
         return graph;
     }
 
@@ -436,16 +490,23 @@
             if (!sectionId || inferred[chunkId]?.[sectionId] === false) return;
             (inferred[chunkId] ||= {})[sectionId] = true;
         };
-        for (const [fromChunk, sectionMap] of Object.entries(data.sections || {})) {
-            if (!own(unlocked, fromChunk)) continue;
-            for (const [fromSection, connections] of Object.entries(sectionMap || {})) for (const rawTarget of connections || []) {
-                const target = parseLocation(rawTarget);
-                if (!target || !own(unlocked, target.chunkId)) continue;
-                const from = fromChunk + (fromSection === '0' ? '' : '-' + fromSection);
-                const to = target.chunkId + (target.sectionId ? '-' + target.sectionId : '');
-                if (!connectionAllowed(from, to)) continue;
-                open(fromChunk, fromSection === '0' ? null : fromSection);
-                open(target.chunkId, target.sectionId);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (const [fromChunk, sectionMap] of Object.entries(data.sections || {})) {
+                if (!own(unlocked, fromChunk)) continue;
+                for (const [fromSection, connections] of Object.entries(sectionMap || {})) {
+                    if (fromSection !== '0' && inferred[fromChunk]?.[fromSection] !== true) continue;
+                    for (const rawTarget of connections || []) {
+                        const target = parseLocation(rawTarget);
+                        if (!target || !own(unlocked, target.chunkId)) continue;
+                        const from = fromChunk + (fromSection === '0' ? '' : '-' + fromSection);
+                        const to = target.chunkId + (target.sectionId ? '-' + target.sectionId : '');
+                        if (!connectionAllowed(from, to) || !target.sectionId || inferred[target.chunkId]?.[target.sectionId] === true ||
+                            inferred[target.chunkId]?.[target.sectionId] === false) continue;
+                        open(target.chunkId, target.sectionId); changed = true;
+                    }
+                }
             }
         }
         return inferred;
@@ -459,19 +520,43 @@
         return candidates.map(value => parseLocation(value)?.chunkId).find(id => id && own(unlocked, id)) || null;
     }
 
+    function inferLegacyAnchorSections(data, state, accessibleSections = {}) {
+        if (Array.isArray(state.travelAnchorSections)) return [...state.travelAnchorSections];
+        const anchor = parseLocation(state.currentVisit?.locationId || state.travelAnchor);
+        if (!anchor) return null;
+        if (anchor.sectionId) return [anchor.sectionId];
+        const configured = Object.keys(accessibleSections[anchor.chunkId] || {}).filter(section =>
+            accessibleSections[anchor.chunkId][section] === true && own(data.sections?.[anchor.chunkId] || {}, section));
+        if (!configured.length) return own(data.sections?.[anchor.chunkId] || {}, '0') ? [] : null;
+        // Old saves did not record the section occupied by the player. Prefer one
+        // ordinary land section when both media were marked open, because the old
+        // bug could infer water from a land route. Water-only histories remain water.
+        const land = configured.filter(section => !section.startsWith('W'));
+        const water = configured.filter(section => section.startsWith('W'));
+        const preferred = land.includes('1') ? '1' : land[0] || (water.includes('W1') ? 'W1' : water[0]);
+        return preferred ? [preferred] : null;
+    }
+
     function setTravelAnchor(state, locationId, reason = 'Set current travel tile', timestamp = new Date().toISOString()) {
         const parsed = parseLocation(locationId);
         if (!parsed) throw new Error('Invalid travel anchor');
         if (!canRoll(state)) throw new Error('Complete or administratively void the current visit first');
-        return { ...state, travelAnchor: parsed.chunkId, adminHistory: [...state.adminHistory,
-            { timestamp, action: 'set_travel_anchor', locationId: parsed.chunkId, reason }] };
+        return { ...state, travelAnchor: parsed.chunkId, travelAnchorSections: parsed.sectionId ? [parsed.sectionId] : null,
+            adminHistory: [...state.adminHistory,
+            { timestamp, action: 'set_travel_anchor', locationId: parsed.chunkId, sectionId: parsed.sectionId, reason }] };
     }
 
-    function derivePool(frontier, unlocked, tasks, currentVisit, travelGraph = null, travelAnchor = null) {
-        const byLocation = {};
+    function derivePool(frontier, unlocked, tasks, currentVisit, travelGraph = null, travelAnchor = null, travelAnchorSections = null) {
+        const byLocation = {}, byNode = {};
         for (const id of Object.keys(unlocked || {})) byLocation[id] = [];
         for (const task of tasks) if (task.eligible) {
-            for (const id of new Set(task.activeOrigins.map(o => o.chunkId))) if (own(byLocation, id)) byLocation[id].push(task.taskId);
+            for (const origin of uniqueOrigins(task.activeOrigins || [])) {
+                const id = origin.chunkId;
+                if (own(byLocation, id) && !byLocation[id].includes(task.taskId)) byLocation[id].push(task.taskId);
+                const node = id + (origin.sectionId ? '-' + origin.sectionId : '');
+                (byNode[node] ||= []);
+                if (!byNode[node].includes(task.taskId)) byNode[node].push(task.taskId);
+            }
         }
         const live = Object.keys(byLocation).filter(id => byLocation[id].length > 0);
         const dormant = Object.keys(byLocation).filter(id => !byLocation[id].length);
@@ -479,7 +564,52 @@
         const current = parseLocation(travelAnchor || currentVisit?.locationId)?.chunkId || null;
         const candidates = [], reachableFree = [], reachableLive = [];
 
-        if (travelGraph && current && own(unlocked, current)) {
+        if (travelGraph?.sectionGraph && current && own(unlocked, current)) {
+            const availableStartNodes = travelGraph.nodesByChunk?.[current] || [];
+            let startNodes = Array.isArray(travelAnchorSections) ? travelAnchorSections.map(section => current + '-' + section)
+                .filter(node => availableStartNodes.includes(node)) : availableStartNodes;
+            if (!startNodes.length && availableStartNodes.includes(current)) startNodes = [current];
+            if (!startNodes.length) startNodes = availableStartNodes;
+            const traversed = new Set(startNodes), queue = startNodes.map(id => ({ id, distance: 0 })), found = new Map();
+            const reachableFreeSet = new Set(), reachableLiveSet = new Set();
+            while (queue.length) {
+                const { id: from, distance } = queue.shift();
+                for (const node of travelGraph.sectionGraph[from] || []) {
+                    const parsed = parseLocation(node), locationId = parsed.chunkId;
+                    if (!own(unlocked, locationId)) {
+                        if (!frontierSet.has(locationId)) continue;
+                        const entrySections = parsed.sectionId ? [parsed.sectionId] : [];
+                        if (!found.has(locationId)) found.set(locationId, { kind: 'frontier', locationId, weight: 1,
+                            metadata: { distance: distance + 1, entrySections } });
+                        else {
+                            const metadata = found.get(locationId).metadata;
+                            metadata.distance = Math.min(metadata.distance, distance + 1);
+                            metadata.entrySections = [...new Set([...metadata.entrySections, ...entrySections])];
+                        }
+                    } else if ((byNode[node] || []).length) {
+                        const entrySections = parsed.sectionId ? [parsed.sectionId] : [];
+                        if (!found.has(locationId)) found.set(locationId, { kind: 'revisit', locationId, weight: 1,
+                            metadata: { taskCount: byNode[node].length, taskIds: [...byNode[node]], distance: distance + 1, entrySections } });
+                        else if (found.get(locationId).kind === 'revisit') {
+                            const metadata = found.get(locationId).metadata;
+                            metadata.distance = Math.min(metadata.distance, distance + 1);
+                            metadata.taskIds = [...new Set([...metadata.taskIds, ...byNode[node]])];
+                            metadata.taskCount = metadata.taskIds.length;
+                            metadata.entrySections = [...new Set([...metadata.entrySections, ...entrySections])];
+                        }
+                        reachableLiveSet.add(locationId);
+                    } else if (!traversed.has(node)) {
+                        traversed.add(node); reachableFreeSet.add(locationId); queue.push({ id: node, distance: distance + 1 });
+                    }
+                }
+            }
+            candidates.push(...found.values());
+            reachableFree.push(...reachableFreeSet); reachableLive.push(...reachableLiveSet);
+            const currentTaskIds = [...new Set(startNodes.flatMap(node => byNode[node] || []))];
+            if (!candidates.length && currentTaskIds.length) candidates.push({ kind: 'stay', locationId: current,
+                weight: 1, metadata: { taskCount: currentTaskIds.length, taskIds: currentTaskIds, distance: 0,
+                    entrySections: Array.isArray(travelAnchorSections) ? [...travelAnchorSections] : [], deadlockFallback: true } });
+        } else if (travelGraph && current && own(unlocked, current)) {
             const traversed = new Set([current]), queue = [{ id: current, distance: 0 }], found = new Map();
             while (queue.length) {
                 const { id: from, distance } = queue.shift();
@@ -492,7 +622,7 @@
                     } else if (byLocation[locationId]?.length) {
                         if (!found.has(locationId)) {
                             found.set(locationId, { kind: 'revisit', locationId, weight: 1,
-                                metadata: { taskCount: byLocation[locationId].length, distance: distance + 1 } });
+                                metadata: { taskCount: byLocation[locationId].length, taskIds: [...byLocation[locationId]], distance: distance + 1 } });
                             reachableLive.push(locationId);
                         }
                     } else if (!traversed.has(locationId)) {
@@ -503,14 +633,15 @@
             }
             candidates.push(...found.values());
             if (!candidates.length && byLocation[current]?.length) candidates.push({ kind: 'stay', locationId: current,
-                weight: 1, metadata: { taskCount: byLocation[current].length, distance: 0, deadlockFallback: true } });
+                weight: 1, metadata: { taskCount: byLocation[current].length, taskIds: [...byLocation[current]], distance: 0, deadlockFallback: true } });
         } else {
             // Before the first tile (and for callers without geography data),
             // retain the complete starting pool. Imported runs receive an
             // inferred anchor before this function is called by the UI.
             for (const locationId of frontierSet) candidates.push({ kind: 'frontier', locationId, weight: 1, metadata: { distance: null } });
             if (!travelGraph) for (const locationId of live) {
-                candidates.push({ kind: 'revisit', locationId, weight: 1, metadata: { taskCount: byLocation[locationId].length, distance: null } });
+                candidates.push({ kind: 'revisit', locationId, weight: 1, metadata: { taskCount: byLocation[locationId].length,
+                    taskIds: [...byLocation[locationId]], distance: null } });
                 reachableLive.push(locationId);
             }
         }
@@ -532,16 +663,24 @@
     function startVisit(state, candidate, chunkName = '', timestamp = new Date().toISOString()) {
         if (!canRoll(state)) throw new Error('Complete or administratively void the current visit first');
         if (!candidate) throw new Error('No locations available');
+        const entrySections = [...new Set((candidate.metadata?.entrySections || []).map(String))];
+        const arrivalMedium = candidate.metadata?.arrivalMedium || (!entrySections.length ? 'whole' :
+            entrySections.every(section => section.startsWith('W')) ? 'water' : entrySections.some(section => section.startsWith('W')) ? 'mixed' : 'land');
         const visit = { visitNumber: Math.max(0, ...state.visitHistory.map(v => v.visitNumber)) + 1,
             timestamp, locationId: String(candidate.locationId), chunkName,
+            arrivalSections: entrySections, arrivalMedium, startGroup: candidate.metadata?.startGroup || null,
+            reachableTaskIds: [...new Set(candidate.metadata?.taskIds || [])],
             kind: candidate.kind === 'frontier' ? 'new' : candidate.kind === 'admin' ? 'admin' : candidate.kind === 'stay' ? 'stay' : 'revisit',
             candidateTaskIds: [], status: 'pending_calculation', resolution: null, resolvedTaskId: null, note: '' };
-        return journal({ ...state, travelAnchor: visit.locationId }, visit);
+        return journal({ ...state, travelAnchor: visit.locationId, travelAnchorSections: entrySections }, visit);
     }
     function snapshotVisit(state, tasks) {
         if (state.currentVisit?.status !== 'pending_calculation') return state;
+        const reachableIds = new Set(state.currentVisit.reachableTaskIds || []);
+        const arrivalSections = new Set(state.currentVisit.arrivalSections || []);
         const visit = { ...state.currentVisit, candidateTaskIds: [...new Set(tasks.filter(t => t.eligible &&
-            t.activeOrigins.some(o => o.chunkId === state.currentVisit.locationId)).map(t => t.taskId))] };
+            (reachableIds.size ? reachableIds.has(t.taskId) : t.activeOrigins.some(o => o.chunkId === state.currentVisit.locationId &&
+                (!arrivalSections.size || !o.sectionId || arrivalSections.has(o.sectionId))))).map(t => t.taskId))] };
         // Keep compact display/category metadata so an invalidated or subsequently
         // removed database entry is still intelligible and completable after reload.
         const snapshotIds = new Set(visit.candidateTaskIds);
@@ -872,7 +1011,7 @@
             const constrain = list => constraints.length ? list.filter(o => constraints.some(c => c.chunkId === o.chunkId && (!c.sectionId || c.sectionId === o.sectionId))) : list;
             // The cooking object group includes Player fire. It describes a processing
             // facility, not a unique geographic action. Starred Items mark consumed resources.
-            const portableGroups = codes.roguelikePortableObjects || ['Cooking object[+]'];
+            const portableGroups = codes.boardlockedPortableObjects || ['Cooking object[+]'];
             const portable = meta.Objects?.length && meta.Objects.every(o => portableGroups.includes(o));
             for (const [field, type, group] of [['NPCs', 'npcs', 'npcsPlus'], ['Monsters', 'monsters', 'monstersPlus'], ['Objects', 'objects', 'objectsPlus']]) {
                 if (field === 'Objects' && portable) continue;
@@ -1101,10 +1240,11 @@
             enablerCatalog, enablerAmbiguities: enablerModel.ambiguous };
     }
     return { VERSION, SKILLS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
-        canonicalItemKey, enablerTaskId, enablerItemFromTaskId, normalizeState, sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
+        canonicalItemKey, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
+        sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
-        buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, setTravelAnchor, derivePool, chooseCandidate,
+        buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingPool, chooseStartingCandidate, canRoll,
         startVisit, snapshotVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };

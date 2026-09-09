@@ -2,7 +2,7 @@
 (function (root, factory) {
     const data = factory();
     if (typeof module === 'object' && module.exports) module.exports = data;
-    else root.RoguelikeData = data;
+    else root.BoardlockedData = data;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
     return Object.freeze({
@@ -16,6 +16,10 @@
                 druidicRitual: 'Druidic Ritual',
                 varlamore: 'Children of the Sun',
                 ocean: 'Pandemonium'
+            }),
+            levelFloors: Object.freeze({
+                druidicRitual: Object.freeze({ Herblore: 3 }),
+                ocean: Object.freeze({ Sailing: 5 })
             }),
             // Random Start was originally a broad region filter. Boardlocked
             // needs a much stricter first tile: reachable surface areas which do

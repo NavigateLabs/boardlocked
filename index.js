@@ -557,7 +557,7 @@ let ruleNames = {
 };                                                                              // List of rule definitions
 
 let rulePresets = {
-    "Roguelike Chunker": {
+    "Boardlocked Chunker": {
         "Rare Drop": true,
         "Rare Drop Amount": "0",
         "Construction Milestone": true,
@@ -770,7 +770,7 @@ let rulePresets = {
 };                                                                              // List of rules that are part of each preset
 
 let rulePresetFlavor = {
-    "Roguelike Chunker": "Strict access, broad independent progression",
+    "Boardlocked Chunker": "Strict access, broad independent progression",
     "Vanilla Chunker": "AKA the original ruleset",
     "Xtreme Chunker": "AKA Limpwurt's ruleset",
     "Supreme Chunker": "AKA Buz's ruleset"
@@ -1969,7 +1969,7 @@ let drawCanvas = function(ctxIn = ctx) {
                 ctxIn.strokeStyle = 'gray';
                 (!highVisibilityMode || totalZoom > 0.3) && ctxIn.strokeRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
             } else if (!!tempChunks['selected'] && tempChunks['selected'][chunkId] &&
-                (!window.roguelikeController?.enabled() || window.roguelikeController.isFrontierCandidate(chunkId))) {
+                (!window.boardlockedController?.enabled() || window.boardlockedController.isFrontierCandidate(chunkId))) {
                 if (highVisibilityMode) {
                     ctxIn.fillStyle = 'rgba(100, 255, 100, 0.25)';
                 } else if (hoveredChunk === chunkId) {
@@ -1981,8 +1981,8 @@ let drawCanvas = function(ctxIn = ctx) {
                 (!highVisibilityMode || totalZoom > 0.3) && ctxIn.strokeRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
                 !isPainted && ctxIn.fillRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
                 let heightOff;
-                const selectedPosition = window.roguelikeController?.enabled() ?
-                    window.roguelikeController.frontierNumber(chunkId) : tempSelectedChunks.indexOf(chunkId) + 1;
+                const selectedPosition = window.boardlockedController?.enabled() ?
+                    window.boardlockedController.frontierNumber(chunkId) : tempSelectedChunks.indexOf(chunkId) + 1;
                 if (selectedPosition > 999) {
                     ctxIn.font = (totalZoom * (imgW / rowSize) * (1 / 2)) + 'px Calibri, Roboto Condensed, sans-serif';
                     heightOff = 0.65;
@@ -2359,7 +2359,7 @@ let drawCanvas = function(ctxIn = ctx) {
         manualMouseMoveCheck = false;
         handleMouseMove(manualMouseMoveCheck);
     }
-    window.roguelikeController?.drawOverlay(ctxIn);
+    window.boardlockedController?.drawOverlay(ctxIn);
 }
 
 // Listen for click events on body for clicking out of modals
@@ -2898,7 +2898,7 @@ let handleMouseUp = function(e) {
         } else {
             infoLockedId = chunkId.toString();
         }
-        if (window.roguelikeController?.enabled()) {
+        if (window.boardlockedController?.enabled()) {
             chunkInfoOn = true;
             infoCollapse = false;
         }
@@ -2972,8 +2972,8 @@ let handleMouseUp = function(e) {
         if (movedNum <= 1 && e.target.id === 'canvas') {
             e.preventDefault();
             e.stopPropagation();
-            if (window.roguelikeController?.enabled()) {
-                window.roguelikeController.notice('Boardlocked unlocks tiles through Roll next location. Right-click a tile to inspect it.');
+            if (window.boardlockedController?.enabled()) {
+                window.boardlockedController.notice('Boardlocked unlocks tiles through Roll next location. Right-click a tile to inspect it.');
                 drawCanvas();
                 return;
             }
@@ -2997,13 +2997,13 @@ let handleMouseUp = function(e) {
                 return;
             } else if (!!tempChunks['unlocked'] && tempChunks['unlocked'].hasOwnProperty(chunkId)) {
                 if (!recentChunks.hasOwnProperty(chunkId)) {
-                    if (window.roguelikeController?.enabled() && !window.roguelikeController.allowRelock(chunkId)) return;
+                    if (window.boardlockedController?.enabled() && !window.boardlockedController.allowRelock(chunkId)) return;
                     delete tempChunks['unlocked'][chunkId];
                     calcCurrentChallengesCanvas(true);
                 }
             } else if (!!tempChunks['selected'] && tempChunks['selected'].hasOwnProperty(chunkId)) {
-                if (window.roguelikeController?.enabled() && !window.roguelikeController.isFrontierCandidate(chunkId)) {
-                    window.roguelikeController.notice('That boundary is not reachable from the current tile without crossing an encounter.');
+                if (window.boardlockedController?.enabled() && !window.boardlockedController.isFrontierCandidate(chunkId)) {
+                    window.boardlockedController.notice('That boundary is not reachable from the current tile without crossing an encounter.');
                     drawCanvas();
                     return;
                 }
@@ -3365,7 +3365,7 @@ let setRecentRoll = function(chunkId) {
 
 // Pick button: picks a random chunk from selected/potential
 let pickCanvas = function(both, override) {
-    if (window.roguelikeController?.enabled()) return window.roguelikeController.roll();
+    if (window.boardlockedController?.enabled()) return window.boardlockedController.roll();
     if (!testMode && (locked || importMenuOpen || highscoreMenuOpen || helpMenuOpen || patchNotesOpen || manualModalOpen || detailsModalOpen || notesModalOpen || rulesModalOpen || settingsModalOpen || userTasksModalOpen || searchModalOpen || searchDetailsModalOpen || highestModalOpen || highest2ModalOpen || methodsModalOpen || completeModalOpen || addEquipmentModalOpen || stickerModalOpen || paintModalOpen || backlogSourcesModalOpen || chunkHistoryModalOpen || challengeAltsModalOpen || manualOuterModalOpen || monsterModalOpen || slayerLockedModalOpen || constructionLockedModalOpen || rollChunkModalOpen || questStepsModalOpen || friendsListModalOpen || friendsAddModalOpen || passiveSkillModalOpen || mapIntroOpen || xpRewardOpen || manualAreasModalOpen || chunkSectionsModalOpen || chunkSectionPickerModalOpen || slayerMasterInfoModalOpen || doableClueStepsModalOpen || clueChunksModalOpen || notesOpen || newTasksOpen || clipboardModalOpen || overlaysModalOpen || userTasksListModalOpen || userTaskDeleteConfirmationModalOpen || exitSandboxWarningModalOpen || mobileMenuOpen || mobileTasksOpen || mobileChunkMenuOpen || customizeTopbarModalOpen || questChunksModalOpen || (unlockedChunks !== 0 && selectedChunks === 0 && !settings['randomStartAlways']))) {
         return;
     }
@@ -3544,7 +3544,7 @@ let pickCanvas = function(both, override) {
 
 // Roll 2 button: rolls 2 chunks from all selected chunks
 let roll2Canvas = function(override) {
-    if (window.roguelikeController?.enabled()) return window.roguelikeController.notice('Roll 2 / Roll 5 is disabled in Roguelike Mode.');
+    if (window.boardlockedController?.enabled()) return window.boardlockedController.notice('Roll 2 / Roll 5 is disabled in Boardlocked Mode.');
     if (!testMode && (locked || importMenuOpen || highscoreMenuOpen || helpMenuOpen || patchNotesOpen || manualModalOpen || detailsModalOpen || notesModalOpen || rulesModalOpen || settingsModalOpen || userTasksModalOpen || searchModalOpen || searchDetailsModalOpen || highestModalOpen || highest2ModalOpen || methodsModalOpen || completeModalOpen || addEquipmentModalOpen || stickerModalOpen || paintModalOpen || backlogSourcesModalOpen || chunkHistoryModalOpen || challengeAltsModalOpen || manualOuterModalOpen || monsterModalOpen || slayerLockedModalOpen || constructionLockedModalOpen || rollChunkModalOpen || questStepsModalOpen || friendsListModalOpen || friendsAddModalOpen || passiveSkillModalOpen || mapIntroOpen || xpRewardOpen || manualAreasModalOpen || chunkSectionsModalOpen || chunkSectionPickerModalOpen || slayerMasterInfoModalOpen || doableClueStepsModalOpen || clueChunksModalOpen || notesOpen || newTasksOpen || clipboardModalOpen || overlaysModalOpen || userTasksListModalOpen || userTaskDeleteConfirmationModalOpen || exitSandboxWarningModalOpen || mobileMenuOpen || mobileTasksOpen || mobileChunkMenuOpen || customizeTopbarModalOpen || questChunksModalOpen || (((!tempChunks['selected'] || Object.keys(tempChunks['selected']).length < 1) && !isPicking) || ((!tempChunks['potential'] || Object.keys(tempChunks['potential']).length < 1) && isPicking)))) {
         return;
     }
@@ -3613,7 +3613,7 @@ let roll2Canvas = function(override) {
 
 // Unpicks a random unlocked chunk
 let unpickCanvas = function() {
-    if (window.roguelikeController?.enabled()) return window.roguelikeController.notice('Random Unpick is disabled in Roguelike Mode.');
+    if (window.boardlockedController?.enabled()) return window.boardlockedController.notice('Random Unpick is disabled in Boardlocked Mode.');
     if (!testMode && (locked || importMenuOpen || highscoreMenuOpen || helpMenuOpen || patchNotesOpen || manualModalOpen || detailsModalOpen || notesModalOpen || rulesModalOpen || settingsModalOpen || userTasksModalOpen || searchModalOpen || searchDetailsModalOpen || highestModalOpen || highest2ModalOpen || methodsModalOpen || completeModalOpen || addEquipmentModalOpen || stickerModalOpen || paintModalOpen || backlogSourcesModalOpen || chunkHistoryModalOpen || challengeAltsModalOpen || manualOuterModalOpen || monsterModalOpen || slayerLockedModalOpen || constructionLockedModalOpen || rollChunkModalOpen || questStepsModalOpen || friendsListModalOpen || friendsAddModalOpen || passiveSkillModalOpen || mapIntroOpen || xpRewardOpen || manualAreasModalOpen || chunkSectionsModalOpen || chunkSectionPickerModalOpen || slayerMasterInfoModalOpen || doableClueStepsModalOpen || clueChunksModalOpen || notesOpen || newTasksOpen || clipboardModalOpen || overlaysModalOpen || userTasksListModalOpen || userTaskDeleteConfirmationModalOpen || exitSandboxWarningModalOpen || mobileMenuOpen || mobileTasksOpen || mobileChunkMenuOpen || customizeTopbarModalOpen || questChunksModalOpen || (!tempChunks['unlocked'] || Object.keys(tempChunks['unlocked']).length < 1))) {
         return;
     }
@@ -3662,7 +3662,7 @@ let setUpSelected = function() {
 
 // Finds the current challenge in each skill
 let calcCurrentChallengesCanvas = function(useOld, proceed, fromLoadData, inputTempSections, fromSectionPicker) {
-    window.roguelikeController?.invalidate();
+    window.boardlockedController?.invalidate();
     if (!proceed) {
         $('.panel-active .calculating').remove();
         $('.panel-active').prepend(`<div class="noscroll calculating"><div class='noscroll display-button' onclick='calcCurrentChallengesCanvas(${useOld}, true)'>Calculate Tasks</div></div>`);
@@ -3716,11 +3716,11 @@ let calcCurrentChallengesCanvas = function(useOld, proceed, fromLoadData, inputT
         setCalculating('.panel-active', useOld);
         setCurrentChallenges(['No tasks currently backlogged.'], ['No tasks currently completed.'], true, true);
         myWorker.terminate();
-        myWorker = new Worker("./worker.js?v=6.9.66-rl6");
+        myWorker = new Worker("./worker.js?v=6.9.66-bl7");
         myWorker.onmessage = workerOnMessage;
         const request = currentWorkerRequest(tempSections);
         myWorker.postMessage(request);
-        window.roguelikeController?.calculate(request);
+        window.boardlockedController?.calculate(request);
         workersOut['current'] = true;
         workerOut = Object.keys(workersOut).filter((key) => workersOut[key] !== false).length;
     }
@@ -4090,8 +4090,8 @@ $(document).ready(function() {
 // ------------------------------------------------------------
 
 // Recieve message from worker
-let myWorker = new Worker("./worker.js?v=6.9.66-rl6");
-let myWorker2 = new Worker("./worker.js?v=6.9.66-rl6");
+let myWorker = new Worker("./worker.js?v=6.9.66-bl7");
+let myWorker2 = new Worker("./worker.js?v=6.9.66-bl7");
 let workerOnMessage = function(e) {
     if (e.data.type === 'reload') {
         window.location.reload();
@@ -6225,7 +6225,7 @@ let setupMap = async function() {
 
 // Toggles the tasks window on mobile
 let openMobileTasks = function() {
-    if (window.roguelikeController?.enabled()) return window.roguelikeController.open();
+    if (window.boardlockedController?.enabled()) return window.boardlockedController.open();
     if (!inEntry && !importMenuOpen && !manualModalOpen && !detailsModalOpen && !notesModalOpen && !highscoreMenuOpen && !helpMenuOpen) {
         if (testMode) {
             $('.test-hint').toggle();
@@ -7264,7 +7264,7 @@ let calcFutureChallenges = function() {
     }
     tempSections = combineJSONs(tempSections, manualSections);
     myWorker2.terminate();
-    myWorker2 = new Worker("./worker.js?v=6.9.66-rl6");
+    myWorker2 = new Worker("./worker.js?v=6.9.66-bl7");
     myWorker2.onmessage = workerOnMessage;
     myWorker2.postMessage({
         type: 'future',
@@ -11812,7 +11812,7 @@ let submitFriend = function() {
     openFriendsList();
 }
 
-// Apply preset values through one path so the Roguelike panel and Rules modal agree.
+// Apply preset values through one path so the Boardlocked panel and Rules modal agree.
 let applyRulePresetValues = function(preset, options = {}) {
     if (!rulePresets || !rulePresets[preset]) return false;
     const previousClues = rules['Collection Log Clues'];
@@ -12942,7 +12942,7 @@ let checkMID = function(mid) {
         window.history.replaceState(null, 'Boardlocked', boardlockedRoute(mid));
     }
     if (/^local(?:=[a-z0-9_-]+)?$/i.test(mid || '')) {
-        window.roguelikeController.bootstrapLocal(mid.split('=')[1] || 'default');
+        window.boardlockedController.bootstrapLocal(mid.split('=')[1] || 'default');
         return;
     }
     if (mid === 'change-password') {
@@ -13861,7 +13861,7 @@ let convertToIds = function(obj) {
 
 // Stores data in Firebase
 let setData = function(skipCreatePluginOutput) {
-    window.roguelikeController?.onLegacyChange();
+    window.boardlockedController?.onLegacyChange();
     if (onTestServer || testMode || recentlyTestMode || !signedIn) {
         return;
     }
