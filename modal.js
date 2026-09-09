@@ -310,11 +310,11 @@ const modalContents = {
         <div id="patch-notes-title" class="patch-notes-title noscroll">Patch Notes</div>
         <div id="patch-notes-subtitle" class="patch-notes-subtitle noscroll">January 14, 2026 (6.9.12)</div>
         <div id="patch-notes-data" class="patch-notes-data noscroll">
-            <div><i>Note that not every update to the Chunk Picker has a corresponding Patch Notes entry. Check out the <a class='noscroll link' href='https://github.com/source-chunk/chunk-picker-v2/commits/gh-pages/' target='_blank'>Github Repository</a> to see when the Chunk Picker was last updated.</i></div>
+            <div><i>This archive describes the inherited Chunk Picker release history. Boardlocked changes are tracked in its repository.</i></div>
             <br />
             <h2 class='noscroll'>Major Changes & New Features</h2>
             <ul class='noscroll'>
-                <li class='noscroll'><b>Sailing</b> - Sailing was added to Oldschool Runescape in late November, and now that update is (mostly) here in the Chunk Picker! Sailing is started via the quest Pandemonium, in Port Sarim (and is similar to how Herblore is locked fully behind Druidic Ritual).<br /><br />Remember to manually add things to your map if you decide to make exceptions for Sailing! If you decide to complete the quest outside your chunks, or buy a boat, or anything like that, be sure to add it to your map so that the Chunk Picker knows and can assign you the correct tasks.<br /><br />This is the largest update that OSRS has seen in its history, which is why this has taken so long, and also why there are sure to be plenty of bugs in my data for it. Please let me know if you find any issues with the new update via the Bug Report link at the bottom of the Patch Notes.</li>
+                <li class='noscroll'><b>Sailing</b> - Sailing was added to Oldschool Runescape in late November, and now that update is (mostly) here in the Chunk Picker! Sailing is started via the quest Pandemonium, in Port Sarim (and is similar to how Herblore is locked fully behind Druidic Ritual).<br /><br />Remember to manually add things to your map if you decide to make exceptions for Sailing! If you decide to complete the quest outside your chunks, or buy a boat, or anything like that, be sure to add it to your map so that the Chunk Picker knows and can assign you the correct tasks.</li>
                 <li class='noscroll'>Some things are not yet added for Sailing, and will be added in the near future (but I wanted to get out everything that I had so far)! These things are: all parts of the Shrouded Ocean requiring an adamant helm or better to navigate (including islands), all parts of the Northern Ocean requiring an eternal brazier to navigate (including islands), and any Sea Charting tasks or rewards.</li>
                 <li class='noscroll'>The world map image has been updated to re-introduce the missing map icons!</li>
                 <li class='noscroll'>Although the world map was updated previously when Sailing came out, a reminder that the Tempoross chunk has moved because of the Sailing update (and you might need to manually change your map to compensate for that if you had Tempoross unlocked!)</li>
@@ -373,8 +373,6 @@ const modalContents = {
                 <li class='noscroll'>Fixed the skeleton variant outside the Wilderness Agility Course</li>
                 <li class='noscroll'>Changed a quest step in the Porcine of Interest quest from "Investigate the cart" to "Investigate the hole"</li>
             </ul>
-            <h3 class='noscroll'>As always, if you experience any issues with your map or anything wrong related to this update, please contact me on Discord at <i class='noscroll hover-copy' onclick="navigator.clipboard.writeText('whitecatblack')">whitecatblack  <i class="fa-solid fa-copy noscroll"></i></i> or submit a bug report <a class='noscroll link' href='https://docs.google.com/forms/d/e/1FAIpQLSdmSyeMPMjuDxPrDKQHbCjJe0bXQOUwPYvyTeY_mrF-UrtmCQ/viewform?usp=sf_link' target='_blank'>here</a>.</h3>
-            <h4><a href='?patch-notes' target="_blank">Patch Notes Archive</a></h4>
         </div>
         <div id="patch-notes-footer" class="patch-notes-footer noscroll">
             <button id='submit-patch-notes-button' class='modal-button' onclick='dismissPatchNotes()'>Dismiss</button>
@@ -460,7 +458,7 @@ const modalContents = {
             <div id="intro-data-subtitle" class="intro-data-subtitle noscroll">Don't worry too much about your decisions, you can always change these settings via the settings menu in the top-right of the screen.</div>
             </div>
             <div id="intro-data-2" class="intro-data-2 noscroll">
-            <div id="intro-data-subtitle" class="intro-data-subtitle noscroll">Feeling overwhelmed, or not quite sure how to set up your map? <b>Check out the <a href='https://github.com/source-chunk/chunk-picker-v2/wiki/Getting-Started' target='_blank'>Getting Started Guide!</a></b></div>
+            <div id="intro-data-subtitle" class="intro-data-subtitle noscroll">Choose the settings for your Boardlocked run. You can change them later from the settings menu.</div>
             <hr />
             <div id="intro-data-title" class="intro-data-title noscroll">Starting Chunk</div>
             <div id="intro-data-subtitle" class="intro-data-subtitle noscroll">

@@ -781,7 +781,7 @@
             $('#home-menu, #entry-menu, #import-menu, #highscore-menu, #highscore-menu2, #help-menu, .entry-home-menu-container, .entry-home-menu-extra, .background-img, .loading, #page1, #page1extra, #page1search').hide();
             $('.test-hint').hide();
             $('.lock-closed, .lock-opened, .pinchange, .friendslist, .gosandbox').hide();
-            document.title = 'Local ' + name + ' — Chunk Picker V2';
+            document.title = 'Boardlocked · ' + name;
             $('.toptitle2').text('LOCAL · ' + name);
             toggleTheme(settings.theme || 'light');
             doneLoading();

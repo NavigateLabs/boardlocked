@@ -920,9 +920,10 @@ test('mode off: pick/roll2/unpick implementations retain original bodies after o
     const root = path.join(__dirname, '..');
     const original = execFileSync('git', ['show', 'HEAD:index.js'], { cwd: root, maxBuffer: 5 * 1024 * 1024, encoding: 'utf8' }).replace(/\r\n/g, '\n');
     const current = fs.readFileSync(path.join(root, 'index.js'), 'utf8').replace(/\r\n/g, '\n');
+    const withoutDispatch = source => source.replace(/^    if \(window\.roguelikeController\?\.enabled\(\)\).*\n/m, '');
     for (const name of ['pickCanvas', 'roll2Canvas', 'unpickCanvas']) {
         const fn = code => code.slice(code.indexOf('let ' + name + ' = function'), code.indexOf('\n}', code.indexOf('let ' + name + ' = function')) + 2);
-        assert.equal(fn(current).replace(/^    if \(window\.roguelikeController\?\.enabled\(\)\).*\n/m, ''), fn(original));
+        assert.equal(withoutDispatch(fn(current)), withoutDispatch(fn(original)));
     }
 });
 test('production mode logic contains no hard-coded seed or equipment exceptions', () => {

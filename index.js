@@ -4,6 +4,9 @@
  * With help from Slay to Stay for chunk Ids and Amehzyn for smoother zooming/url decoding
  */
 
+const BOARDLOCKED_FORK = true;
+const boardlockedRoute = route => window.location.href.split('?')[0] + (route ? '?' + route : '');
+
 let onMobile = false;                                                           // Is user on a mobile device
 let viewOnly = false;                                                           // View only mode active
 let isPicking = false;                                                          // Has the user just rolled 2 chunks and is currently picking
@@ -1568,13 +1571,10 @@ let isGeneratingPluginData = false;
 let mobileChunkId = 0;
 let sidebarHidden = false;
 let isUnderMaintenance = false;
-let topbarSelection = ['Help', 'Patreon', 'Map Notes', 'Patch Notes', 'Discord', 'Report a Bug', 'WiseOldMan', 'Settings'];
-let topbarChoices = ['Map Notes', 'Patch Notes', 'Report a Bug', 'WiseOldMan', 'Chunk-roll History', 'Screenshot Mode', 'Sandbox Mode'];
+let topbarSelection = ['Unused', 'Unused', 'Map Notes', 'Chunk-roll History', 'Unused', 'Screenshot Mode', 'Sandbox Mode', 'Settings'];
+let topbarChoices = ['Map Notes', 'Chunk-roll History', 'Screenshot Mode', 'Sandbox Mode'];
 let topbarElements = {
     'Map Notes': `<div><span class='noscroll' onclick="openChunkNotesModal()"><i class="gonotes fa-solid fa-sticky-note" title='Notes'></i></span></div>`,
-    'Patch Notes': `<div><span class='noscroll' onclick="openPatchNotesModal(true)"><i class="godocumentation fa-solid fa-file-alt" title='Patch Notes'></i></span></div>`,
-    'Report a Bug': `<div><a href='https://docs.google.com/forms/d/e/1FAIpQLSdmSyeMPMjuDxPrDKQHbCjJe0bXQOUwPYvyTeY_mrF-UrtmCQ/viewform?usp=sf_link' target='_blank'><i class="gobugreport fa-solid fa-bug" title='Report a Bug'></i></a></div>`,
-    'WiseOldMan': `<div><a href='https://wiseoldman.net/groups/5841' target='_blank' title='WiseOldMan'><i class="gohighscore fa-solid fa-trophy"></i></a></div>`,
     'Chunk-roll History': `<div><span class='noscroll' onclick="showChunkHistory()"><i class="gohistory fa-solid fa-history" title='Chunk-roll History'></i></span></div>`,
     'Screenshot Mode': `<div><span class='noscroll' onclick="enableScreenshotMode()"><i class="goscreenshot fa-solid fa-camera" title='Screenshot Mode'></i></span></div>`,
     'Sandbox Mode': `<div><span class='noscroll' onclick="enableTestMode()"><i class="gosandbox fa-solid fa-flask" title='Sandbox Mode'></i></span></div>`,
@@ -4069,7 +4069,7 @@ let workerOnMessage = function(e) {
     if (e.data.type === 'reload') {
         window.location.reload();
     }
-    if (lastUpdated + 200000 < Date.now() && !hasUpdate) {
+    if (!BOARDLOCKED_FORK && lastUpdated + 200000 < Date.now() && !hasUpdate) {
         lastUpdated = Date.now();
         databaseRef.child('versionEnforced').once('value', function(snap) {
             snap.val() && databaseRef.child('version').once('value', function(snap2) {
@@ -4267,7 +4267,7 @@ let workerOnMessage = function(e) {
 
 // Logs error to firebase
 let logError = function(err) {
-    if (!(location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
+    if (!BOARDLOCKED_FORK && !(location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
         let errObject = {
             date: Date(),
             map: mid || null,
@@ -4320,7 +4320,7 @@ $(document).ready(function() {
     onMobile = window.mobileCheck();
     !window.location.href.split('?')[1] && $('.loading').hide();
     checkMID(window.location.href.split('?')[1]);
-    console.info('Chunk Picker V2 - Version', currentVersion);
+    console.info('Boardlocked - based on Chunk Picker V2', currentVersion);
 
     const currentDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/London' }));
     if (currentDate.getDate() === 1 && currentDate.getMonth() === 3) { // April 1
@@ -4336,8 +4336,6 @@ $(document).ready(function() {
         }
         const cursorImage = `./resources/cursors/${cursors[midNumTotal % cursors.length]}`;
         $('head').append(`<style>.hide-cursor * { cursor: url('${cursorImage}') 0 0, auto !important; }</style>`);
-    } else if (currentDate.getMonth() === 11) { // December
-        $('.avatar img').attr('src', './source-chunk-avatar-hat.png');
     }
 
     $('.mid').on('input', function(e) {
@@ -8462,10 +8460,10 @@ let openFriendsList = function() {
     $('.friends-list-data').empty();
     $('.friends-list-data').append(`<div class='addEntry noscroll' onclick='openFriendsListAdd()'>Add Map Entry</div>`);
     Object.keys(friends).sort((a, b) => { return friends[a].toLowerCase().localeCompare(friends[b].toLowerCase()) }).forEach((friendMid) => {
-        $('.friends-list-data').append(`<div class='noscroll friend-item'><a class='noscroll link' href='https://source-chunk.github.io/chunk-picker-v2/?${friendMid.toLowerCase()}-view' target='_blank'>${DOMPurify.sanitize(friends[friendMid], { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })} (${friendMid})</a><i class="friend-item-x fa-solid fa-times noscrollhard" onclick="removeFriend('${friendMid}', '${friends[friendMid]}')"></i></div>`);
+        $('.friends-list-data').append(`<div class='noscroll friend-item'><a class='noscroll link' href='${boardlockedRoute(friendMid.toLowerCase() + '-view')}' target='_blank'>${DOMPurify.sanitize(friends[friendMid], { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })} (${friendMid})</a><i class="friend-item-x fa-solid fa-times noscrollhard" onclick="removeFriend('${friendMid}', '${friends[friendMid]}')"></i></div>`);
     });
     Object.keys(friendsAlt).sort((a, b) => { return friendsAlt[a].toLowerCase().localeCompare(friendsAlt[b].toLowerCase()) }).forEach((friendMid) => {
-        $('.friends-list-data').append(`<div class='noscroll friend-item'><a class='noscroll link' href='https://source-chunk.github.io/chunk-picker-rs3/?${friendMid.toLowerCase()}-view' target='_blank'>${DOMPurify.sanitize(friendsAlt[friendMid], { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })} (${friendMid})</a><i class="friend-item-x fa-solid fa-times noscrollhard" onclick="removeFriend('${friendMid}', '${friendsAlt[friendMid]}')"></i></div>`);
+        $('.friends-list-data').append(`<div class='noscroll friend-item'>${DOMPurify.sanitize(friendsAlt[friendMid], { ALLOWED_TAGS: [], ALLOWED_ATTR: [] })} (${friendMid})<i class="friend-item-x fa-solid fa-times noscrollhard" onclick="removeFriend('${friendMid}', '${friendsAlt[friendMid]}')"></i></div>`);
     });
     $('#friendsListModal').show();
     modalOutsideTime = Date.now();
@@ -8937,7 +8935,7 @@ let searchMaps = function() {
     if (!!mapsData) {
         $('.maps-list-number').html(Object.keys(mapsData).filter((username) => username.toLowerCase().includes(searchTemp) || mapsData[username].mapcode.toLowerCase().includes(searchTemp)).length + ' users');
         Object.keys(mapsData).filter((username) => username.toLowerCase().includes(searchTemp) || mapsData[username].mapcode.toLowerCase().includes(searchTemp)).forEach((username) => {
-            tableData += `<tr><td>${username}</td><td><a href="https://source-chunk.github.io/chunk-picker-v2/?${mapsData[username].mapcode}" target="_blank">${mapsData[username].mapcode.toUpperCase()}</a></td><td>${mapsData[username].isInClan ? `<a href="https://wiseoldman.net/players/${username}" target="_blank">Stats (WOM)</a>` : '-'}</td><td><a href="https://secure.runescape.com/m=hiscore_oldschool/a=13/hiscorepersonal?user1=${username}" target="_blank">Stats (Hiscores)</a></td></tr>`;
+            tableData += `<tr><td>${username}</td><td><a href="${boardlockedRoute(mapsData[username].mapcode)}" target="_blank">${mapsData[username].mapcode.toUpperCase()}</a></td><td>${mapsData[username].isInClan ? `<a href="https://wiseoldman.net/players/${username}" target="_blank">Stats (WOM)</a>` : '-'}</td><td><a href="https://secure.runescape.com/m=hiscore_oldschool/a=13/hiscorepersonal?user1=${username}" target="_blank">Stats (Hiscores)</a></td></tr>`;
         });
         if (tableData.length === 0) {
             $('.maps-list').append(`<div class="noscroll results"><span class="noscroll holder"><span class="noscroll topline">No results found (0)</span></span></div>`);
@@ -8980,7 +8978,7 @@ let loadPoolsData = function() {
         $('.pools-list').empty();
         let tableData = '';
         Object.keys(formattedData['priority']).sort((uA, uB) => formattedData['priority'][uB].daysWaiting - formattedData['priority'][uA].daysWaiting).forEach((username) => {
-            tableData += `<tr><td>${username}</td><td><a href="https://source-chunk.github.io/chunk-picker-v2/?${formattedData['priority'][username].mapcode}" target="_blank">${formattedData['priority'][username].mapcode.toUpperCase()}</a></td><td>${formattedData['priority'][username].date}</td><td>${formattedData['priority'][username].daysWaiting}</td></tr>`;
+            tableData += `<tr><td>${username}</td><td><a href="${boardlockedRoute(formattedData['priority'][username].mapcode)}" target="_blank">${formattedData['priority'][username].mapcode.toUpperCase()}</a></td><td>${formattedData['priority'][username].date}</td><td>${formattedData['priority'][username].daysWaiting}</td></tr>`;
         });
         if (Object.keys(formattedData['priority']).length === 0) {
             $('.pools-list-a').append(`<div class="noscroll results"><span class="noscroll holder"><span class="noscroll topline">No names currently in Priority Pool</span></span></div>`);
@@ -8989,7 +8987,7 @@ let loadPoolsData = function() {
         }
         tableData = '';
         Object.keys(formattedData['new']).sort((uA, uB) => formattedData['new'][uB].daysWaiting - formattedData['new'][uA].daysWaiting).forEach((username) => {
-            tableData += `<tr><td>${username}</td><td><a href="https://source-chunk.github.io/chunk-picker-v2/?${formattedData['new'][username].mapcode}" target="_blank">${formattedData['new'][username].mapcode.toUpperCase()}</a></td><td>${formattedData['new'][username].date}</td><td>${formattedData['new'][username].daysWaiting}</td></tr>`;
+            tableData += `<tr><td>${username}</td><td><a href="${boardlockedRoute(formattedData['new'][username].mapcode)}" target="_blank">${formattedData['new'][username].mapcode.toUpperCase()}</a></td><td>${formattedData['new'][username].date}</td><td>${formattedData['new'][username].daysWaiting}</td></tr>`;
         });
         if (Object.keys(formattedData['new']).length === 0) {
             $('.pools-list-b').append(`<div class="noscroll results"><span class="noscroll holder"><span class="noscroll topline">No names currently in Waiting Pool</span></span></div>`);
@@ -12912,6 +12910,10 @@ let setUnderMaintenance = function() {
 
 // Checks the MID from the url
 let checkMID = function(mid) {
+    if (BOARDLOCKED_FORK && !/^local(?:=[a-z0-9_-]+)?$/i.test(mid || '')) {
+        mid = 'local=default';
+        window.history.replaceState(null, 'Boardlocked', boardlockedRoute(mid));
+    }
     if (/^local(?:=[a-z0-9_-]+)?$/i.test(mid || '')) {
         window.roguelikeController.bootstrapLocal(mid.split('=')[1] || 'default');
         return;
@@ -13351,7 +13353,7 @@ let loadData = async function(startup) {
     });
     myRef.child('topbarSelection').once('value', function(snap) {
         let snapDiff = preloadHelper(snap, 'topbarSelection');
-        topbarSelection = snap.val() || ['Help', 'Patreon', 'Map Notes', 'Patch Notes', 'Discord', 'Report a Bug', 'WiseOldMan', 'Settings'];
+        topbarSelection = snap.val() || ['Unused', 'Unused', 'Map Notes', 'Chunk-roll History', 'Unused', 'Screenshot Mode', 'Sandbox Mode', 'Settings'];
         if (topbarSelection.includes('Chunk Stats')) {
             topbarSelection[topbarSelection.indexOf('Chunk Stats')] = 'WiseOldMan';
         }
@@ -14013,7 +14015,7 @@ let rollMID = function(count) {
                             databaseRef.child('mapids/' + charSet).set(true);
                             databaseRef.child('mapCreationTimes/' + charSet).set(new Date(userCredential.user.metadata.creationTime).getTime());
                             $('#newmid').text(charSet.toUpperCase());
-                            $('.link').prop('href', 'https://source-chunk.github.io/chunk-picker-v2/?' + charSet).text('https://source-chunk.github.io/chunk-picker-v2/?' + charSet);
+                            $('.link').prop('href', boardlockedRoute(charSet)).text(boardlockedRoute(charSet));
                         });
                     });
                 }).catch((error) => { console.error(error) });
@@ -14023,7 +14025,7 @@ let rollMID = function(count) {
                     rollMID(rollMidCount + 1);
                 } else {
                     $('#newmid').text('ERROR').css('color', 'red');
-                    $('.maybe-error-text').css('font-size', 16).css('color', 'red').text('An error has occurred. This error has been reported to the developers. Please contact <u>whitecatblack</u> on Discord for more information.');
+                    $('.maybe-error-text').css('font-size', 16).css('color', 'red').text('Unable to create a legacy map. Use a local Boardlocked run instead.');
                     $('.link-outer').hide();
                     console.error('Error: Unable to generate untaken mapId.');
                     logError('Error: Unable to generate untaken mapId.');
