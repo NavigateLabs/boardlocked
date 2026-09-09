@@ -554,6 +554,47 @@ let ruleNames = {
 };                                                                              // List of rule definitions
 
 let rulePresets = {
+    "Roguelike Chunker": {
+        "Rare Drop": true,
+        "Rare Drop Amount": "0",
+        "Construction Milestone": true,
+        "Construction Minigame": true,
+        "Boss": true,
+        "Normal Farming": true,
+        "Tithe Farm": true,
+        "Spells": true,
+        "Show Skill Tasks": true,
+        "Show Quest Tasks": true,
+        "Show Diary Tasks": true,
+        "Show Best in Slot Tasks": true,
+        "Show Best in Slot Prayer Tasks": true,
+        "Show Best in Slot Defensive Tasks": true,
+        "Collection Log": true,
+        "Pets": true,
+        "Jars": true,
+        "Minigame": true,
+        "PvP Minigame": true,
+        "Shortcut Task": true,
+        "Shortcut": true,
+        "Forestry": true,
+        "Puro-Puro": true,
+        "Collection Log Bosses": true,
+        "Collection Log Raids": true,
+        "Collection Log Minigames": true,
+        "Collection Log Other": true,
+        "Farming Primary": true,
+        "Primary Spawns": true,
+        "Smithing by Smelting": true,
+        "Combat and Teleport Spells": true,
+        "Cleaning Herbs": true,
+        "Sail Trimming": true,
+        "Crewmates": true,
+        "Sea Charting": true,
+        "Fish Offcuts Valid Processing": true,
+        "Kill X Amount": "1",
+        "Collection Log Clues Amount": "100",
+        "Secondary Primary Amount": "1"
+    },
     "Vanilla Chunker": {
         "Rare Drop": true,
         "Construction Milestone": true,
@@ -726,6 +767,7 @@ let rulePresets = {
 };                                                                              // List of rules that are part of each preset
 
 let rulePresetFlavor = {
+    "Roguelike Chunker": "Strict access, broad independent progression",
     "Vanilla Chunker": "AKA the original ruleset",
     "Xtreme Chunker": "AKA Limpwurt's ruleset",
     "Supreme Chunker": "AKA Buz's ruleset"
@@ -1926,7 +1968,8 @@ let drawCanvas = function(ctxIn = ctx) {
                 }
                 ctxIn.strokeStyle = 'gray';
                 (!highVisibilityMode || totalZoom > 0.3) && ctxIn.strokeRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
-            } else if (!!tempChunks['selected'] && tempChunks['selected'][chunkId]) {
+            } else if (!!tempChunks['selected'] && tempChunks['selected'][chunkId] &&
+                (!window.roguelikeController?.enabled() || window.roguelikeController.isFrontierCandidate(chunkId))) {
                 if (highVisibilityMode) {
                     ctxIn.fillStyle = 'rgba(100, 255, 100, 0.25)';
                 } else if (hoveredChunk === chunkId) {
@@ -1938,10 +1981,12 @@ let drawCanvas = function(ctxIn = ctx) {
                 (!highVisibilityMode || totalZoom > 0.3) && ctxIn.strokeRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
                 !isPainted && ctxIn.fillRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
                 let heightOff;
-                if (tempSelectedChunks.indexOf(chunkId) + 1 > 999) {
+                const selectedPosition = window.roguelikeController?.enabled() ?
+                    window.roguelikeController.frontierNumber(chunkId) : tempSelectedChunks.indexOf(chunkId) + 1;
+                if (selectedPosition > 999) {
                     ctxIn.font = (totalZoom * (imgW / rowSize) * (1 / 2)) + 'px Calibri, Roboto Condensed, sans-serif';
                     heightOff = 0.65;
-                } else if (tempSelectedChunks.indexOf(chunkId) + 1 > 99) {
+                } else if (selectedPosition > 99) {
                     ctxIn.font = (totalZoom * (imgW / rowSize) * (2 / 3)) + 'px Calibri, Roboto Condensed, sans-serif';
                     heightOff = 0.7;
                 } else {
@@ -1950,7 +1995,7 @@ let drawCanvas = function(ctxIn = ctx) {
                 }
                 ctxIn.fillStyle = 'white';
                 ctxIn.textAlign = 'center';
-                ctxIn.fillText(tempSelectedChunks.indexOf(chunkId) + 1, dragTotalX + (totalZoom * ((i + 0.5) * imgW / rowSize)), dragTotalY + (totalZoom * ((j + heightOff) * imgH / (fullSize / rowSize))));
+                ctxIn.fillText(selectedPosition, dragTotalX + (totalZoom * ((i + 0.5) * imgW / rowSize)), dragTotalY + (totalZoom * ((j + heightOff) * imgH / (fullSize / rowSize))));
             } else if (!!tempChunks['potential'] && tempChunks['potential'][chunkId]) {
                 if (highVisibilityMode) {
                     ctxIn.fillStyle = 'rgba(255, 255, 100, 0.25)';
@@ -2314,6 +2359,7 @@ let drawCanvas = function(ctxIn = ctx) {
         manualMouseMoveCheck = false;
         handleMouseMove(manualMouseMoveCheck);
     }
+    window.roguelikeController?.drawOverlay(ctxIn);
 }
 
 // Listen for click events on body for clicking out of modals
@@ -2930,10 +2976,16 @@ let handleMouseUp = function(e) {
                 return;
             } else if (!!tempChunks['unlocked'] && tempChunks['unlocked'].hasOwnProperty(chunkId)) {
                 if (!recentChunks.hasOwnProperty(chunkId)) {
+                    if (window.roguelikeController?.enabled() && !window.roguelikeController.allowRelock(chunkId)) return;
                     delete tempChunks['unlocked'][chunkId];
                     calcCurrentChallengesCanvas(true);
                 }
             } else if (!!tempChunks['selected'] && tempChunks['selected'].hasOwnProperty(chunkId)) {
+                if (window.roguelikeController?.enabled() && !window.roguelikeController.isFrontierCandidate(chunkId)) {
+                    window.roguelikeController.notice('That boundary is not reachable from the current tile without crossing an encounter.');
+                    drawCanvas();
+                    return;
+                }
                 if (e.shiftKey && (!settings['shiftUnlock'] || (testMode && locked))) {
                     delete tempChunks['selected'][chunkId];
                     tempSelectedChunks.splice(tempSelectedChunks.indexOf(chunkId.toString()), 1);
@@ -3292,6 +3344,7 @@ let setRecentRoll = function(chunkId) {
 
 // Pick button: picks a random chunk from selected/potential
 let pickCanvas = function(both, override) {
+    if (window.roguelikeController?.enabled()) return window.roguelikeController.roll();
     if (!testMode && (locked || importMenuOpen || highscoreMenuOpen || helpMenuOpen || patchNotesOpen || manualModalOpen || detailsModalOpen || notesModalOpen || rulesModalOpen || settingsModalOpen || userTasksModalOpen || searchModalOpen || searchDetailsModalOpen || highestModalOpen || highest2ModalOpen || methodsModalOpen || completeModalOpen || addEquipmentModalOpen || stickerModalOpen || paintModalOpen || backlogSourcesModalOpen || chunkHistoryModalOpen || challengeAltsModalOpen || manualOuterModalOpen || monsterModalOpen || slayerLockedModalOpen || constructionLockedModalOpen || rollChunkModalOpen || questStepsModalOpen || friendsListModalOpen || friendsAddModalOpen || passiveSkillModalOpen || mapIntroOpen || xpRewardOpen || manualAreasModalOpen || chunkSectionsModalOpen || chunkSectionPickerModalOpen || slayerMasterInfoModalOpen || doableClueStepsModalOpen || clueChunksModalOpen || notesOpen || newTasksOpen || clipboardModalOpen || overlaysModalOpen || userTasksListModalOpen || userTaskDeleteConfirmationModalOpen || exitSandboxWarningModalOpen || mobileMenuOpen || mobileTasksOpen || mobileChunkMenuOpen || customizeTopbarModalOpen || questChunksModalOpen || (unlockedChunks !== 0 && selectedChunks === 0 && !settings['randomStartAlways']))) {
         return;
     }
@@ -3470,6 +3523,7 @@ let pickCanvas = function(both, override) {
 
 // Roll 2 button: rolls 2 chunks from all selected chunks
 let roll2Canvas = function(override) {
+    if (window.roguelikeController?.enabled()) return window.roguelikeController.notice('Roll 2 / Roll 5 is disabled in Roguelike Mode.');
     if (!testMode && (locked || importMenuOpen || highscoreMenuOpen || helpMenuOpen || patchNotesOpen || manualModalOpen || detailsModalOpen || notesModalOpen || rulesModalOpen || settingsModalOpen || userTasksModalOpen || searchModalOpen || searchDetailsModalOpen || highestModalOpen || highest2ModalOpen || methodsModalOpen || completeModalOpen || addEquipmentModalOpen || stickerModalOpen || paintModalOpen || backlogSourcesModalOpen || chunkHistoryModalOpen || challengeAltsModalOpen || manualOuterModalOpen || monsterModalOpen || slayerLockedModalOpen || constructionLockedModalOpen || rollChunkModalOpen || questStepsModalOpen || friendsListModalOpen || friendsAddModalOpen || passiveSkillModalOpen || mapIntroOpen || xpRewardOpen || manualAreasModalOpen || chunkSectionsModalOpen || chunkSectionPickerModalOpen || slayerMasterInfoModalOpen || doableClueStepsModalOpen || clueChunksModalOpen || notesOpen || newTasksOpen || clipboardModalOpen || overlaysModalOpen || userTasksListModalOpen || userTaskDeleteConfirmationModalOpen || exitSandboxWarningModalOpen || mobileMenuOpen || mobileTasksOpen || mobileChunkMenuOpen || customizeTopbarModalOpen || questChunksModalOpen || (((!tempChunks['selected'] || Object.keys(tempChunks['selected']).length < 1) && !isPicking) || ((!tempChunks['potential'] || Object.keys(tempChunks['potential']).length < 1) && isPicking)))) {
         return;
     }
@@ -3538,6 +3592,7 @@ let roll2Canvas = function(override) {
 
 // Unpicks a random unlocked chunk
 let unpickCanvas = function() {
+    if (window.roguelikeController?.enabled()) return window.roguelikeController.notice('Random Unpick is disabled in Roguelike Mode.');
     if (!testMode && (locked || importMenuOpen || highscoreMenuOpen || helpMenuOpen || patchNotesOpen || manualModalOpen || detailsModalOpen || notesModalOpen || rulesModalOpen || settingsModalOpen || userTasksModalOpen || searchModalOpen || searchDetailsModalOpen || highestModalOpen || highest2ModalOpen || methodsModalOpen || completeModalOpen || addEquipmentModalOpen || stickerModalOpen || paintModalOpen || backlogSourcesModalOpen || chunkHistoryModalOpen || challengeAltsModalOpen || manualOuterModalOpen || monsterModalOpen || slayerLockedModalOpen || constructionLockedModalOpen || rollChunkModalOpen || questStepsModalOpen || friendsListModalOpen || friendsAddModalOpen || passiveSkillModalOpen || mapIntroOpen || xpRewardOpen || manualAreasModalOpen || chunkSectionsModalOpen || chunkSectionPickerModalOpen || slayerMasterInfoModalOpen || doableClueStepsModalOpen || clueChunksModalOpen || notesOpen || newTasksOpen || clipboardModalOpen || overlaysModalOpen || userTasksListModalOpen || userTaskDeleteConfirmationModalOpen || exitSandboxWarningModalOpen || mobileMenuOpen || mobileTasksOpen || mobileChunkMenuOpen || customizeTopbarModalOpen || questChunksModalOpen || (!tempChunks['unlocked'] || Object.keys(tempChunks['unlocked']).length < 1))) {
         return;
     }
@@ -3586,6 +3641,7 @@ let setUpSelected = function() {
 
 // Finds the current challenge in each skill
 let calcCurrentChallengesCanvas = function(useOld, proceed, fromLoadData, inputTempSections, fromSectionPicker) {
+    window.roguelikeController?.invalidate();
     if (!proceed) {
         $('.panel-active .calculating').remove();
         $('.panel-active').prepend(`<div class="noscroll calculating"><div class='noscroll display-button' onclick='calcCurrentChallengesCanvas(${useOld}, true)'>Calculate Tasks</div></div>`);
@@ -3639,9 +3695,19 @@ let calcCurrentChallengesCanvas = function(useOld, proceed, fromLoadData, inputT
         setCalculating('.panel-active', useOld);
         setCurrentChallenges(['No tasks currently backlogged.'], ['No tasks currently completed.'], true, true);
         myWorker.terminate();
-        myWorker = new Worker("./worker.js?v=6.9.66");
+        myWorker = new Worker("./worker.js?v=6.9.66-rl6");
         myWorker.onmessage = workerOnMessage;
-        myWorker.postMessage({
+        const request = currentWorkerRequest(tempSections);
+        myWorker.postMessage(request);
+        window.roguelikeController?.calculate(request);
+        workersOut['current'] = true;
+        workerOut = Object.keys(workersOut).filter((key) => workersOut[key] !== false).length;
+    }
+}
+
+// Shared input contract for the legacy and strict global calculations.
+let currentWorkerRequest = function(tempSections = manualSections) {
+    return {
             type: 'current',
             chunks: tempChunks['unlocked'],
             rules,
@@ -3698,11 +3764,8 @@ let calcCurrentChallengesCanvas = function(useOld, proceed, fromLoadData, inputT
             updateLevel,
             unconnectedAreas,
             clueCompleteNum: rules['Collection Log Clues Amount']
-        });
-        workersOut['current'] = true;
-        workerOut = Object.keys(workersOut).filter((key) => workersOut[key] !== false).length;
-    }
-}
+    };
+};
 
 // Handles mouse leaving the page
 let handleMouseOut = function(e) {
@@ -4000,8 +4063,8 @@ $(document).ready(function() {
 // ------------------------------------------------------------
 
 // Recieve message from worker
-let myWorker = new Worker("./worker.js?v=6.9.66");
-let myWorker2 = new Worker("./worker.js?v=6.9.66");
+let myWorker = new Worker("./worker.js?v=6.9.66-rl6");
+let myWorker2 = new Worker("./worker.js?v=6.9.66-rl6");
 let workerOnMessage = function(e) {
     if (e.data.type === 'reload') {
         window.location.reload();
@@ -6137,6 +6200,7 @@ let setupMap = async function() {
 
 // Toggles the tasks window on mobile
 let openMobileTasks = function() {
+    if (window.roguelikeController?.enabled()) return window.roguelikeController.open();
     if (!inEntry && !importMenuOpen && !manualModalOpen && !detailsModalOpen && !notesModalOpen && !highscoreMenuOpen && !helpMenuOpen) {
         if (testMode) {
             $('.test-hint').toggle();
@@ -7175,7 +7239,7 @@ let calcFutureChallenges = function() {
     }
     tempSections = combineJSONs(tempSections, manualSections);
     myWorker2.terminate();
-    myWorker2 = new Worker("./worker.js?v=6.9.66");
+    myWorker2 = new Worker("./worker.js?v=6.9.66-rl6");
     myWorker2.onmessage = workerOnMessage;
     myWorker2.postMessage({
         type: 'future',
@@ -11723,29 +11787,35 @@ let submitFriend = function() {
     openFriendsList();
 }
 
+// Apply preset values through one path so the Roguelike panel and Rules modal agree.
+let applyRulePresetValues = function(preset, options = {}) {
+    if (!rulePresets || !rulePresets[preset]) return false;
+    const previousClues = rules['Collection Log Clues'];
+    const previousClueAmount = rules['Collection Log Clues Amount'];
+    Object.keys(rules).forEach((rule) => {
+        if (['Kill X Amount', 'Collection Log Clues Amount', 'Rare Drop Amount', 'Secondary Primary Amount'].includes(rule)) {
+            rules[rule] = rulePresets[preset][rule];
+        } else rules[rule] = rulePresets[preset].hasOwnProperty(rule);
+    });
+    if (options.preserveClues && previousClues) {
+        rules['Collection Log Clues'] = true;
+        rules['Collection Log Clues Amount'] = previousClueAmount;
+    }
+    $('.x-num-input').val(rules['Kill X Amount']);
+    $('.clue-complete-num-input').val(rules['Collection Log Clues Amount']);
+    $('.rare-num-input').val(rules['Rare Drop Amount']);
+    $('.secondary-primary-input').val(rules['Secondary Primary Amount']);
+    Object.keys(rules).filter(rule => typeof rules[rule] === 'boolean').forEach(rule => {
+        $('.' + rule.replaceAll(' ', '_').replace(/[!"#$%&'()*+,.\/:;<=>?@\[\\\]\^\`{|}~]/g, '').toLowerCase() + '-rule > label > span > input').prop('checked', rules[rule]);
+    });
+    return true;
+}
+
 // Apply the given rule preset
 let applyPreset = function(preset) {
     presetWarningModalOpen = false;
     $('#rulesPresetModal').remove();
-    !!rulePresets && !!rulePresets[preset] && Object.keys(rules).forEach((rule) => {
-        if (rule === 'Kill X Amount') {
-            rules[rule] = rulePresets[preset][rule];
-            $('.x-num-input').val(rulePresets[preset][rule]);
-        } else if (rule === 'Collection Log Clues Amount') {
-            rules[rule] = rulePresets[preset][rule];
-            $('.clue-complete-num-input').val(rulePresets[preset][rule]);
-        } else if (rule === 'Rare Drop Amount') {
-            rules[rule] = rulePresets[preset][rule];
-            $('.rare-num-input').val(rulePresets[preset][rule]);
-        } else if (rule === 'Secondary Primary Amount') {
-            rules[rule] = rulePresets[preset][rule];
-            $('.secondary-primary-input').val(rulePresets[preset][rule]);
-        } else {
-            rules[rule] = rulePresets[preset].hasOwnProperty(rule);
-            $('.' + rule.replaceAll(' ', '_').replace(/[!"#$%&'()*+,.\/:;<=>?@\[\\\]\^\`{|}~]/g, '').toLowerCase() + '-rule > label > span > input').prop('checked', rulePresets[preset].hasOwnProperty(rule));
-        }
-    });
-    !!rulePresets && !!rulePresets[preset] && checkOffRules();
+    if (applyRulePresetValues(preset)) checkOffRules();
 }
 
 // Shows warning modal for applying a preset
@@ -12842,6 +12912,10 @@ let setUnderMaintenance = function() {
 
 // Checks the MID from the url
 let checkMID = function(mid) {
+    if (/^local(?:=[a-z0-9_-]+)?$/i.test(mid || '')) {
+        window.roguelikeController.bootstrapLocal(mid.split('=')[1] || 'default');
+        return;
+    }
     if (mid === 'change-password') {
         atHome = true;
         $('.loading, .ui-loader-header').remove();
@@ -13758,6 +13832,7 @@ let convertToIds = function(obj) {
 
 // Stores data in Firebase
 let setData = function(skipCreatePluginOutput) {
+    window.roguelikeController?.onLegacyChange();
     if (onTestServer || testMode || recentlyTestMode || !signedIn) {
         return;
     }
