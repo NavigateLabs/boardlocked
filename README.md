@@ -36,7 +36,8 @@ pick up the iron dagger in the goblin house in Lumbridge, kill a level 3 rat in
 Lumbridge Swamp for raw rat meat, buy raw chicken and beef from Wydin's Food
 Store in Port Sarim, then use this
 no-cannon method on a bear cub: attack once, step behind a tree or rock until
-its health bar disappears, and repeat. These
+its health bar disappears, repeat for 3–4 solid hits, then finish with Ranged or
+Magic to stay combat level 3. These
 [level-3 flinching notes](https://www.reddit.com/r/UniqueIronmen/comments/1bjsowt)
 describe the same method. Then
 [finish Druidic Ritual](https://oldschool.runescape.wiki/w/Druidic_Ritual).

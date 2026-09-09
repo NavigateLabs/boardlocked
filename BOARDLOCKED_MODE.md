@@ -119,7 +119,8 @@ to the same stable completion store as an ordinary checked task, so Herblore and
 quest-gated source checks see the real initialization state. The panel keeps the
 route to one line and links no-cannon level-3 bear cub flinching notes. The method
 is to attack once, retreat behind a tree or rock until the health bar disappears,
-and repeat. Its 250 XP reward sets the
+repeat for 3–4 solid hits, then finish with Ranged or Magic to stay combat level 3.
+Its 250 XP reward sets the
 fresh actual Herblore level to 3. Pandemonium similarly sets Sailing to level 5
 from its 400 XP reward. Turning either choice off before starting restores the
 previous level unless the player has edited it since.
