@@ -35,7 +35,7 @@ pick up the iron dagger from the goblin house in Lumbridge, kill a lvl 3 rat in 
 chicken and beef from Wydin's Food Store in Port Sarim, use this
 [level-3 bear cub safespot](https://www.youtube.com/watch?v=YcvoAOKZF1Q), then
 [finish Druidic Ritual](https://oldschool.runescape.wiki/w/Druidic_Ritual).
-Boardlocked records the quest completion so Herblore access is calculated correctly.
+Enabling this option assumes you have done these steps before starting your account.
 
 Three optional start groups are available before the first roll:
 
