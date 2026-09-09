@@ -11,7 +11,7 @@ Open:
 
 **[https://navigatelabs.github.io/boardlocked/](https://navigatelabs.github.io/boardlocked/)**
 
-Use the task icon in the top-right to reopen the run panel.
+Use the task icon in the top-right to reopen to open the panel.
 
 ## How Boardlocked plays
 
@@ -19,7 +19,7 @@ Use the task icon in the top-right to reopen the run panel.
 - Cross taskless `FREE` tiles automatically while building the roll pool.
 - Complete any one task from the current tile before rolling again.
 - Recalculate routes when a completed task unlocks an item, level, or connection.
-- Keep skill tasks moving forward through per-skill progression windows.
+- Keep skill tasks moving forward through per-skill progression windows. (i.e. for most skills this is +15, so you cant cut yew before you have cut and found 60-15=45=maple, or anything else in that window)
 - Offer every obtainable weapon upgrade that improves on equipment already acquired.
 - Import old runs while recalculating goals against the current rules and task data.
 
