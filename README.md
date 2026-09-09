@@ -15,9 +15,9 @@ Use the task icon in the top-right to reopen the run panel.
 
 ## How Boardlocked plays
 
-- Roll from the first reachable new chunk or unfinished encounter in each direction.
-- Cross taskless `FREE` chunks automatically while building the roll pool.
-- Complete any one task from the current visit snapshot before rolling again.
+- Roll from the first reachable new tile or unfinished tile in each direction.
+- Cross taskless `FREE` tiles automatically while building the roll pool.
+- Complete any one task from the current tile before rolling again.
 - Recalculate routes when a completed task unlocks an item, level, or connection.
 - Keep skill tasks moving forward through per-skill progression windows.
 - Offer every obtainable weapon upgrade that improves on equipment already acquired.
