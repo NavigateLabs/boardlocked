@@ -7,17 +7,9 @@ chunks, equipment upgrades, and skill progression.
 
 ## Play
 
-Once GitHub Pages is enabled for this branch, open:
+Open:
 
-**https://navigatelabs.github.io/boardlocked/?local=default**
-
-The `local` profile is stored in your browser. A different profile name creates a
-separate run, for example `?local=test-run`. Use **Run setup · continue or reset** in
-the Roguelike panel to export a run, import one on another browser, continue an
-existing route, or reset everything.
-
-Each person who opens the site receives an independent local save. Sharing the URL
-shares the application; sharing an exported run JSON shares a copy of your progress.
+**[https://navigatelabs.github.io/boardlocked/?local=default](https://navigatelabs.github.io/boardlocked/)**
 
 ## Roguelike mode
 
