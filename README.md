@@ -30,7 +30,7 @@ pool excludes Morytania, the desert,
 Prifddinas, quest-locked islands, damaging environments, guild interiors, and
 other poor level-3 starts.
 
-**Druidic Ritual is recommended and enabled by default.** The compact route is:
+**Druidic Ritual is recommended and enabled by default.** The route is:
 pick up the iron dagger from the goblin house in Lumbridge, kill a lvl 3 rat in lumbridge swamp for raw rat meat, buy raw
 chicken and beef from Wydin's Food Store in Port Sarim, use this
 [level-3 bear cub safespot](https://www.youtube.com/watch?v=YcvoAOKZF1Q), then
