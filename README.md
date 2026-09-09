@@ -41,12 +41,6 @@ Then open **http://127.0.0.1:8080/?local=default**.
 No package installation or build step is required. The site still loads several
 public libraries from CDNs, so an internet connection is needed.
 
-## Validate changes
-
-```powershell
-node scripts/validateJSON.js
-node --test scripts/testRoguelike.js
-```
 
 ## Credits
 
