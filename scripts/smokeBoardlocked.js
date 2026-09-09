@@ -44,6 +44,8 @@ const output = process.env.BL_SCREENSHOT_DIR || path.join(require('node:os').tmp
         await openPanel();
         assert.equal(await page.locator('.menu9').isVisible(), false, 'only the visit task panel is shown by default');
         assert.equal(await page.locator('#bl-preset-status').innerText(), 'Rules: Boardlocked Chunker');
+        assert.equal(await page.locator('#bl-start-roll').isVisible(), true, 'fresh runs show the start control');
+        assert.equal(await page.locator('#bl-roll').isVisible(), false, 'fresh runs hide the regular travel control');
         const migratedVault = await page.evaluate(() => JSON.parse(localStorage.getItem('chunk-picker-v2:boardlocked-run:v2:smoke')));
         assert.equal(migratedVault.format, 'boardlocked-browser-save');
         assert.equal(migratedVault.boardlockedState.version, Boardlocked.VERSION);
@@ -81,8 +83,12 @@ const output = process.env.BL_SCREENSHOT_DIR || path.join(require('node:os').tmp
                     window.blSavedRandom = Math.random; Math.random = () => (index + .1) / candidates.length;
                 }, id);
             }
-            await page.locator('#bl-roll').click();
+            await page.locator(id === '6198' ? '#bl-start-roll' : '#bl-roll').click();
             await settle();
+            if (id === '6198') {
+                assert.equal(await page.locator('#bl-start-roll').isVisible(), false, 'the start control disappears after the first roll');
+                assert.equal(await page.locator('#bl-roll').isVisible(), true, 'the regular travel control appears after the first roll');
+            }
             await page.evaluate(() => { if (window.blSavedRandom) { Math.random = window.blSavedRandom; delete window.blSavedRandom; } });
             const visit = await page.evaluate(() => boardlockedController.debug().state.currentVisit);
             assert.equal(visit.locationId, id);

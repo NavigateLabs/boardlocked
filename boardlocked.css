@@ -11,6 +11,7 @@
 #bl-panel button:disabled { opacity: .5; cursor: default; }
 #bl-panel button:focus-visible, #bl-panel input:focus-visible, #bl-panel textarea:focus-visible, #bl-panel summary:focus-visible { outline: 3px solid #008866; outline-offset: 2px; }
 #bl-panel .bl-primary { width: 100%; background: #175640; color: #fff; padding: 10px; font-weight: bold; }
+#bl-panel #bl-roll[hidden] { display: none !important; }
 #bl-panel input[type=checkbox] { appearance: auto; width: 17px; height: 17px; flex: none; margin: 2px 8px 0 0; }
 #bl-panel .bl-toggle, #bl-panel .bl-task > label { display: flex; align-items: flex-start; cursor: pointer; }
 #bl-panel .bl-task { padding: 8px 0; border-bottom: 1px solid #8884; overflow-wrap: anywhere; }

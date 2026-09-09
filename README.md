@@ -66,9 +66,6 @@ or moving to another browser or device can delete it.** Use **Download backup** 
 the run panel regularly and keep the JSON file outside the browser. **Import backup**
 restores old Boardlocked exports as well as the current format.
 
-The full rules, controls, state model, and design notes are in
-[BOARDLOCKED_MODE.md](./BOARDLOCKED_MODE.md).
-
 ## Run locally
 
 Opening `index.html` directly will not work because browsers restrict JSON requests

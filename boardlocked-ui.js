@@ -685,8 +685,9 @@
         document.getElementById('bl-reset').hidden = !localProfile;
         document.getElementById('bl-reset').disabled = !canEdit();
         document.getElementById('bl-preset-status').textContent = 'Rules: ' + activeRulePreset();
+        const started = hasStarted();
         const startSetup = document.getElementById('bl-start-setup');
-        startSetup.hidden = hasStarted();
+        startSetup.hidden = started;
         for (const key of Object.keys(state.initialization)) {
             const input = document.getElementById('bl-start-' + key);
             if (input) { input.checked = state.initialization[key]; input.disabled = !canEdit() || busy; }
@@ -705,6 +706,7 @@
             'encounter (' + pool.byLocation[id].length + ' eligible tasks)' : 'free travel tile')).join('\n');
         renderPastTasks();
         const rollButton = document.getElementById('bl-roll');
+        rollButton.hidden = !started;
         rollButton.disabled = busy || !!error || !dataReady || !R.canRoll(state) || !pool.candidates.length || !canEdit();
         rollButton.textContent = busy ? 'Calculating access and tasks…' : !R.canRoll(state) ? 'Complete one task to travel' : !pool.candidates.length ?
             'No reachable locations' : state.currentVisit?.resolution === 'no_tasks' && state.travelAnchor === state.currentVisit.locationId ?
