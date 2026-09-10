@@ -37,10 +37,10 @@ pick up the iron dagger near Lumbridge, kill a level 3 swamp rat for raw rat
 meat, buy raw chicken and beef from Wydin's Food Store in Port Sarim, then sail
 with Veos to Kourend and continue to Land's End. The
 [level-3 start video](https://www.youtube.com/watch?v=ZiEf7s40lEg) shows the
-whole route and the exact no-cannon bear-cub flinch. Then
+whole route. Then
 [finish Druidic Ritual](https://oldschool.runescape.wiki/w/Druidic_Ritual).
 Enabling this option assumes you complete the route before starting the rolled
-account. Boardlocked records the quest and its level-3 Herblore result.
+account.
 
 Three optional start groups are available before the first roll:
 
