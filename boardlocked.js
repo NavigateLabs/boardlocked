@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 13;
+    const VERSION = 14;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -35,7 +35,7 @@
     const PROGRESSION_WINDOWS = Object.freeze({
         Attack: 10, Strength: 10, Defence: 10, Hitpoints: 25, Ranged: 10, Prayer: 20, Magic: 15,
         Cooking: 15, Woodcutting: 15, Fletching: 10, Fishing: 10, Firemaking: 15, Crafting: 10,
-        Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 10, Slayer: 20,
+        Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 15, Slayer: 20,
         Farming: 20, Runecraft: 15, Hunter: 10, Construction: 10, Sailing: 20
     });
     const LEGACY_BAND_MINIMUMS = Object.freeze([1, 15, 30, 45, 60, 75, 90]);
@@ -522,10 +522,14 @@
         }
         return [...catalog.values()];
     }
-    function progressionCeiling(catalog, skill, highWater) {
+    function progressionCeiling(catalog, skill, highWater, actualLevel = 1) {
         const standard = Math.min(99, highWater + progressionWindow(skill));
         const laterLevels = [...new Set(catalog.filter(task => task.skill === skill && task.advancesSkillProgression && task.level > highWater)
             .map(task => task.level))].sort((a, b) => a - b);
+        // A new skill must establish one of its level-one methods before its
+        // forward window opens. Once that first milestone is complete, the
+        // ordinary per-skill window applies and no intermediate task is forced.
+        if (highWater === 0 && actualLevel === 1 && laterLevels.includes(1)) return 1;
         if (!laterLevels.length || laterLevels.some(level => level <= standard)) return standard;
         // Sparse skills still expose their nearest next milestone rather than
         // becoming permanently stuck behind an empty numerical range.
@@ -652,7 +656,8 @@
             const impliedByItem = impliedEquipmentCompletion(task, completedItems, state);
             const completed = isComplete(task, legacy, state) || !!impliedByItem, backlogged = isBacklogged(task, legacy);
             const highWater = state.progressionHighWater?.[task.skill] ?? 0;
-            const ceiling = task.advancesSkillProgression ? progressionCeiling(catalog, task.skill, highWater) : null;
+            const ceiling = task.advancesSkillProgression ? progressionCeiling(catalog, task.skill, highWater,
+                state.actualLevels?.[task.skill] || 1) : null;
             const superseded = !!task.advancesSkillProgression && task.level <= highWater;
             const progressionBlocked = !!task.advancesSkillProgression && task.level > ceiling;
             return { ...task, origins, activeOrigins, completed, implicitlyCompleted: !!impliedByItem, completionEvidenceItem: impliedByItem,

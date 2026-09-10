@@ -737,6 +737,31 @@ test('completing a skill task advances an exact high-water mark and opens only t
     assert.equal(R.derivePool([], geo, tasks).byLocation['1000'].includes('chicken'), false);
 });
 
+test('a skill begins with level-one methods, then opens its full forward window', () => {
+    const data = { challenges: { Thieving: {
+        Citizen: { Level: 1, Primary: true }, Farmer: { Level: 10, Primary: true },
+        'H.A.M. Member': { Level: 15, Primary: true }, Guard: { Level: 20, Primary: true }
+    } } };
+    const catalog = R.buildTaskCatalog(data);
+    const located = catalog.map(task => ({ ...task, origins: [origin('1000')], available: true }));
+    let state = R.initializeProgression(fresh(), catalog);
+    let tasks = R.adaptTasks(located, {}, state, geo, {}, {}, catalog);
+    assert.equal(tasks.find(task => task.name === 'Citizen').eligible, true);
+    for (const name of ['Farmer', 'H.A.M. Member', 'Guard']) {
+        const task = tasks.find(candidate => candidate.name === name);
+        assert.equal(task.eligible, false, name);
+        assert.equal(task.progressionCeiling, 1, name);
+    }
+
+    const legacy = { checkedAllTasks: { Thieving: { Citizen: true } } };
+    state = R.initializeProgression(fresh(), catalog, legacy);
+    tasks = R.adaptTasks(located, legacy, state, geo, {}, {}, catalog);
+    assert.equal(R.progressionWindow('Thieving'), 15);
+    assert.equal(tasks.find(task => task.name === 'Farmer').eligible, true);
+    assert.equal(tasks.find(task => task.name === 'H.A.M. Member').eligible, true);
+    assert.equal(tasks.find(task => task.name === 'Guard').progressionBlocked, true);
+});
+
 test('quests, diaries, collection, minigame and BiS objectives are not suppressed by skill progression', () => {
     const tasks = progressionFixture().get({ checkedAllTasks: { Cooking: { Fish: true }, Woodcutting: { Logs: true } } });
     for (const name of ['Quest', 'Diary', 'Collection', 'Minigame', 'Quest requirement', 'Equipment']) {
@@ -824,7 +849,7 @@ test('every skill has an explicit progression window chosen for its task density
     assert.deepEqual(R.PROGRESSION_WINDOWS, {
         Attack: 10, Strength: 10, Defence: 10, Hitpoints: 25, Ranged: 10, Prayer: 20, Magic: 15,
         Cooking: 15, Woodcutting: 15, Fletching: 10, Fishing: 10, Firemaking: 15, Crafting: 10,
-        Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 10, Slayer: 20,
+        Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 15, Slayer: 20,
         Farming: 20, Runecraft: 15, Hunter: 10, Construction: 10, Sailing: 20
     });
     assert.deepEqual(Object.keys(R.PROGRESSION_WINDOWS).sort(), R.SKILLS.slice().sort());
@@ -1243,8 +1268,8 @@ test('fresh Hill Giant start replaces the generic steel milestone with its exact
         assert.ok(tasks.some(task => task.equipmentName === item && task.eligible), item + ' remains a distinct obtainable upgrade');
     }
     const generic = tasks.find(task => task.name === 'Wield a ~|steel weapon|~');
-    assert.equal(generic.eligible, false); assert.equal(generic.redundant, true);
-    assert.ok(generic.coveredByTaskIds.includes(steel.taskId));
+    assert.equal(generic.eligible, false); assert.equal(generic.progressionBlocked, true);
+    assert.equal(generic.progressionCeiling, 1);
     assert.ok(!tasks.some(task => task.equipmentName === 'Rune scimitar'), 'fresh progression does not jump to level-40 gear');
 });
 
@@ -1392,7 +1417,7 @@ test('imported Woodcutting Guild route opens through a free tile, then stops the
     const after = route(true);
     assert.ok(after.candidates.some(candidate => candidate.kind === 'revisit' && candidate.locationId === '6198'));
     assert.ok(!after.candidates.some(candidate => ['6197', '6453', '6710'].includes(candidate.locationId)));
-    assert.equal(after.byLocation['6198'].length, 2);
+    assert.equal(after.byLocation['6198'].length, 1, 'only the level-one Woodcutting method is offered before its first milestone');
 });
 test('weapon choices retain every current upgrade and remove options at or below owned gear', () => {
     const calculate = (level, owned = null) => {
