@@ -19,14 +19,9 @@ Simply, you move one chunk then complete one task before you can move again. Mov
 
 The tasks are similar to those you would expect from chunklocked, I.e. get a new BiS, skilling activity, collection log, quests and such.
 
-You have access to everything in previously unlocked chunks, so you can re-enter areas you have previously been to. However you must focus on your task. I.e. if you need to get woodcutting to lvl 60 to cut yew, that should be the goal you focus on in your unlocked chunks and you shouldn't go train thieving.
+You have access to everything in previously unlocked chunks, and can freely re-enter areas you have previously been to. However you must focus on your task. I.e. if you need to get woodcutting to lvl 60 to cut yew, that should be the goal you focus on in your unlocked chunks and therfore you shouldn't go train thieving.
 
 The tasks are more than likely begin very simple (get an axe, cut a tree), but not to worry, after a couple chunks you'll find yourself with increasingly harder tasks.
-
-Boardlocked does not estimate Combat. When a chunk's only remaining goals need a
-combat-gated Slayer master, the panel asks once whether you can use that master.
-Answering no hides every dependent goal until you activate the master under
-**Slayer masters**.
 
 ## Start a new account
 
