@@ -687,6 +687,22 @@ test('manual override also resolves the worker provenance diagnostic', () => {
     assert.equal(output.tasks.find(t => t.taskId === 'unknown').origins[0].chunkId, '2000');
 });
 
+test('mixed NPC groups retain origins for the level-one Citizen Thieving task', () => {
+    const request = usePreset(makeRequest(['4912']), 'Boardlocked Chunker');
+    const result = runWorker(request).result;
+    const citizen = result.tasks.find(task => task.name === 'Pickpocket a ~|citizen|~');
+    assert.ok(citizen);
+    assert.equal(citizen.available, true);
+    assert.ok(citizen.origins.some(source => source.chunkId === '4912' && source.sourceType === 'npcs' &&
+        source.sourceName === 'Citizen (Tal Teklan)'));
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const state = R.initializeProgression(request.boardlocked.state, catalog, {}, request.boardlocked.tasksMap);
+    const adapted = R.adaptTasks(result.tasks, {}, state, request.chunks, result.sections,
+        request.manualSections, catalog, request.boardlocked.tasksMap).find(task => task.taskId === citizen.taskId);
+    assert.equal(adapted.progressionBlocked, false);
+    assert.equal(adapted.eligible, true);
+});
+
 function progressionFixture() {
     const data = { challenges: {
         Cooking: { Chicken: { Level: 1, Primary: true }, Bread: { Level: 1, Primary: true }, Pie: { Level: 10, Primary: true },

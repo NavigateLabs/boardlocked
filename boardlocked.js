@@ -1303,6 +1303,9 @@
                 if (field === 'Objects' && portable) continue;
                 result.push(...(meta[field] || []).flatMap(n => expand(n, codes[group]).flatMap(source => fixed(type, source))));
             }
+            for (const mixed of meta.Mix || []) for (const source of expand(mixed, codes.mixPlus)) {
+                result.push(...fixed('npcs', source), ...fixed('monsters', source));
+            }
             result = constrain(result);
             if (!result.length) {
                 const marked = (meta.Items || []).filter(n => n.includes('*'));
