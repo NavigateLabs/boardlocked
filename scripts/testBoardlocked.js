@@ -939,7 +939,11 @@ test('Slayer account setup and master tasks remain independent progression entry
     assert.doesNotMatch(ui, /Levels &amp; skill progression/);
     assert.match(ui, /id="bl-slayer-master-summary"/);
     assert.match(ui, /id="bl-start-turael"/);
-    assert.match(ui, /<summary>Instructions<\/summary>/);
+    assert.match(ui, /<summary>Instructions for getting Druidic Ritual Items<\/summary>/);
+    assert.match(ui, /Complete the quest before starting\./);
+    assert.match(ui, /oldschool\.runescape\.wiki\/w\/Druidic_Ritual/);
+    assert.match(ui, /id="bl-mode-content" hidden/);
+    assert.match(ui, /<summary>Run data &amp; rules<\/summary>/);
     assert.doesNotMatch(ui, /Avoid the level-6 rat/);
     assert.doesNotMatch(ui, /ruined house/);
 });

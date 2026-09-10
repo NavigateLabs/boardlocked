@@ -959,6 +959,7 @@
         document.body.classList.toggle('bl-start-picking', pickingStartingTile && !started);
         const startSetup = document.getElementById('bl-start-setup');
         startSetup.hidden = started;
+        document.getElementById('bl-mode-content').hidden = !started;
         for (const key of Object.keys(state.initialization)) {
             const input = document.getElementById('bl-start-' + key);
             if (input) { input.checked = state.initialization[key]; input.disabled = !canEdit() || busy; }
@@ -1041,10 +1042,13 @@
         }
         document.getElementById('bl-void').disabled = !visit || R.canRoll(state) || !canEdit();
         const reachableEncounters = pool.candidates.filter(c => c.kind === 'revisit');
-        const poolBoundaryLabel = Object.keys(tempChunks.unlocked || {}).length ? 'Rollable new tiles' : 'Possible starting tiles';
-        document.getElementById('bl-pool-summary').textContent = 'Current tile: ' + (pool.current || 'not set') + ' · ' + poolBoundaryLabel + ': ' +
-            pool.candidates.filter(c => c.kind === 'frontier').length + ' · Reachable encounters: ' + reachableEncounters.length +
-            ' · Free tiles: ' + pool.dormant.length + ' (' + pool.reachableFree.length + ' on a current path)';
+        const frontierCount = pool.candidates.filter(c => c.kind === 'frontier').length;
+        const choiceCount = frontierCount + reachableEncounters.length;
+        document.getElementById('bl-pool-heading').textContent = 'Roll pool · ' + choiceCount + (choiceCount === 1 ? ' choice' : ' choices');
+        document.getElementById('bl-pool-summary').textContent = 'From ' + (pool.current || 'the current tile') + ': ' + frontierCount +
+            (frontierCount === 1 ? ' new tile, ' : ' new tiles, ') + reachableEncounters.length +
+            (reachableEncounters.length === 1 ? ' earlier tile with a task, and ' : ' earlier tiles with tasks, and ') +
+            pool.reachableFree.length + (pool.reachableFree.length === 1 ? ' free tile on the routes.' : ' free tiles on the routes.');
         const startSummary = document.getElementById('bl-start-summary');
         if (startSummary && !hasStarted()) {
             startSummary.textContent = startingPool.ids.length + ' tiles';
@@ -1345,41 +1349,27 @@
     function mount() {
         panel = element('aside', null, { id: 'bl-panel', 'aria-label': 'Boardlocked run' }); panel.hidden = true;
         panel.innerHTML = `<header><h2>Boardlocked Run</h2><button type="button" id="bl-close" aria-label="Close run panel">×</button></header>
-            <p id="bl-storage-label"></p><p class="bl-save-warning">Clearing this site’s browser data deletes its local copy. Keep a downloaded backup outside the browser.</p>
-            <button id="bl-export" type="button">Download backup</button>
-            <button id="bl-reset" type="button" class="bl-danger" title="Clear the map and all progress for this local run">Reset map &amp; run</button>
-            <div class="bl-preset"><strong id="bl-preset-status">Rules: Boardlocked defaults</strong><div class="bl-toolbar"><button id="bl-show-rules" type="button">Chunk Rules</button><button id="bl-reset-preset" type="button">Restore Boardlocked rules</button></div></div>
-            <p id="bl-message" role="status" aria-live="polite"></p>
+            <p id="bl-storage-label"></p><p id="bl-message" role="status" aria-live="polite"></p>
             <section id="bl-start-setup" class="bl-start-setup"><h3>Start a new account</h3>
             <div class="bl-start-grid bl-start-recommended">
             <label class="bl-start-option"><input id="bl-start-turael" type="checkbox"><span><strong>Turael setup <em>recommended</em></strong><small>Talk to Turael and check his options to unlock other Slayer masters. Cancel any assignment.</small></span></label>
-            <label class="bl-start-option"><input id="bl-start-druidicRitual" type="checkbox"><span><strong>Druidic Ritual <em>recommended</em></strong><small>Complete it before your first roll; Herblore starts at 3.</small></span></label>
+            <label class="bl-start-option"><input id="bl-start-druidicRitual" type="checkbox"><span><strong>Druidic Ritual <em>recommended</em></strong><small>Complete the quest before starting.</small></span></label>
             </div>
-            <details class="bl-start-instructions"><summary>Instructions</summary><ol class="bl-start-route"><li>Pick up the iron dagger near Lumbridge.</li><li>Kill a level-3 rat in Lumbridge Swamp for raw rat meat.</li><li>Buy raw chicken and raw beef from Wydin’s Food Store in Port Sarim.</li><li>Talk to Veos and travel to Kourend, then talk to him again to travel to Land’s End.</li><li>Flinch the bear cub from the outside corner of the house, take its meat, and finish Druidic Ritual.</li></ol><figure><img src="./resources/boardlocked-bear-flinch.jpg" alt="Player standing on the outside corner of the house with the bear cub nearby" loading="lazy"><figcaption>Attack once, return to the outside corner, and wait for the bear’s health bar to disappear. Repeat until it dies.</figcaption></figure></details>
+            <details class="bl-start-instructions"><summary>Instructions for getting Druidic Ritual Items</summary><ol class="bl-start-route"><li>Pick up the iron dagger near Lumbridge.</li><li>Kill a level-3 rat in Lumbridge Swamp for raw rat meat.</li><li>Buy raw chicken and raw beef from Wydin’s Food Store in Port Sarim.</li><li>Talk to Veos and travel to Kourend, then talk to him again to travel to Land’s End.</li><li>Flinch the bear cub from the outside corner of the house and take its meat.</li><li>Complete Druidic Ritual with the <a href="https://oldschool.runescape.wiki/w/Druidic_Ritual" target="_blank" rel="noopener noreferrer">OSRS Wiki quest guide</a>.</li></ol><figure><img src="./resources/boardlocked-bear-flinch.jpg" alt="Player standing on the outside corner of the house with the bear cub nearby" loading="lazy"><figcaption>Attack once, return to the outside corner, and wait for the bear’s health bar to disappear. Repeat until it dies.</figcaption></figure></details>
             <div class="bl-start-grid">
             <label class="bl-start-option"><input id="bl-start-varlamore" type="checkbox"><span><strong>Varlamore starts</strong><small>Assumes Children of the Sun is complete before rolling.</small></span></label>
             <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds wilderness tiles.</small></span></label>
             </div><p id="bl-start-summary" class="bl-muted"></p>
             <div id="bl-start-actions"><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button><button id="bl-start-pick" class="bl-start-pick" type="button">Pick starting tile</button></div>
             <div id="bl-start-picker" class="bl-start-picker" hidden><p><strong>Click a highlighted tile on the map.</strong> You can change your pick before confirming.</p><p id="bl-start-choice" class="bl-start-choice" aria-live="polite"></p><div class="bl-start-picker-actions"><button id="bl-start-confirm" class="bl-primary" type="button">Confirm start</button><button id="bl-start-cancel" type="button">Cancel</button></div></div></section>
-            <details id="bl-run-setup"><summary>Continue or import a run</summary>
-            <div class="bl-toolbar"><label class="bl-file">Import backup<input id="bl-import" type="file" accept=".json,application/json"></label></div>
-            <h3>Continue an existing run</h3><p>Add your unlocked chunk IDs in order, separated by commas. The map will mark each chunk as free or show the tasks you can complete there.</p>
-            <label>Already unlocked chunks<textarea id="bl-setup-chunks" rows="2" placeholder="Chunk IDs, in unlock order"></textarea></label>
-            <p class="bl-muted">You can specify accessible sections as chunk-section IDs. Otherwise the map will ask you to choose any sections it needs.</p>
-            <button id="bl-add-unlocked" type="button">Add unlocked chunks</button><pre id="bl-setup-status" role="status"></pre>
-            <h3>Record completed tasks</h3><p>Search for tasks you already did. Completed ordinary skill tasks establish the highest completed task level for each skill.</p>
-            <input id="bl-past-search" type="search" placeholder="Search past task, e.g. cooked chicken" aria-label="Search completed tasks to record"><div id="bl-past-tasks"></div>
-            <h3>Current tile / resume a visit</h3><p>After an import, your current tile comes from the unfinished visit or the last unlocked chunk. Change it here if that is wrong. Resume a visit only when you still owe a task there.</p>
-            <label>Unlocked chunk or chunk-section ID <input id="bl-admin-location" inputmode="text" placeholder="9270-1 or 9270-W1"></label><div class="bl-toolbar"><button id="bl-set-anchor" type="button">Set current tile / section</button><button id="bl-admin-visit" type="button">Resume unfinished visit here</button></div>
-            </details>
-            <div id="bl-mode-content"><p class="bl-muted">Each roll follows every open route from your current tile, crossing FREE tiles until it reaches a new tile or one with an unfinished task.</p><p class="bl-muted">Unlocked tiles stay usable for training and supplies. Only a Current visit task completes the roll.</p><p class="bl-muted">Transport can make a destination rollable. Enter it only after it has been rolled.</p>
-            <div class="bl-map-legend" aria-label="Map legend"><span><i class="bl-key-current"></i>Current</span><span><i class="bl-key-area"></i>Your area</span><span><i class="bl-key-free"></i>Free</span><span><i class="bl-key-encounter"></i>Reachable encounter</span><span><i class="bl-key-boundary"></i>Rollable new tile</span></div>
+            <div id="bl-mode-content" hidden>
             <button id="bl-roll" class="bl-primary" type="button">Roll next location</button>
             <button id="bl-sections" type="button" hidden>Choose accessible sections</button>
             <section><h3>Current visit</h3><strong id="bl-visit-title"></strong><p id="bl-visit-status"></p><p id="bl-area-hint" class="bl-area-hint" hidden></p><div id="bl-candidates"></div>
             <button id="bl-void" type="button">Void / recalculate current visit</button></section>
-            <section><h3>Roll pool</h3><p id="bl-pool-summary"></p><details><summary>Locations and task counts</summary><div id="bl-locations"></div></details></section>
+            <div class="bl-map-legend" aria-label="Map legend"><span><i class="bl-key-current"></i>Current</span><span><i class="bl-key-area"></i>Your area</span><span><i class="bl-key-free"></i>Free</span><span><i class="bl-key-encounter"></i>Reachable task</span><span><i class="bl-key-boundary"></i>New tile</span></div>
+            <details class="bl-run-guide"><summary>How Boardlocked works</summary><p>Unlocked tiles stay available for training, supplies, and travel. Complete one task from the current visit before rolling again.</p><p>Rolls follow open routes and may cross free tiles. A transport destination must be rolled before you enter it.</p></details>
+            <details class="bl-roll-pool"><summary id="bl-pool-heading">Roll pool</summary><p id="bl-pool-summary"></p><details><summary>Locations and task counts</summary><div id="bl-locations"></div></details></details>
             <details><summary id="bl-enabler-summary">Acquired tools (0)</summary><p>Reusable tools such as axes stay unlocked after you get them. If an old save is missing one, add it here.</p>
             <div class="bl-toolbar"><select id="bl-enabler-select" aria-label="Known persistent enabler to register"><option value="">Choose a known reusable item…</option></select><button id="bl-add-enabler" type="button">Mark acquired</button></div>
             <div id="bl-enabler-list"></div><details><summary>Unclear tool requirements</summary><p>These items are not treated as reusable because their task data is unclear.</p><div id="bl-enabler-ambiguities"></div></details></details>
@@ -1395,7 +1385,21 @@
             <button id="bl-apply-overrides" type="button">Apply overrides</button><button id="bl-recalculate" type="button">Recalculate tasks</button></details>
             <details><summary>Visit history</summary><div id="bl-history"></div></details>
             <details><summary>Setup history</summary><pre id="bl-admin-history"></pre></details>
-            </div>`;
+            </div>
+            <details id="bl-run-setup"><summary>Continue or import a run</summary>
+            <div class="bl-toolbar"><label class="bl-file">Import backup<input id="bl-import" type="file" accept=".json,application/json"></label></div>
+            <h3>Continue an existing run</h3><p>Add your unlocked chunk IDs in order, separated by commas. The map will mark each chunk as free or show the tasks you can complete there.</p>
+            <label>Already unlocked chunks<textarea id="bl-setup-chunks" rows="2" placeholder="Chunk IDs, in unlock order"></textarea></label>
+            <p class="bl-muted">You can specify accessible sections as chunk-section IDs. Otherwise the map will ask you to choose any sections it needs.</p>
+            <button id="bl-add-unlocked" type="button">Add unlocked chunks</button><pre id="bl-setup-status" role="status"></pre>
+            <h3>Record completed tasks</h3><p>Search for tasks you already did. Completed ordinary skill tasks establish the highest completed task level for each skill.</p>
+            <input id="bl-past-search" type="search" placeholder="Search past task, e.g. cooked chicken" aria-label="Search completed tasks to record"><div id="bl-past-tasks"></div>
+            <h3>Current tile / resume a visit</h3><p>After an import, your current tile comes from the unfinished visit or the last unlocked chunk. Change it here if that is wrong. Resume a visit only when you still owe a task there.</p>
+            <label>Unlocked chunk or chunk-section ID <input id="bl-admin-location" inputmode="text" placeholder="9270-1 or 9270-W1"></label><div class="bl-toolbar"><button id="bl-set-anchor" type="button">Set current tile / section</button><button id="bl-admin-visit" type="button">Resume unfinished visit here</button></div>
+            </details>
+            <details class="bl-run-tools"><summary>Run data &amp; rules</summary><p class="bl-save-warning">Clearing this site’s browser data deletes its local copy. Keep a downloaded backup outside the browser.</p>
+            <div class="bl-run-actions"><button id="bl-export" type="button">Download backup</button><button id="bl-reset" type="button" class="bl-danger" title="Clear the map and all progress for this local run">Reset map &amp; run</button></div>
+            <div class="bl-preset"><strong id="bl-preset-status">Rules: Boardlocked defaults</strong><div class="bl-toolbar"><button id="bl-show-rules" type="button">Chunk Rules</button><button id="bl-reset-preset" type="button">Restore Boardlocked rules</button></div></div></details>`;
         document.body.append(panel);
         const focusPanelButton = () => document.getElementById('boardlocked-panel-button')?.focus();
         const stopMapInteraction = event => {
