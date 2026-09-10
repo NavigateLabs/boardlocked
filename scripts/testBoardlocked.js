@@ -927,14 +927,14 @@ test('metadata classification lets only ordinary XP and direct item-use actions 
     }
 });
 
-test('live acceptance actions retain exact levels without actual-level bypass', () => {
+test('concrete live acceptance actions retain exact levels without actual-level bypass', () => {
     const request = makeRequest(['6197', '5942']);
     const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
     const find = (skill, pattern) => catalog.find(task => task.skill === skill && pattern.test(task.name));
     const actions = [find('Attack', /bronze weapon/), find('Attack', /iron weapon/), find('Woodcutting', /^Chop ~\|logs/),
-        find('Woodcutting', /bronze axe/), find('Woodcutting', /iron axe/), find('Woodcutting', /^Chop ~\|oak logs/), find('Woodcutting', /^Chop ~\|yew logs/)];
+        find('Woodcutting', /^Chop ~\|oak logs/), find('Woodcutting', /^Chop ~\|yew logs/)];
     assert.ok(actions.every(Boolean)); assert.ok(actions.every(task => task.advancesSkillProgression));
-    assert.deepEqual(actions.map(task => task.level), [1, 1, 1, 1, 1, 15, 60]);
+    assert.deepEqual(actions.map(task => task.level), [1, 1, 1, 15, 60]);
     const state = R.initializeProgression({ ...fresh(), actualLevels: { ...fresh().actualLevels, Attack: 99, Woodcutting: 99 } }, catalog, {});
     assert.equal(state.progressionHighWater.Attack, 0); assert.equal(state.progressionHighWater.Woodcutting, 0);
 });
@@ -1011,7 +1011,7 @@ test('equipment collapsing is local to a tile and a completed specific item perm
     assert.equal(result.completionEvidenceItem, 'Steel scimitar');
 });
 
-test('live acceptance worker output replaces unavailable axe actions with specific Enabler acquisitions', () => {
+test('live acceptance worker output offers axe Enablers and blocks concrete gathering actions', () => {
     const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
     request.boardlocked.state.actualLevels.Attack = 99; request.boardlocked.state.actualLevels.Woodcutting = 99;
     const result = runWorker(request).result, catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
@@ -1023,10 +1023,10 @@ test('live acceptance worker output replaces unavailable axe actions with specif
         assert.match(broad.eligibilityReason, /Covered by/);
     }
     for (const pattern of [/bronze axe/, /iron axe/]) assert.ok(tasks.some(task => task.taskClass === 'enabler' && pattern.test(task.name) && task.eligible), pattern);
-    for (const pattern of [/^Chop ~\|logs/, /^Chop with .*bronze axe/, /^Chop with .*iron axe/]) {
-        const task = tasks.find(task => pattern.test(task.name)); assert.ok(task, pattern);
-        assert.equal(task.eligible, false); assert.match(task.eligibilityReason, /Persistent enabler not acquired/);
-    }
+    const logs = tasks.find(task => /^Chop ~\|logs/.test(task.name)); assert.ok(logs);
+    assert.equal(logs.eligible, false); assert.match(logs.eligibilityReason, /Persistent enabler not acquired/);
+    assert.ok(!tasks.some(task => /^Chop with (?:a|an) /i.test(task.displayName)),
+        'abstract axe-use checks are represented by the Enabler and concrete tree action instead');
     const oak = tasks.find(task => /^Chop ~\|oak logs/.test(task.name)); assert.ok(oak);
     assert.equal(oak.progressionBlocked, false); assert.equal(oak.eligible, false);
     assert.match(oak.eligibilityReason, /Persistent enabler not acquired/);
@@ -1054,9 +1054,8 @@ test('bronze axe acquisition satisfies the base family, activates future Woodcut
     const afterResult = runWorker(request).result;
     const afterTasks = R.adaptTasks(afterResult.tasks, {}, visit, request.chunks, afterResult.sections, request.manualSections, catalog);
     assert.ok(afterTasks.some(task => task.name === 'Chop ~|logs|~' && task.eligible));
-    assert.ok(afterTasks.some(task => /Chop with a ~\|bronze axe/.test(task.name) && task.eligible));
+    assert.ok(!afterTasks.some(task => /^Chop with (?:a|an) /i.test(task.displayName)));
     assert.ok(!afterTasks.some(task => task.taskClass === 'enabler' && /iron axe/i.test(task.name)));
-    assert.equal(afterTasks.find(task => /Chop with an ~\|iron axe/.test(task.name)).eligible, false);
     assert.deepEqual(R.snapshotVisit(visit, afterTasks).currentVisit.candidateTaskIds, snapshotIds);
 });
 
@@ -1279,9 +1278,8 @@ test('iron axe acquired first satisfies the base family without requiring bronze
     const result = runWorker(request).result, catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
     const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections, request.manualSections, catalog);
     assert.ok(tasks.some(task => task.name === 'Chop ~|logs|~' && task.eligible));
-    assert.ok(tasks.some(task => /Chop with an ~\|iron axe/.test(task.name) && task.eligible));
+    assert.ok(!tasks.some(task => /^Chop with (?:a|an) /i.test(task.displayName)));
     assert.ok(!tasks.some(task => task.taskClass === 'enabler' && /bronze axe/i.test(task.name)));
-    assert.equal(tasks.find(task => /Chop with a ~\|bronze axe/.test(task.name)).eligible, false);
 });
 
 test('generic bronze weapon completion cannot prove ownership of a specific axe', () => {
@@ -1614,6 +1612,31 @@ test('real worker: strict Guild sources, enabler provenance, old-chunk reactivat
         awakenedResult.sections, request.manualSections);
     assert.ok(R.derivePool([], request.chunks, awakenedOnly).live.includes('6198'));
 });
+
+test('gathering tools enable concrete actions without becoming abstract use goals', () => {
+    const abstract = [];
+    for (const [skill, tasks] of Object.entries(chunkData.challenges)) for (const [name, meta] of Object.entries(tasks || {})) {
+        if (R.isAbstractGatheringToolTask(name, skill, meta)) abstract.push({ skill, name });
+    }
+    assert.deepEqual(Object.fromEntries(['Fishing', 'Mining', 'Woodcutting'].map(skill =>
+        [skill, abstract.filter(task => task.skill === skill).length])), { Fishing: 2, Mining: 10, Woodcutting: 20 });
+    const catalogIds = new Set(R.buildTaskCatalog(chunkData, require('../tasksMap.json')).map(task => task.taskId));
+    assert.ok(abstract.every(task => !catalogIds.has(R.taskId(task.name, task.skill, require('../tasksMap.json')))));
+
+    const talTeklan = usePreset(makeRequest(['4912']), 'Boardlocked Chunker');
+    talTeklan.boardlocked.state.acquiredEnablers['Bronze pickaxe'] = { manual: true };
+    talTeklan.boardlocked.state.enablersInitialized = true;
+    const emptyMining = runWorker(talTeklan).result.tasks.filter(task => task.skill === 'Mining');
+    assert.deepEqual(emptyMining, [], 'a shop selling a pickaxe is not a Mining action source');
+
+    const rimmington = usePreset(makeRequest(['11826']), 'Boardlocked Chunker');
+    rimmington.boardlocked.state.acquiredEnablers['Bronze pickaxe'] = { manual: true };
+    rimmington.boardlocked.state.enablersInitialized = true;
+    const concreteMining = runWorker(rimmington).result.tasks.filter(task => task.skill === 'Mining');
+    assert.ok(concreteMining.some(task => task.displayName === 'Mine copper ore'));
+    assert.ok(concreteMining.every(task => !/^Use (?:a|an) .+ pickaxe$/i.test(task.displayName)));
+});
+
 test('real worker: higher Guild source becomes available at actual 60 while a level-90 action stays eligible', () => {
     const request = makeRequest(['6198', '5942', '6454', '6197']); request.boardlocked.state.actualLevels.Woodcutting = 60;
     const { result, context } = runWorker(request);

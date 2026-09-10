@@ -533,10 +533,18 @@
         if (quantity && Number(quantity[1]) !== 1) return [];
         return [...new Set(expand(raw, data.codeItems?.itemsPlus).map(canonicalItemKey).filter(Boolean))];
     }
+    function isAbstractGatheringToolTask(name, skill, meta = {}) {
+        if (meta.Primary !== false || meta.Items?.length !== 1 || meta.Output || (meta.Category || []).length) return false;
+        const label = displayName(name).trim(), item = canonicalItemKey(meta.Items[0]);
+        return (skill === 'Mining' && /^Use (?:a|an) .+ pickaxe$/i.test(label) && /pickaxe$/i.test(item)) ||
+            (skill === 'Fishing' && /^Use (?:a|an) .+ harpoon$/i.test(label) && /harpoon$/i.test(item)) ||
+            (skill === 'Woodcutting' && /^Chop with (?:a|an) .+ axe$/i.test(label) && /axe$/i.test(item));
+    }
     function buildTaskCatalog(data, ids = {}) {
         const catalog = new Map();
         for (const skill of ['Quest', 'Diary', 'Extra', 'BiS', ...SKILLS, 'Combat']) {
             for (const [name, meta] of Object.entries(data.challenges?.[skill] || {})) {
+                if (isAbstractGatheringToolTask(name, skill, meta)) continue;
                 const record = taskMetadata(name, skill, meta, ids);
                 record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, meta);
                 if (!meta.NeverShow && !catalog.has(record.taskId)) catalog.set(record.taskId, record);
@@ -1600,7 +1608,7 @@
         const equipmentByFormattedName = new Map(Object.entries(data.equipment || {}).map(([name, meta]) => [(meta.formatted_name || name.toLowerCase()).replaceAll('#', '/'), name]));
         for (const skill of categories) for (const [name, value] of Object.entries(valids[skill] || {})) {
             const meta = data.challenges[skill]?.[name] || {};
-            if (skill === 'Nonskill' || value === false || meta.NeverShow) continue;
+            if (skill === 'Nonskill' || value === false || meta.NeverShow || isAbstractGatheringToolTask(name, skill, meta)) continue;
             if (SKILLS.includes(skill) || skill === 'Combat') { if (!rules['Show Skill Tasks']) continue; }
             if (skill === 'BiS' && !rules['Show Best in Slot Tasks']) continue;
             if (skill === 'Quest' && !rules['Show Quest Tasks']) continue;
@@ -1793,7 +1801,7 @@
         canonicalItemKey, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, resourceRepresentativeMetadata,
-        equipmentObjectiveAlternatives, completedEquipmentItems,
+        equipmentObjectiveAlternatives, isAbstractGatheringToolTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
