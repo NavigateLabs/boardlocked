@@ -12,11 +12,14 @@
             // making Burthorpe permanently accessible.
             assumedCompletedTasks: Object.freeze([
                 Object.freeze({
+                    option: 'turael',
                     skill: 'Slayer',
                     name: 'Receive a Slayer assignment from ~|Turael|~ in Burthorpe'
                 })
             ]),
-            assumedPrimarySkills: Object.freeze(['Slayer']),
+            assumedPrimarySkills: Object.freeze([
+                Object.freeze({ option: 'turael', skill: 'Slayer' })
+            ]),
             questTasks: Object.freeze({
                 druidicRitual: '~|Druidic Ritual|~ Complete the quest',
                 varlamore: '~|Children of the Sun|~ Complete the quest',

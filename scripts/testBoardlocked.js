@@ -19,19 +19,27 @@ const start = (list, kind = 'revisit', id = '1000') => R.snapshotVisit(R.startVi
 
 test('fresh and migrated runs keep initialization choices explicit', () => {
     const current = fresh();
-    assert.deepEqual(current.initialization, { druidicRitual: true, varlamore: false, wilderness: false, ocean: false });
+    assert.deepEqual(current.initialization, { turael: true, druidicRitual: true, varlamore: false, wilderness: false, ocean: false });
     current.initializationApplied.druidicRitual = true;
     current.initializationLevelFloors.Herblore = { option: 'druidicRitual', previous: 1, floor: 3 };
     assert.deepEqual(R.normalizeState(current).initializationLevelFloors.Herblore,
         { option: 'druidicRitual', previous: 1, floor: 3 });
     const old = fresh(); old.version = 5; delete old.initialization; delete old.initializationApplied; delete old.startingSectionPolicy;
     const migrated = R.normalizeState(old);
-    assert.deepEqual(migrated.initialization, { druidicRitual: false, varlamore: false, wilderness: false, ocean: false });
+    assert.deepEqual(migrated.initialization, { turael: true, druidicRitual: false, varlamore: false, wilderness: false, ocean: false });
     assert.deepEqual(migrated.initializationApplied, {});
     assert.deepEqual(migrated.initializationLevelFloors, {});
     assert.deepEqual(migrated.slayerMasters, {});
     assert.equal(current.startingSectionPolicy, R.STARTING_SECTION_POLICY);
     assert.equal(migrated.startingSectionPolicy, null);
+});
+
+test('pre-toggle saves retain the previous Turael setup assumption', () => {
+    const old = fresh(); old.version = 24; delete old.initialization.turael;
+    const migrated = R.normalizeState(old);
+    assert.equal(migrated.initialization.turael, true);
+    const current = { ...fresh(), initialization: { ...fresh().initialization, turael: false } };
+    assert.equal(R.normalizeState(current).initialization.turael, false);
 });
 
 test('reviewed start pools cover the selected land tiles without category overlap', () => {
@@ -918,9 +926,9 @@ test('a sparse skill exposes its nearest next milestone without pretending its o
 
 test('Slayer account setup and master tasks remain independent progression entry points', () => {
     assert.deepEqual(annotations.initialization.assumedCompletedTasks, [{
-        skill: 'Slayer', name: 'Receive a Slayer assignment from ~|Turael|~ in Burthorpe'
+        option: 'turael', skill: 'Slayer', name: 'Receive a Slayer assignment from ~|Turael|~ in Burthorpe'
     }]);
-    assert.deepEqual(annotations.initialization.assumedPrimarySkills, ['Slayer']);
+    assert.deepEqual(annotations.initialization.assumedPrimarySkills, [{ option: 'turael', skill: 'Slayer' }]);
     const name = 'Receive a Slayer assignment from ~|Vannaka|~ in Edgeville Dungeon';
     const meta = chunkData.challenges.Slayer[name];
     assert.equal(R.taskMetadata(name, 'Slayer', meta, require('../tasksMap.json')).taskClass, 'activity');
@@ -930,6 +938,10 @@ test('Slayer account setup and master tasks remain independent progression entry
     assert.doesNotMatch(ui, /id="bl-level-/);
     assert.doesNotMatch(ui, /Levels &amp; skill progression/);
     assert.match(ui, /id="bl-slayer-master-summary"/);
+    assert.match(ui, /id="bl-start-turael"/);
+    assert.match(ui, /<summary>Instructions<\/summary>/);
+    assert.doesNotMatch(ui, /Avoid the level-6 rat/);
+    assert.doesNotMatch(ui, /ruined house/);
 });
 
 test('Slayer master decisions survive migration and reject invalid states', () => {

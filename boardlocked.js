@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 24;
+    const VERSION = 25;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -50,7 +50,7 @@
             slayerMasters: {},
             rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input, enablerRevision: input ? 0 : ENABLER_REVISION,
             startingSectionPolicy: input ? null : STARTING_SECTION_POLICY,
-            initialization: { druidicRitual: !input, varlamore: false, wilderness: false, ocean: false },
+            initialization: { turael: true, druidicRitual: !input, varlamore: false, wilderness: false, ocean: false },
             initializationApplied: {}, initializationTaskIds: {}, initializationLevelFloors: {} };
         if (input) {
             if (typeof input.enabled !== 'boolean' || !Array.isArray(input.visitHistory)) throw new Error('Invalid Boardlocked state');
@@ -70,8 +70,11 @@
                     throw new Error('Invalid initialization options');
                 }
                 for (const key of Object.keys(state.initialization)) {
-                    if (typeof input.initialization[key] !== 'boolean') throw new Error('Invalid initialization option: ' + key);
-                    state.initialization[key] = input.initialization[key];
+                    if (key === 'turael' && input.version < 25 && input.initialization[key] === undefined) state.initialization[key] = true;
+                    else {
+                        if (typeof input.initialization[key] !== 'boolean') throw new Error('Invalid initialization option: ' + key);
+                        state.initialization[key] = input.initialization[key];
+                    }
                 }
                 if (input.initializationApplied !== undefined && (!input.initializationApplied || Array.isArray(input.initializationApplied) ||
                     typeof input.initializationApplied !== 'object')) throw new Error('Invalid initialization completion records');

@@ -32,6 +32,7 @@
     const hasStarted = () => !!state.travelAnchor || !!state.currentVisit || state.visitHistory.length > 0 ||
         Object.keys(tempChunks.unlocked || {}).length > 0;
     const assumedSetupTaskIds = () => (BoardlockedData.initialization?.assumedCompletedTasks || [])
+        .filter(task => !task.option || state.initialization[task.option])
         .map(task => R.taskId(task.name, task.skill, typeof tasksMap === 'object' ? tasksMap : {}));
     const isInitializationTask = id => Object.values(state.initializationTaskIds || {}).some(ids => ids.includes(id)) ||
         assumedSetupTaskIds().includes(id);
@@ -165,18 +166,36 @@
         return changed;
     }
 
-    function syncAssumedAccountSetup() {
+    function syncAssumedAccountSetup(journal = false) {
         let changed = false;
         for (const task of BoardlockedData.initialization?.assumedCompletedTasks || []) {
-            if (completedChallenges?.[task.skill]?.[task.name]) continue;
-            (completedChallenges[task.skill] ||= {})[task.name] = true;
-            changed = true;
+            const option = task.option, enabled = !option || state.initialization[option];
+            const id = R.taskId(task.name, task.skill, tasksMap);
+            const recorded = new Set(option ? state.initializationTaskIds[option] || [] : []);
+            if (enabled) {
+                if (!completedChallenges?.[task.skill]?.[task.name]) {
+                    (completedChallenges[task.skill] ||= {})[task.name] = true;
+                    changed = true;
+                }
+                if (option && !recorded.has(id)) {
+                    recorded.add(id); state.initializationTaskIds[option] = [...recorded];
+                    state.initializationApplied[option] = true; changed = true;
+                }
+            } else if (option && (state.initializationApplied[option] || recorded.size)) {
+                for (const recordedId of recorded) removeCompletionId(recordedId);
+                delete state.initializationApplied[option]; delete state.initializationTaskIds[option];
+                changed = true;
+            }
         }
-        for (const skill of BoardlockedData.initialization?.assumedPrimarySkills || []) {
-            if (manualPrimary?.[skill] === true) continue;
-            manualPrimary[skill] = true;
-            changed = true;
+        for (const entry of BoardlockedData.initialization?.assumedPrimarySkills || []) {
+            const skill = typeof entry === 'string' ? entry : entry.skill;
+            const option = typeof entry === 'string' ? null : entry.option;
+            const enabled = !option || state.initialization[option];
+            if (enabled && manualPrimary?.[skill] !== true) { manualPrimary[skill] = true; changed = true; }
+            else if (!enabled && manualPrimary?.[skill] === true) { manualPrimary[skill] = false; changed = true; }
         }
+        if (changed && journal) state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'sync_account_setup',
+            turael: state.initialization.turael });
         if (changed) forceUpdatePluginOutput = true;
         return changed;
     }
@@ -407,7 +426,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl25');
+        worker = new Worker('./worker.js?v=6.9.66-bl26');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -659,7 +678,7 @@
     }
     function resetRun() {
         if (!localProfile || !canEdit()) return;
-        if (!confirm('Reset this map and run completely?\n\nThis clears every unlocked/selected chunk, accessible section, completed task, equipment record, skill level, rule/setting, backlog, override, and all visit/unlock/setup history.\n\nYou will restart with an empty map and the new-account options. Druidic Ritual is recommended by default but can be unchecked before the first roll. Other runs are untouched.')) return;
+        if (!confirm('Reset this map and run completely?\n\nThis clears every unlocked/selected chunk, accessible section, completed task, equipment record, skill level, rule/setting, backlog, override, and all visit/unlock/setup history.\n\nYou will restart with an empty map and the new-account options. Turael and Druidic Ritual are recommended by default but can be unchecked before the first roll. Other runs are untouched.')) return;
         try {
             // Delete only this named profile's current, backup, and compatibility
             // records. Reload reinitializes all globals and workers.
@@ -673,11 +692,12 @@
         if (!canEdit() || hasStarted() || !R.own(state.initialization, key)) return;
         state.initialization[key] = checked;
         const questChanged = syncInitializationCompletions(true);
+        const setupChanged = syncAssumedAccountSetup(true);
         state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'set_start_option', option: key, enabled: checked });
-        message = ({ druidicRitual: 'Druidic Ritual setup', varlamore: 'Varlamore starts',
+        message = ({ turael: 'Turael setup', druidicRitual: 'Druidic Ritual setup', varlamore: 'Varlamore starts',
             wilderness: 'Wilderness starts' })[key] + (checked ? ' enabled.' : ' disabled.');
         save(); rebuild(); render(); drawCanvas();
-        if (questChanged) schedule();
+        if (questChanged || setupChanged) schedule();
     }
     function renderPastTasks() {
         const container = document.getElementById('bl-past-tasks');
@@ -1219,10 +1239,11 @@
             <div class="bl-preset"><strong id="bl-preset-status">Rules: Boardlocked defaults</strong><div class="bl-toolbar"><button id="bl-show-rules" type="button">Chunk Rules</button><button id="bl-reset-preset" type="button">Restore Boardlocked rules</button></div></div>
             <p id="bl-message" role="status" aria-live="polite"></p>
             <section id="bl-start-setup" class="bl-start-setup"><h3>Start a new account</h3>
+            <div class="bl-start-grid bl-start-recommended">
+            <label class="bl-start-option"><input id="bl-start-turael" type="checkbox"><span><strong>Turael setup <em>recommended</em></strong><small>Talk to Turael and check his options to unlock other Slayer masters. Cancel any assignment.</small></span></label>
             <label class="bl-start-option"><input id="bl-start-druidicRitual" type="checkbox"><span><strong>Druidic Ritual <em>recommended</em></strong><small>Complete it before your first roll; Herblore starts at 3.</small></span></label>
-            <p class="bl-muted">Slayer setup assumes you have spoken to Turael once, so any accessible master can start the skill.</p>
-            <ol class="bl-start-route"><li>Pick up the iron dagger near Lumbridge.</li><li>Kill a level-3 rat in Lumbridge Swamp for raw rat meat. Avoid the level-6 rat.</li><li>Buy raw chicken and raw beef from Wydin’s Food Store in Port Sarim.</li><li>Ask Veos for Kourend, then take his boat to Land’s End.</li><li>Flinch the bear cub beside the ruined house, take its meat, and finish Druidic Ritual.</li></ol>
-            <details class="bl-flinch-guide"><summary>Show bear-cub flinch spot</summary><figure><img src="./resources/boardlocked-bear-flinch.jpg" alt="Player standing against the outside corner of the ruined house with the bear cub nearby" loading="lazy"><figcaption>Attack once, return to this corner, and wait for the bear’s health bar to disappear. Repeat until it dies.</figcaption></figure></details>
+            </div>
+            <details class="bl-start-instructions"><summary>Instructions</summary><ol class="bl-start-route"><li>Pick up the iron dagger near Lumbridge.</li><li>Kill a level-3 rat in Lumbridge Swamp for raw rat meat.</li><li>Buy raw chicken and raw beef from Wydin’s Food Store in Port Sarim.</li><li>Talk to Veos and travel to Kourend, then talk to him again to travel to Land’s End.</li><li>Flinch the bear cub from the outside corner of the house, take its meat, and finish Druidic Ritual.</li></ol><figure><img src="./resources/boardlocked-bear-flinch.jpg" alt="Player standing on the outside corner of the house with the bear cub nearby" loading="lazy"><figcaption>Attack once, return to the outside corner, and wait for the bear’s health bar to disappear. Repeat until it dies.</figcaption></figure></details>
             <div class="bl-start-grid">
             <label class="bl-start-option"><input id="bl-start-varlamore" type="checkbox"><span><strong>Varlamore starts</strong><small>Assumes Children of the Sun is complete before rolling.</small></span></label>
             <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds Wilderness tiles. PvP and normal Wilderness danger still apply.</small></span></label>
