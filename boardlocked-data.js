@@ -117,9 +117,16 @@
             })
         }),
         resourceRepresentatives: Object.freeze({
+            // These are consumed helpers rather than the material transformed
+            // by the task. Do not use them to merge progression milestones.
+            ignoredPrimaryResources: Object.freeze({
+                Fishing: Object.freeze(['Fishing bait', 'Feather']),
+                Crafting: Object.freeze(['Thread[+]'])
+            }),
             // These outputs use a shared material but belong to a separate
-            // gameplay system from ordinary anvil recipes.
+            // result or gameplay system from the ordinary recipe family.
             distinctOutputFamilies: Object.freeze([
+                Object.freeze({ skill: 'Cooking', outputIncludes: 'poison karambwan', family: 'poison-karambwan' }),
                 Object.freeze({ skill: 'Smithing', outputIncludes: 'cannonball', family: 'cannonballs' }),
                 Object.freeze({ skill: 'Smithing', outputIncludes: 'keel parts', family: 'ship-parts' })
             ])

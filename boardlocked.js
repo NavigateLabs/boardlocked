@@ -506,6 +506,26 @@
             skilling: advancesSkillProgression, bisReason,
             bisSet: meta.Set || null };
     }
+    function resourceRepresentativeMetadata(name, skill, meta, annotations = {}) {
+        const ignored = new Set(annotations.resourceRepresentatives?.ignoredPrimaryResources?.[skill] || []);
+        const primaryIndex = (meta.Items || []).findIndex(raw => String(raw).includes('*') && !ignored.has(canonicalItemKey(raw)));
+        if (primaryIndex < 0) return null;
+        const resource = canonicalItemKey(meta.Items[primaryIndex]);
+        const rules = annotations.resourceRepresentatives?.distinctOutputFamilies || [];
+        const output = String(meta.Output || displayName(name)).toLowerCase();
+        const distinct = rules.find(rule => (!rule.skill || rule.skill === skill) &&
+            output.includes(String(rule.outputIncludes || '').toLowerCase()));
+        const list = values => (values || []).map(canonicalItemKey).sort();
+        const requirements = value => Object.entries(value || {}).sort(([left], [right]) => left.localeCompare(right));
+        const method = distinct?.family || JSON.stringify({
+            items: list((meta.Items || []).filter((_, index) => index !== primaryIndex)),
+            objects: list(meta.Objects), npcs: list(meta.NPCs), monsters: list(meta.Monsters),
+            mix: list(meta.Mix), chunks: list(meta.Chunks), outputObject: meta['Output Object'] || null,
+            tasks: requirements(meta.Tasks), skills: requirements(meta.Skills)
+        });
+        return { resource, resourceLabel: resource.replace(/\[\+\](?:x\d+)?/g, ''), method,
+            familyKey: JSON.stringify([skill, resource, method]) };
+    }
     function equipmentObjectiveAlternatives(data, name, meta = {}) {
         if (!/^(?:wear|wield|equip)\b/i.test(displayName(name).trim()) || meta.Items?.length !== 1) return [];
         const raw = String(meta.Items[0]);
@@ -1529,25 +1549,6 @@
                 }];
             });
         }
-        function taskResourceRepresentative(name, skill, meta) {
-            const primaryIndex = (meta.Items || []).findIndex(raw => String(raw).includes('*'));
-            if (primaryIndex < 0) return null;
-            const resource = canonicalItemKey(meta.Items[primaryIndex]);
-            const rules = annotations.resourceRepresentatives?.distinctOutputFamilies || [];
-            const output = String(meta.Output || displayName(name)).toLowerCase();
-            const distinct = rules.find(rule => (!rule.skill || rule.skill === skill) &&
-                output.includes(String(rule.outputIncludes || '').toLowerCase()));
-            const list = values => (values || []).map(canonicalItemKey).sort();
-            const requirements = value => Object.entries(value || {}).sort(([left], [right]) => left.localeCompare(right));
-            const method = distinct?.family || JSON.stringify({
-                items: list((meta.Items || []).filter((_, index) => index !== primaryIndex)),
-                objects: list(meta.Objects), npcs: list(meta.NPCs), monsters: list(meta.Monsters),
-                mix: list(meta.Mix), chunks: list(meta.Chunks), outputObject: meta['Output Object'] || null,
-                tasks: requirements(meta.Tasks), skills: requirements(meta.Skills)
-            });
-            return { resource, resourceLabel: resource.replace(/\[\+\](?:x\d+)?/g, ''), method,
-                familyKey: JSON.stringify([skill, resource, method]) };
-        }
         const forestry = annotations.forestry || {};
         const forestryCategories = new Set(forestry.taskCategories || []);
         const isDirectForestry = meta => (meta?.Category || []).some(category => forestryCategories.has(category));
@@ -1660,7 +1661,7 @@
             record.resourceMilestoneDependencies = record.taskClass === 'skill_progression' ?
                 taskResourceMilestoneDependencies(name, requirementMeta) : [];
             record.resourceRepresentative = record.taskClass === 'skill_progression' ?
-                taskResourceRepresentative(name, requirementSkill, requirementMeta) : null;
+                resourceRepresentativeMetadata(name, requirementSkill, requirementMeta, annotations) : null;
             const requiredEnablers = uniqueRequirements([
                 ...taskEnablerRequirements(data, requirementSkill, requirementMeta, enablerModel, record.taskClass),
                 ...taskResourceRequirements(requirementMeta)
@@ -1791,8 +1792,9 @@
     return { VERSION, STARTING_SECTION_POLICY, SKILLS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
         canonicalItemKey, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
-        uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, equipmentObjectiveAlternatives, completedEquipmentItems,
-        collapseRedundantEquipmentTasks, buildTaskCatalog,
+        uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, resourceRepresentativeMetadata,
+        equipmentObjectiveAlternatives, completedEquipmentItems,
+        collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,

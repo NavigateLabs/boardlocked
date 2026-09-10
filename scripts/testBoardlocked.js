@@ -1115,6 +1115,74 @@ test('available gathering milestones come before dependent processing tasks', ()
         'a direct log spawn bypasses the gathering milestone');
 });
 
+test('cyclical resource chains stay dormant until an external entry task is completed', () => {
+    const producer = id => ({ taskId: id, name: id, displayName: id, skill: 'Woodcutting', level: 1 });
+    const a = task('a', ['1000'], { resourceMilestoneDependencies: [{ resource: 'A input',
+        producerTaskIds: ['b', 'entry'], producers: [producer('b'), producer('entry')] }] });
+    const b = task('b', ['1000'], { resourceMilestoneDependencies: [{ resource: 'B input',
+        producerTaskIds: ['a'], producers: [producer('a')] }] });
+    const entry = task('entry');
+    assert.deepEqual(adapt([a, b], {}, fresh()).filter(item => item.eligible).map(item => item.taskId), [],
+        'a closed two-task supply loop has no completable task');
+    assert.deepEqual(adapt([a, b, entry], {}, fresh()).filter(item => item.eligible).map(item => item.taskId), ['entry']);
+    let legacy = { checkedAllTasks: { Woodcutting: { entry: true } } };
+    assert.deepEqual(adapt([a, b, entry], legacy, fresh()).filter(item => item.eligible).map(item => item.taskId), ['a']);
+    legacy = { checkedAllTasks: { Woodcutting: { entry: true, a: true } } };
+    assert.deepEqual(adapt([a, b, entry], legacy, fresh()).filter(item => item.eligible).map(item => item.taskId), ['b']);
+});
+
+test('the full recipe catalog contains only reviewed multi-recipe families', () => {
+    const groups = new Map(), ids = require('../tasksMap.json');
+    for (const skill of R.SKILLS) for (const [name, meta] of Object.entries(chunkData.challenges[skill] || {})) {
+        const task = R.taskMetadata(name, skill, meta, ids);
+        if (task.taskClass !== 'skill_progression') continue;
+        const family = R.resourceRepresentativeMetadata(name, skill, meta, annotations);
+        if (!family) continue;
+        if (!groups.has(family.familyKey)) groups.set(family.familyKey, { skill, resource: family.resource, tasks: [] });
+        groups.get(family.familyKey).tasks.push({ ...task, resourceRepresentative: family,
+            eligible: true, completed: false, whyWouldBeIneligible: [] });
+    }
+    const multiple = [...groups.values()].filter(group => group.tasks.length > 1);
+    assert.deepEqual(Object.fromEntries(R.SKILLS.map(skill =>
+        [skill, multiple.filter(group => group.skill === skill).length]).filter(([, count]) => count)),
+    { Crafting: 19, Fletching: 7, Smithing: 22 });
+    assert.equal(multiple.some(group => group.skill === 'Fishing'), false,
+        'bait and feathers must not merge Fishing progression');
+    assert.equal(multiple.some(group => group.skill === 'Cooking'), false,
+        'poison and successfully cooked karambwan must remain separate');
+    assert.equal(R.resourceRepresentativeMetadata('Pheasant', 'Crafting',
+        { Items: ['Needle[+]', 'Thread[+]*', 'Pheasant tail feathers*'] }, annotations).resource,
+    'Pheasant tail feathers');
+
+    const catalog = R.buildTaskCatalog(chunkData, ids);
+    let audited = 0;
+    for (const group of multiple) {
+        const levels = [...new Set(group.tasks.map(task => task.level))];
+        const highWaters = [0, ...levels.filter(level => level < 99)];
+        const actualLevels = [...new Set([1, 99, ...levels.flatMap(level =>
+            [Math.max(1, level - 1), level, Math.min(99, level + 1)])])];
+        for (const highWater of highWaters) for (const actualLevel of actualLevels) {
+            const ceiling = R.progressionCeiling(catalog, group.skill, highWater, actualLevel);
+            const candidates = group.tasks.filter(task => task.level > highWater && task.level <= ceiling);
+            const input = group.tasks.map(task => ({ ...task, eligible: candidates.includes(task) }));
+            const selected = R.chooseResourceRepresentativeTasks(input,
+                { actualLevels: { [group.skill]: actualLevel }, currentVisit: null }).filter(task => task.eligible);
+            assert.equal(selected.length, candidates.length ? 1 : 0,
+                group.skill + ' ' + group.resource + ' at ' + actualLevel + ' after ' + highWater);
+            if (candidates.length) {
+                const doable = candidates.filter(task => task.level <= actualLevel), pool = doable.length ? doable : candidates;
+                const expected = pool.slice().sort((left, right) =>
+                    (doable.length ? right.level - left.level : left.level - right.level) ||
+                    (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER) ||
+                    left.taskId.localeCompare(right.taskId))[0];
+                assert.equal(selected[0].taskId, expected.taskId);
+            }
+            audited++;
+        }
+    }
+    assert.ok(audited > 5000, 'the audit covers every family across its level and high-water boundaries');
+});
+
 test('one currently achievable recipe represents each resource and skill family', () => {
     const request = usePreset(makeRequest(['4912']), 'Boardlocked Chunker');
     request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
