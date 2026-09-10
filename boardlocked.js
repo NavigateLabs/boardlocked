@@ -329,9 +329,9 @@
         const configured = annotations.initialization?.startingTiles || {};
         const areaPolicies = annotations.initialization?.startingAreaPolicies || {};
         const walkable = new Set((data.walkableChunks || []).map(String));
-        const groupOrder = ['standard', 'varlamore', 'wilderness', 'ocean'];
+        const groupOrder = ['standard', 'varlamore', 'wilderness'];
         const enabled = { standard: true, varlamore: options.varlamore === true,
-            wilderness: options.wilderness === true, ocean: options.ocean === true };
+            wilderness: options.wilderness === true };
         const ids = [], groupByLocation = {}, arrivalSectionsByLocation = {}, arrivalSectionGroupsByLocation = {}, groups = [];
         for (const group of groupOrder) {
             if (!enabled[group]) continue;
@@ -359,8 +359,7 @@
             for (const rawId of configured[group] || []) {
                 const id = String(rawId);
                 if (!walkable.has(id) || own(blacklisted, id) || own(groupByLocation, id)) continue;
-                const water = group === 'ocean';
-                let sectionGroups = deriveStartingSectionGroups(data, id, water ? 'water' : 'land', [...walkable], blacklisted);
+                let sectionGroups = deriveStartingSectionGroups(data, id, 'land', [...walkable], blacklisted);
                 const configuredSections = policy.sectionGroups?.[id];
                 if (configuredSections) {
                     const permitted = new Set(configuredSections.flat().map(String));
@@ -376,7 +375,7 @@
                 arrivalSectionsByLocation[id] = sectionGroups[0] || [];
                 ids.push(id); groupIds.push(id);
             }
-            if (groupIds.length) groups.push({ id: group, medium: group === 'ocean' ? 'water' : 'land', locationIds: groupIds });
+            if (groupIds.length) groups.push({ id: group, medium: 'land', locationIds: groupIds });
         }
         return { ids, groups, groupByLocation, arrivalSectionsByLocation, arrivalSectionGroupsByLocation };
     }

@@ -28,11 +28,11 @@ pool excludes Morytania, the desert,
 Prifddinas, quest-locked islands, damaging environments, guild interiors, and
 other poor level-3 starts.
 
-Three optional start groups are available before the first roll:
+Two optional start groups are available before the first roll. Every starting
+tile is on land:
 
 - **Varlamore:** adds the released continent and assumes you completed Children of the Sun before rolling. Starts stay on the connected overworld surface, outside Tempestus and quest-only interiors.
 - **Wilderness:** adds Ferox Enclave and nearby low-risk southern Wilderness tiles. PvP risk still applies.
-- **Ocean starts (experimental):** adds an equal-chance group of beginner waters near Port Sarim to the first roll, assumes you completed Pandemonium, and starts Sailing at level 5 from its 400 XP reward. Land remains a possible result while other groups are enabled.
 
 ## Protect your save
 

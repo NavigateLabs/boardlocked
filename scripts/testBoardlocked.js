@@ -85,7 +85,7 @@ test('curated start pool covers released Varlamore while excluding gated and haz
         'blacklisting the reference tile removes only that tile, not the region it identifies');
     assert.deepEqual(expanded.groups.find(group => group.id === 'wilderness').locationIds,
         ['12344', '12600', '12857'], 'both halves of Ferox and its low-risk eastern woodland are enabled');
-    assert.ok(expanded.ids.includes('12080'), 'near-Port-Sarim ocean is enabled');
+    assert.ok(!expanded.ids.includes('12080'), 'legacy ocean setting cannot add an ocean start');
     assert.ok(!expanded.ids.includes('12349'), 'deep Wilderness Mage Arena stays excluded');
     assert.ok(!expanded.ids.includes('12844'), 'desert damage region stays excluded');
     assert.ok(!expanded.ids.includes('8755'), 'Prifddinas stays excluded');
@@ -108,7 +108,7 @@ test('starting roll gives enabled groups equal odds before choosing a tile', () 
     const starting = R.deriveStartingPool(chunkData, annotations,
         { varlamore: true, wilderness: true, ocean: true });
     const candidates = starting.ids.map(locationId => ({ kind: 'frontier', locationId }));
-    const rolls = [.26, .99, .5];
+    const rolls = [.34, .99, .5];
     const chosen = R.chooseStartingCandidate(candidates, starting, () => rolls.shift());
     assert.equal(starting.groupByLocation[chosen.locationId], 'varlamore');
     assert.equal(chosen.locationId, starting.groups.find(group => group.id === 'varlamore').locationIds.at(-1));
@@ -151,24 +151,20 @@ test('browser save envelope validates state and legacy progress together', () =>
     assert.throws(() => R.normalizeBrowserSave('{"bad":true}'), /Invalid Boardlocked browser save/);
 });
 
-test('ocean starts explicitly arrive on water while enabled land starts stay on land', () => {
+test('starting rolls stay on land even when an old save has ocean enabled', () => {
     const starting = R.deriveStartingPool(chunkData, annotations,
         { varlamore: true, wilderness: true, ocean: true });
     const candidates = starting.ids.map(locationId => ({ kind: 'frontier', locationId }));
-    const ocean = R.chooseStartingCandidate(candidates, starting, () => 0.99);
-    assert.equal(ocean.metadata.startGroup, 'ocean');
-    assert.equal(ocean.metadata.arrivalMedium, 'water');
-    assert.ok(ocean.metadata.entrySections.every(section => section.startsWith('W')));
-    const land = R.chooseStartingCandidate(candidates, starting, () => 0);
-    assert.equal(land.metadata.startGroup, 'standard');
-    assert.equal(land.metadata.arrivalMedium, 'land');
-    assert.ok(land.metadata.entrySections.every(section => !section.startsWith('W')));
+    assert.deepEqual(starting.groups.map(group => group.id), ['standard', 'varlamore', 'wilderness']);
+    assert.ok(starting.groups.every(group => group.medium === 'land'));
+    const chosen = R.chooseStartingCandidate(candidates, starting, () => 0.99);
+    assert.notEqual(chosen.metadata.startGroup, 'ocean');
+    assert.equal(chosen.metadata.arrivalMedium, 'land');
+    assert.ok(chosen.metadata.entrySections.every(section => !section.startsWith('W')));
 });
 
-test('ocean option changes only the first roll and mixed land starts never select water', () => {
+test('mixed land starts never select water and later ocean routes remain available', () => {
     const oceanOff = R.deriveStartingPool(chunkData, annotations, fresh().initialization);
-    const oceanIds = new Set(annotations.initialization.startingTiles.ocean);
-    assert.ok(oceanOff.ids.every(id => !oceanIds.has(id)));
     for (const id of oceanOff.ids) for (const region of oceanOff.arrivalSectionGroupsByLocation[id] || []) {
         assert.ok(region.every(section => !section.startsWith('W')), id + ' land start included a water section');
     }

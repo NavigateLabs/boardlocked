@@ -106,12 +106,6 @@
                 // excluded even though the source dataset calls them quest-free.
                 wilderness: Object.freeze([
                     '12344', '12600', '12857'
-                ]),
-                // Experimental level-1 Sailing waters around Port Sarim and The
-                // Pandemonium. This avoids adding all 600+ generic ocean squares.
-                ocean: Object.freeze([
-                    '11820', '12077', '12080', '12333', '12334', '12335',
-                    '12592'
                 ])
             }),
             startingAreaPolicies: Object.freeze({
