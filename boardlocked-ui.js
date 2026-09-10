@@ -820,7 +820,7 @@
                 !(task.coveredByTaskIds || []).some(id => snapshotIds.has(id)))), true);
         }
         document.getElementById('bl-void').disabled = !visit || R.canRoll(state) || !canEdit();
-        const reachableEncounters = pool.candidates.filter(c => c.kind === 'revisit' || c.kind === 'stay');
+        const reachableEncounters = pool.candidates.filter(c => c.kind === 'revisit');
         const poolBoundaryLabel = Object.keys(tempChunks.unlocked || {}).length ? 'Rollable new tiles' : 'Possible starting tiles';
         document.getElementById('bl-pool-summary').textContent = 'Current tile: ' + (pool.current || 'not set') + ' · ' + poolBoundaryLabel + ': ' +
             pool.candidates.filter(c => c.kind === 'frontier').length + ' · Reachable encounters: ' + reachableEncounters.length +
@@ -1085,7 +1085,8 @@
             context.setLineDash(current ? [] : free ? [3, 3] : [5, 3]);
             context.strokeRect(x + 3, y + 3, sizeX - 6, sizeY - 6);
             if (sizeX >= 44 && sizeY >= 36) {
-                const marker = current && free ? 'FREE · YOU' : current ? 'YOU' : free ? 'FREE' : 'TASK';
+                const currentHasTasks = current && (pool.byLocation[id] || []).length > 0;
+                const marker = current && free ? 'FREE · YOU' : currentHasTasks ? 'TASK · YOU' : current ? 'YOU' : free ? 'FREE' : 'TASK';
                 context.setLineDash([]);
                 context.font = 'bold ' + Math.max(9, Math.min(15, sizeX * .16)) + 'px Arial, sans-serif';
                 context.textAlign = 'center'; context.textBaseline = 'middle';

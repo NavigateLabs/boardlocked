@@ -762,10 +762,6 @@
             }
             candidates.push(...found.values());
             reachableFree.push(...reachableFreeSet); reachableLive.push(...reachableLiveSet);
-            const currentTaskIds = [...new Set(startNodes.flatMap(node => byNode[node] || []))];
-            if (!candidates.length && currentTaskIds.length) candidates.push({ kind: 'stay', locationId: current,
-                weight: 1, metadata: { taskCount: currentTaskIds.length, taskIds: currentTaskIds, distance: 0,
-                    entrySections: Array.isArray(travelAnchorSections) ? [...travelAnchorSections] : [], deadlockFallback: true } });
         } else if (travelGraph && current && own(unlocked, current)) {
             const traversed = new Set([current]), queue = [{ id: current, distance: 0 }], found = new Map();
             while (queue.length) {
@@ -789,14 +785,13 @@
                 }
             }
             candidates.push(...found.values());
-            if (!candidates.length && byLocation[current]?.length) candidates.push({ kind: 'stay', locationId: current,
-                weight: 1, metadata: { taskCount: byLocation[current].length, taskIds: [...byLocation[current]], distance: 0, deadlockFallback: true } });
         } else {
             // Before the first tile (and for callers without geography data),
             // retain the complete starting pool. Imported runs receive an
             // inferred anchor before this function is called by the UI.
             for (const locationId of frontierSet) candidates.push({ kind: 'frontier', locationId, weight: 1, metadata: { distance: null } });
             if (!travelGraph) for (const locationId of live) {
+                if (locationId === current) continue;
                 candidates.push({ kind: 'revisit', locationId, weight: 1, metadata: { taskCount: byLocation[locationId].length,
                     taskIds: [...byLocation[locationId]], distance: null } });
                 reachableLive.push(locationId);

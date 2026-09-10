@@ -243,12 +243,22 @@ test('an encounter blocks everything behind it even when the farther tile is als
     assert.deepEqual(pool.candidates.map(c => c.locationId), ['2000']);
     assert.deepEqual(pool.reachableLive, ['2000']);
 });
-test('current tile is offered only as a deadlock fallback', () => {
-    const unlocked = { '1000': '1000' }, graph = { '1000': [] };
-    const livePool = R.derivePool([], unlocked, adapt([task('here')], {}, fresh(), unlocked), null, graph, '1000');
-    assert.deepEqual(livePool.candidates.map(c => c.kind), ['stay']);
-    assert.equal(livePool.candidates[0].metadata.deadlockFallback, true);
-    assert.equal(R.derivePool([], unlocked, [], null, graph, '1000').candidates.length, 0);
+test('current tile never receives a roll ticket when it has additional tasks', () => {
+    const unlocked = { '1000': '1000' }, tasks = adapt([task('here')], {}, fresh(), unlocked);
+    const simple = R.derivePool([], unlocked, tasks, null, { '1000': [] }, '1000');
+    assert.deepEqual(simple.live, ['1000']);
+    assert.deepEqual(simple.byLocation['1000'], ['here']);
+    assert.equal(simple.candidates.length, 0);
+    assert.equal(R.derivePool([], unlocked, tasks, null, null, '1000').candidates.length, 0,
+        'the invariant also holds for callers without a travel graph');
+
+    const sectionGraph = { sectionGraph: { '1000-1': [] }, nodesByChunk: { '1000': ['1000-1'] } };
+    const sectionTasks = adapt([task('section-here', [], { origins: [origin('1000', '1')], activeOrigins: [origin('1000', '1')] })],
+        {}, fresh(), unlocked, { '1000': { '1': true } });
+    const sectioned = R.derivePool([], unlocked, sectionTasks, null, sectionGraph, '1000', ['1']);
+    assert.deepEqual(sectioned.live, ['1000']);
+    assert.deepEqual(sectioned.byLocation['1000'], ['section-here']);
+    assert.equal(sectioned.candidates.length, 0);
 });
 test('travel graph respects accessible sections and can enter any section of a locked boundary tile', () => {
     const data = { sections: {
@@ -452,9 +462,23 @@ test('administrative invalidation does not manufacture gameplay completion', () 
     assert.equal(voided.currentVisit.resolvedTaskId, null);
     assert.deepEqual(voided.visitHistory[0].candidateTaskIds, ['a']);
 });
-test('dormant chunks automatically wake when tasks become available', () => {
-    assert.ok(R.derivePool([], geo, []).dormant.includes('1000'));
-    assert.ok(R.derivePool([], geo, adapt([task('activated')])).live.includes('1000'));
+test('a reachable FREE tile becomes a task encounter as soon as a task becomes available', () => {
+    const unlocked = { '1000': '1000', '2000': '2000' };
+    const graph = { '1000': ['2000'], '2000': ['1000', '3000'], '3000': ['2000'] };
+    const before = R.derivePool(['3000'], unlocked, [], null, graph, '1000');
+    assert.ok(before.dormant.includes('2000'));
+    assert.ok(before.reachableFree.includes('2000'));
+    assert.deepEqual(before.candidates.map(candidate => candidate.locationId), ['3000']);
+
+    const after = R.derivePool(['3000'], unlocked,
+        adapt([task('activated', ['2000'])], {}, fresh(), unlocked), null, graph, '1000');
+    assert.ok(!after.dormant.includes('2000'));
+    assert.ok(after.live.includes('2000'));
+    assert.ok(after.reachableLive.includes('2000'));
+    assert.deepEqual(after.candidates.map(candidate => [candidate.kind, candidate.locationId, candidate.metadata.taskIds]),
+        [['revisit', '2000', ['activated']]]);
+    assert.ok(!after.candidates.some(candidate => candidate.locationId === '3000'),
+        'the newly active task stops travel through its former FREE tile');
 });
 test('prerequisite provider B does not receive action task from A', () => {
     const currentTasks = adapt([task('chop', ['1000'], { enabler: '2000' })]);

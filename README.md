@@ -18,7 +18,10 @@ Use the task icon in the top-right to reopen the panel.
 - Roll from the first reachable new tile or unfinished task tile in each direction.
 - Cross taskless `FREE` tiles automatically while building the roll pool.
 - Complete any one task offered for the current tile before rolling again.
-- Recalculate routes when a completed task unlocks an item, level, or connection.
+- Recalculate routes when a completed task unlocks an item, level, or connection;
+  a `FREE` tile becomes a task encounter as soon as it has an available task.
+- Never put the tile you are standing on into the roll pool. Extra tasks there can
+  be completed incidentally or rolled after you leave and reach it again.
 - Keep skill tasks moving forward through a window tuned for each skill. Woodcutting
   uses +15, so a level-60 yew task needs a completed level-45-or-higher milestone.
 - Offer every obtainable weapon upgrade that improves on equipment already acquired.
