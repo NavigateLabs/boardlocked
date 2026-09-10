@@ -15,13 +15,13 @@ Use the task icon in the top-right to reopen the panel.
 
 ## How Boardlocked plays
 
-Simply, you move one tile then complete one task before you can move again. Movement is adjacent to the tile you're currently standing on, meaning the tiles north, south, east or west. Tiles with no completeable goals turn into free tiles, and whenever you're next to a free tile you will also roll the tiles adjacent to that one.
+Simply, you move one chunk then complete one task before you can move again. Movement is adjacent to the chunk you're currently standing on, meaning the chunks north, south, east or west. Chunks with no completeable goals turn into free spaces, and whenever you're next to a free space you will also roll the chunks adjacent to that one.
 
 The tasks are similar to those you would expect from chunklocked, I.e. get a new BiS, skilling activity, collection log, quests and such.
 
-You have access to everything in previously unlocked chunks, so you can re-enter areas you have previously been to. However you must focus on your goal. I.e. if you need to get woodcutting to lvl 60, that should be the goal you focus on in your unlocked chunks and you shouldn't go train thieving.
+You have access to everything in previously unlocked chunks, so you can re-enter areas you have previously been to. However you must focus on your task. I.e. if you need to get woodcutting to lvl 60 to cut yew, that should be the goal you focus on in your unlocked chunks and you shouldn't go train thieving.
 
-The tasks are more than likely begin very simple (get an axe, cut a tree), but not to worry, after a couple tiles you'll find yourself with increasingly harder tasks.
+The tasks are more than likely begin very simple (get an axe, cut a tree), but not to worry, after a couple chunks you'll find yourself with increasingly harder tasks.
 
 ## Start a new account
 
@@ -33,8 +33,8 @@ Before starting talk to Turael once and go though the options to unlock slayer. 
 
 Two optional start groups are available before the first roll:
 
-- **Varlamore:** adds Varlamore land tiles and assumes you completed Children of the Sun before rolling.
-- **Wilderness:** adds Wilderness land tiles for masochists.
+- **Varlamore:** adds Varlamore and assumes you completed Children of the Sun before rolling.
+- **Wilderness:** adds Wilderness for masochists.
 
 ## Protect your save
 
