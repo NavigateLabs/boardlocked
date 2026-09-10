@@ -15,7 +15,7 @@ Use the task icon in the top-right to reopen the panel.
 
 ## How Boardlocked plays
 
-Simply, you move one tile then complete one task before you can move again. Movement is adjacent to the tile you're currently standing on, meaning the tiles north, south, reast of west. Tiles with no completeable goals turn into free tiles, and whenever you're next to a free tile you will also roll the tiles adjacent to that one.
+Simply, you move one tile then complete one task before you can move again. Movement is adjacent to the tile you're currently standing on, meaning the tiles north, south, east or west. Tiles with no completeable goals turn into free tiles, and whenever you're next to a free tile you will also roll the tiles adjacent to that one.
 
 The tasks are similar to those you would expect from chunklocked, I.e. get a new BiS, skilling activity, collection log, quests and such.
 
