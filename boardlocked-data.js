@@ -142,7 +142,32 @@
             // codeItems.tools is mostly reusable implements, but these entries are
             // consumed inputs. The upstream data has no persistence flag for them.
             nonPersistentItems: Object.freeze(['Bones', 'Big bones', 'Fishing bait', 'Dark fishing bait']),
-            nonPersistentGroups: Object.freeze(['Bones[+]', 'Big bones[+]', 'Barbarian bait[+]', 'Plant cure[+]'])
+            nonPersistentGroups: Object.freeze(['Bones[+]', 'Big bones[+]', 'Barbarian bait[+]', 'Plant cure[+]']),
+            customCapabilities: Object.freeze([
+                Object.freeze({
+                    capabilityId: 'ship-cannon',
+                    requirementKey: 'Ship cannon[+]',
+                    label: 'Ship cannon',
+                    familyType: 'levelled_ship_facility',
+                    skill: 'Sailing',
+                    enforceUseLevel: true,
+                    classificationReason: 'Ship combat needs an installed cannon that the account has the Sailing level to use',
+                    satisfyingItems: Object.freeze([
+                        Object.freeze({ itemKey: 'Bronze cannon', minimumUseLevel: 28, requiredLevels: Object.freeze({ Ranged: 1 }) }),
+                        Object.freeze({ itemKey: 'Iron cannon', minimumUseLevel: 35, requiredLevels: Object.freeze({ Ranged: 1 }) }),
+                        Object.freeze({ itemKey: 'Steel cannon', minimumUseLevel: 47, requiredLevels: Object.freeze({ Ranged: 5 }) }),
+                        Object.freeze({ itemKey: 'Mithril cannon', minimumUseLevel: 57, requiredLevels: Object.freeze({ Ranged: 20 }) }),
+                        Object.freeze({ itemKey: 'Adamant cannon', minimumUseLevel: 69, requiredLevels: Object.freeze({ Ranged: 30 }) }),
+                        Object.freeze({ itemKey: 'Rune cannon', minimumUseLevel: 80, requiredLevels: Object.freeze({ Ranged: 40 }) }),
+                        Object.freeze({ itemKey: 'Dragon cannon', minimumUseLevel: 92, requiredLevels: Object.freeze({ Ranged: 60 }) })
+                    ])
+                })
+            ])
+        }),
+        shipCombat: Object.freeze({
+            monsterGroup: 'BountyMonster[+]',
+            deriveMonstersFromWaterSections: true,
+            capabilityRequirement: 'Ship cannon[+]'
         }),
         forestry: Object.freeze({
             taskCategories: Object.freeze(['Forestry', 'ForestryXp']),

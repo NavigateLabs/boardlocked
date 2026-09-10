@@ -5,7 +5,8 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 9;
+    const VERSION = 10;
+    const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
         'Cooking', 'Woodcutting', 'Fletching', 'Fishing', 'Firemaking', 'Crafting', 'Smithing',
@@ -41,12 +42,12 @@
     const progressionWindow = skill => PROGRESSION_WINDOWS[skill] || 10;
 
     function normalizeState(input) {
-        if (input && ![1, 2, 3, 4, 5, 6, 7, 8, VERSION].includes(input.version)) throw new Error('Unsupported Boardlocked state version: ' + input.version);
+        if (input && (!Number.isInteger(input.version) || input.version < 1 || input.version > VERSION)) throw new Error('Unsupported Boardlocked state version: ' + input.version);
         const state = { version: VERSION, enabled: false, actualLevels: {}, currentVisit: null, travelAnchor: null,
             travelAnchorSections: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
-            rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input,
+            rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input, enablerRevision: input ? 0 : ENABLER_REVISION,
             startingSectionPolicy: input ? null : STARTING_SECTION_POLICY,
             initialization: { druidicRitual: !input, varlamore: false, wilderness: false, ocean: false },
             initializationApplied: {}, initializationTaskIds: {}, initializationLevelFloors: {} };
@@ -60,7 +61,9 @@
             state.progressionInitialized = input.version >= 4 && input.progressionInitialized === true;
             state.rulePresetInitialized = input.version >= 2 && input.rulePresetInitialized === true;
             state.rulePresetRevision = Number.isInteger(input.rulePresetRevision) && input.rulePresetRevision >= 0 ? input.rulePresetRevision : 0;
-            state.enablersInitialized = input.version >= 3 && input.enablersInitialized === true;
+            state.enablerRevision = Number.isInteger(input.enablerRevision) && input.enablerRevision >= 0 ? input.enablerRevision :
+                (input.version >= 3 && input.enablersInitialized === true ? 1 : 0);
+            state.enablersInitialized = input.version >= 3 && input.enablersInitialized === true && state.enablerRevision >= ENABLER_REVISION;
             if (input.version >= 6) {
                 if (!input.initialization || Array.isArray(input.initialization) || typeof input.initialization !== 'object') {
                     throw new Error('Invalid initialization options');
@@ -969,6 +972,19 @@
                 satisfyingItems: members.map(itemKey => ({ itemKey, minimumUseLevel: levels[group]?.[itemKey] ?? null,
                     skillingBis: bisItems.get(itemKey) || null })) });
         }
+        for (const custom of config.customCapabilities || []) {
+            const requirementKey = custom.requirementKey || custom.capabilityId;
+            if (!requirementKey || byRequirement.has(requirementKey)) continue;
+            const satisfyingItems = (custom.satisfyingItems || []).map(item => typeof item === 'string' ?
+                { itemKey: canonicalItemKey(item), minimumUseLevel: null, skillingBis: bisItems.get(canonicalItemKey(item)) || null } :
+                { ...item, itemKey: canonicalItemKey(item.itemKey), minimumUseLevel: item.minimumUseLevel ?? null,
+                    skillingBis: item.skillingBis || bisItems.get(canonicalItemKey(item.itemKey)) || null });
+            if (!satisfyingItems.length) continue;
+            add({ capabilityId: custom.capabilityId || 'custom:' + requirementKey, requirementKey,
+                label: custom.label || stripMarkup(requirementKey), familyType: custom.familyType || 'custom_reusable_family',
+                skill: custom.skill || null, enforceUseLevel: !!custom.enforceUseLevel,
+                classificationReason: custom.classificationReason || 'Explicit persistent capability annotation', satisfyingItems });
+        }
         const groupedItems = new Set(capabilities.flatMap(capability => capability.satisfyingItems.map(item => item.itemKey)));
         for (const item of referenced) {
             if (groups[item] || groupedItems.has(item) || excludedItems.has(item)) continue;
@@ -1006,12 +1022,13 @@
             const grouped = model.byRequirement.get(key);
             if (grouped) result.push({ capabilityId: grouped.capabilityId, capabilityLabel: grouped.label,
                 capabilitySkill: grouped.skill, familyType: grouped.familyType, satisfyingItems: grouped.satisfyingItems,
-                requirementKey: key, requiresSpecificItem: false, itemKey: null });
+                requirementKey: key, requiresSpecificItem: false, itemKey: null, enforceUseLevel: !!grouped.enforceUseLevel });
             else {
                 const itemKey = canonicalItemKey(raw), family = chooseItemCapability(model, itemKey, skill);
                 if (family) result.push({ capabilityId: family.capabilityId, capabilityLabel: family.label,
                     capabilitySkill: family.skill, familyType: family.familyType, satisfyingItems: family.satisfyingItems,
-                    requirementKey: itemKey, requiresSpecificItem: family.satisfyingItems.length > 1, itemKey });
+                    requirementKey: itemKey, requiresSpecificItem: family.satisfyingItems.length > 1, itemKey,
+                    enforceUseLevel: !!family.enforceUseLevel });
             }
         }
         return result.filter((requirement, index) => result.findIndex(other => other.capabilityId === requirement.capabilityId &&
@@ -1019,8 +1036,12 @@
     }
 
     function itemUsableForRequirement(item, requirement, state, data, taskSkill = null) {
-        if (item.minimumUseLevel != null && requirement.capabilitySkill && (!taskSkill || taskSkill === requirement.capabilitySkill) &&
+        if (item.minimumUseLevel != null && requirement.capabilitySkill &&
+            (requirement.enforceUseLevel || !taskSkill || taskSkill === requirement.capabilitySkill) &&
             (state.actualLevels?.[requirement.capabilitySkill] || 1) < item.minimumUseLevel) return false;
+        for (const [skill, level] of Object.entries(item.requiredLevels || {})) {
+            if ((state.actualLevels?.[skill] || 1) < level) return false;
+        }
         if (['Attack', 'Strength', 'Defence', 'Ranged', 'Magic'].includes(taskSkill)) {
             for (const [skill, level] of Object.entries(data.equipment?.[item.itemKey]?.requirements || {})) {
                 if ((state.actualLevels?.[skill] || 1) < level) return false;
@@ -1037,14 +1058,20 @@
     }
 
     function specificAcquisitionItems(data, skill, meta, taskClass, model) {
-        if (!['bis', 'collection'].includes(taskClass) || meta.Items?.length !== 1 || meta.Items[0].includes('*')) return [];
-        const choices = expand(meta.Items[0], data.codeItems?.itemsPlus);
-        return choices.length === 1 && model.byItem.has(canonicalItemKey(choices[0])) ? [canonicalItemKey(choices[0])] : [];
+        const result = [];
+        const output = canonicalItemKey(meta.Output || '');
+        if (output && model.byItem.has(output)) result.push(output);
+        if (['bis', 'collection'].includes(taskClass) && meta.Items?.length === 1 && !meta.Items[0].includes('*')) {
+            const choices = expand(meta.Items[0], data.codeItems?.itemsPlus);
+            if (choices.length === 1 && model.byItem.has(canonicalItemKey(choices[0]))) result.push(canonicalItemKey(choices[0]));
+        }
+        return [...new Set(result)];
     }
 
     function recoverAcquiredEnablers(state, legacy = {}, data = {}, ids = {}, annotations = {}) {
         if (state.enablersInitialized) return state;
-        const next = { ...state, acquiredEnablers: { ...state.acquiredEnablers }, enablersInitialized: true };
+        const next = { ...state, acquiredEnablers: { ...state.acquiredEnablers }, enablersInitialized: true,
+            enablerRevision: ENABLER_REVISION };
         const model = buildEnablerModel(data, annotations), proven = new Set();
         for (const storeName of ['checkedAllTasks', 'checkedChallenges', 'completedChallenges']) {
             for (const entries of Object.values(legacy[storeName] || {})) for (const [key, flag] of Object.entries(entries || {})) {
@@ -1142,6 +1169,19 @@
         const codes = data.codeItems || {}, tasks = new Map(), sourceCache = new Map(), originCache = new Map();
         const diagnostics = [], accessDiagnostics = [], enablerModel = buildEnablerModel(data, annotations);
         const pendingCapabilities = new Map();
+        const shipCombat = annotations.shipCombat || {};
+        const shipCombatMonsters = new Set(expand(shipCombat.monsterGroup || '', codes.monstersPlus));
+        if (shipCombat.deriveMonstersFromWaterSections) for (const chunk of Object.values(data.chunks || {})) {
+            if (chunk.Nickname === 'Ocean Chunk') for (const monster of Object.keys(chunk.Monster || {})) shipCombatMonsters.add(monster);
+            for (const [sectionId, section] of Object.entries(chunk.Sections || {})) if (sectionId.startsWith('W')) {
+                for (const monster of Object.keys(section.Monster || {})) shipCombatMonsters.add(monster);
+            }
+        }
+        const shipCannonCapability = enablerModel.byRequirement.get(shipCombat.capabilityRequirement || '');
+        const requirementFromCapability = capability => capability && ({ capabilityId: capability.capabilityId,
+            capabilityLabel: capability.label, capabilitySkill: capability.skill, familyType: capability.familyType,
+            satisfyingItems: capability.satisfyingItems, requirementKey: capability.requirementKey,
+            requiresSpecificItem: false, itemKey: null, enforceUseLevel: !!capability.enforceUseLevel });
         const knownNames = new Map();
         // Prefer native quest/diary/extra entries over worker-generated skill projections.
         const categories = Object.keys(valids).sort((a, b) => ['Quest', 'Diary', 'Extra', 'BiS'].indexOf(b) - ['Quest', 'Diary', 'Extra', 'BiS'].indexOf(a));
@@ -1285,6 +1325,12 @@
             const id = taskId(name, skill, ids);
             const equipmentName = skill === 'BiS' ? equipmentByFormattedName.get(name.split('|')[1]) : undefined;
             let origins = equipmentName ? item(equipmentName, new Set()) : taskOrigins(name, skill);
+            const blockedShipCombatOrigins = !shipCannonCapability ? [] : origins.filter(source => shipCombatMonsters.has(source.sourceName));
+            const shipCannonStatus = blockedShipCombatOrigins.length ? enablerRequirementStatus(
+                requirementFromCapability(shipCannonCapability), state, data, 'Sailing') : null;
+            if (shipCannonStatus && !shipCannonStatus.satisfied) {
+                origins = origins.filter(source => !shipCombatMonsters.has(source.sourceName));
+            }
             const forestBound = !!forestry.kitItem && taskNeedsForestry(name, skill);
             const directTrees = forestryTreeRecords.filter(record => record.name === name && record.skill === skill);
             const treeSources = uniqueOrigins((directTrees.length ? directTrees : forestryTreeRecords).flatMap(record => record.validSources));
@@ -1329,6 +1375,7 @@
             record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, requirementMeta);
             const requiredEnablers = taskEnablerRequirements(data, requirementSkill, requirementMeta, enablerModel, record.taskClass)
                 .map(requirement => enablerRequirementStatus(requirement, state, data, requirementSkill));
+            if (shipCannonStatus && (shipCannonStatus.satisfied || !origins.length)) requiredEnablers.push(shipCannonStatus);
             record.provesAcquiredItemKeys = specificAcquisitionItems(data, requirementSkill, requirementMeta, record.taskClass, enablerModel);
             for (const requirement of requiredEnablers) if (requirement.requiresSpecificItem) record.provesAcquiredItemKeys.push(requirement.itemKey);
             if (forestBound) {
@@ -1358,8 +1405,11 @@
                     record.available = false;
                     const detail = missing.map(requirement => requirement.requiresSpecificItem ? requirement.itemKey : requirement.capabilityLabel).join(', ');
                     const existing = record.accessResult?.allowed === false ? record.accessResult.reason + '; ' : '';
+                    const shipCombatMissing = missing.some(requirement => requirement.capabilityId === shipCannonCapability?.capabilityId);
                     record.accessResult = { ...(record.accessResult || {}), allowed: false,
-                        reason: existing + 'Persistent enabler not acquired: ' + detail, persistentEnablers: requiredEnablers };
+                        reason: existing + (shipCombatMissing ? 'Ship combat requires an acquired cannon and the Sailing/Ranged levels to use it (bronze starts at 28 Sailing)' :
+                            'Persistent enabler not acquired: ' + detail), persistentEnablers: requiredEnablers,
+                        blockedShipCombatOrigins };
                     accessDiagnostics.push({ taskId: id, name: record.displayName, allowed: false,
                         reason: record.accessResult.reason, persistentEnablers: requiredEnablers });
                 } else record.accessResult = { ...(record.accessResult || {}), persistentEnablers: requiredEnablers };
@@ -1407,7 +1457,8 @@
                     advancesSkillProgression: false, skilling: false, origins, available: true,
                     enablerItemKey: itemInfo.itemKey, provesAcquiredItemKeys: [itemInfo.itemKey],
                     capabilities: capabilities.map(capability => ({ capabilityId: capability.capabilityId, label: capability.label,
-                        familyType: capability.familyType, skill: capability.skill, minimumUseLevel: itemInfo.minimumUseLevel })),
+                        familyType: capability.familyType, skill: capability.skill, minimumUseLevel: itemInfo.minimumUseLevel,
+                        requiredLevels: itemInfo.requiredLevels || {} })),
                     requiredBy, skillingBis: itemInfo.skillingBis,
                     accessResult: { allowed: true, reason: 'Persistent enabler is usable and directly obtainable from an accessible source',
                         itemKey: itemInfo.itemKey, origins, requiredBy } });
@@ -1421,6 +1472,7 @@
                 capabilities: (enablerModel.byItem.get(itemKey) || []).map(capability => ({ capabilityId: capability.capabilityId,
                     label: capability.label, familyType: capability.familyType, skill: capability.skill,
                     minimumUseLevel: capability.satisfyingItems.find(item => item.itemKey === itemKey)?.minimumUseLevel ?? null,
+                    requiredLevels: capability.satisfyingItems.find(item => item.itemKey === itemKey)?.requiredLevels || {},
                     classificationReason: capability.classificationReason })) };
         }).sort((a, b) => a.itemKey.localeCompare(b.itemKey));
         for (const record of tasks.values()) if (!record.origins.length) diagnostics.push({ taskId: record.taskId,

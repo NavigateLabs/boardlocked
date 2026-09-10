@@ -241,6 +241,8 @@
             // profiles and imported histories never gain a quest retroactively.
             if (parsed?.version < 6 && !hasStarted()) state.initialization.druidicRitual = true;
             if (!state.enablersInitialized) state = R.recoverAcquiredEnablers(state, legacy(), chunkInfo, tasksMap, BoardlockedData);
+            const recalculatingUpdatedVisit = parsed?.version < R.VERSION && !!state.currentVisit && !R.canRoll(state);
+            if (recalculatingUpdatedVisit) state = R.recalculateCurrentVisit(state, 'Recalculated after Boardlocked rules update');
             const startSectionMigration = R.migrateStartingSections(chunkInfo, state, manualSections,
                 chunkInfo.walkableChunks || [], tempChunks.blacklisted || {});
             state = startSectionMigration.state; manualSections = startSectionMigration.sections;
@@ -262,6 +264,7 @@
             if (upgradeBoardlockedPreset() || initializationChanged || startSectionMigration.changed || anchorSectionsMigrated || recoveredBrowserBackup || parsed?.version < R.VERSION ||
                 (!localStorage.getItem(key) && localStorage.getItem(legacyStorageKey()))) save();
             if (recoveredBrowserBackup) message = 'Recovered the previous browser backup because the newest save could not be read. Download a backup now.';
+            else if (recalculatingUpdatedVisit) message = 'The active visit is being recalculated for the updated task rules.';
         } catch (err) { state = boardlockedState(); loadFailure = true; fail(new Error('Saved state was not overwritten. ' + err.message)); }
         setPanelOpen(true);
         render();

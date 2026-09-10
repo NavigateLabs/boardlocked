@@ -116,7 +116,7 @@ test('starting roll gives enabled groups equal odds before choosing a tile', () 
 });
 
 test('every released export version migrates without dropping progress', () => {
-    for (let version = 1; version <= 9; version++) {
+    for (let version = 1; version <= R.VERSION; version++) {
         const saved = fresh(); saved.version = version;
         if (version < 6) {
             delete saved.initialization; delete saved.initializationApplied;
@@ -133,7 +133,7 @@ test('every released export version migrates without dropping progress', () => {
             version, legacy: { tempChunks: { unlocked: { '12850': '12850' } } } };
         payload[version <= 6 ? oldStateField : 'boardlockedState'] = saved;
         const migrated = R.normalizeRunExport(payload);
-        assert.equal(migrated.state.version, 9);
+        assert.equal(migrated.state.version, R.VERSION);
         assert.equal(migrated.state.actualLevels.Cooking, 42);
         assert.equal(migrated.state.visitHistory[0].resolvedTaskId, 't_saved');
         assert.equal(migrated.state.visitHistory[0].note, 'keep me');
@@ -145,7 +145,7 @@ test('browser save envelope validates state and legacy progress together', () =>
     const payload = { format: 'boardlocked-browser-save', version: 1, savedAt: '2026-01-01T00:00:00.000Z',
         boardlockedState: fresh(), legacy: { checkedAllTasks: { Cooking: { Chicken: true } } } };
     const restored = R.normalizeBrowserSave(JSON.stringify(payload));
-    assert.equal(restored.boardlockedState.version, 9);
+    assert.equal(restored.boardlockedState.version, R.VERSION);
     assert.equal(restored.legacy.checkedAllTasks.Cooking.Chicken, true);
     assert.throws(() => R.normalizeBrowserSave('{"bad":true}'), /Invalid Boardlocked browser save/);
 });
@@ -990,6 +990,82 @@ test('an acquired higher-tier tool cannot satisfy an action before its use level
     assert.ok(usable.accessResult.persistentEnablers[0].usableItems.includes('Steel axe'));
 });
 
+test('bull shark drops require an acquired ship cannon and the Sailing level to use it', () => {
+    const request = usePreset(makeRequest(['5940']), 'Boardlocked Chunker');
+    request.manualSections = { '5940': { W1: true } };
+    Object.assign(request.boardlocked.state.actualLevels, { Sailing: 5, Attack: 30, Strength: 15 });
+    const halberd = result => result.tasks.find(task => task.name === 'Obtain an ~|adamant halberd|~');
+
+    let task = halberd(runWorker(request).result);
+    assert.ok(task, 'the upstream worker should expose the reported bull shark drop before Boardlocked access checks');
+    assert.equal(task.available, false);
+    assert.deepEqual(task.origins, []);
+    assert.match(task.accessResult.reason, /bronze starts at 28 Sailing/);
+    assert.ok(task.accessResult.blockedShipCombatOrigins.every(source => source.sourceName === 'Bull shark'));
+    assert.deepEqual(task.accessResult.persistentEnablers[0].usableItems, []);
+
+    request.boardlocked.state.actualLevels.Sailing = 28;
+    task = halberd(runWorker(request).result);
+    assert.equal(task.available, false, 'the level alone does not prove that the boat has a cannon');
+    assert.ok(task.accessResult.persistentEnablers[0].usableItems.includes('Bronze cannon'));
+
+    request.boardlocked.state.acquiredEnablers['Bronze cannon'] = { manual: true };
+    task = halberd(runWorker(request).result);
+    assert.equal(task.available, true);
+    assert.ok(task.origins.some(source => source.sourceName === 'Bull shark'));
+
+    request.boardlocked.state.actualLevels.Sailing = 27;
+    task = halberd(runWorker(request).result);
+    assert.equal(task.available, false, 'an imported cannon cannot bypass its Sailing requirement');
+
+    delete request.boardlocked.state.acquiredEnablers['Bronze cannon'];
+    request.boardlocked.state.acquiredEnablers['Steel cannon'] = { manual: true };
+    request.boardlocked.state.actualLevels.Sailing = 47;
+    request.boardlocked.state.actualLevels.Ranged = 1;
+    assert.equal(halberd(runWorker(request).result).available, false, 'a cannon still needs its Ranged requirement');
+    request.boardlocked.state.actualLevels.Ranged = 5;
+    assert.equal(halberd(runWorker(request).result).available, true);
+
+    const dolphinRequest = usePreset(makeRequest(['12080']), 'Boardlocked Chunker');
+    dolphinRequest.manualSections = { '12080': { W1: true } };
+    dolphinRequest.boardlocked.state.actualLevels.Sailing = 5;
+    const pearl = runWorker(dolphinRequest).result.tasks.find(task => /echo pearl/i.test(task.name));
+    assert.ok(pearl, 'non-bounty sea monsters are included by their water-section provenance');
+    assert.equal(pearl.available, false);
+    assert.ok(pearl.accessResult.blockedShipCombatOrigins.some(source => source.sourceName === 'Dolphin'));
+});
+
+test('a blocked sea-monster source does not hide an accessible land source for the same item', () => {
+    const data = {
+        challenges: { Attack: { 'Obtain a trophy': { Items: ['Trophy*'], Level: 1, Primary: true } }, Extra: {}, Quest: {}, Diary: {} },
+        codeItems: { itemsPlus: {}, monstersPlus: { 'BountyMonster[+]': ['Bull shark'] }, tools: {} }, equipment: {}
+    };
+    const result = R.buildTasks({ data, valids: { Attack: { 'Obtain a trophy': 1 } },
+        base: { items: { Trophy: { 'Bull shark': 'drop', 'Land store': 'shop' } },
+            monsters: { 'Bull shark': { '1000': true } }, shops: { 'Land store': { '2000': true } }, objects: {}, npcs: {} },
+        rules: { 'Show Skill Tasks': true }, state: fresh(), unlocked: geo, annotations });
+    const task = result.tasks.find(task => task.name === 'Obtain a trophy');
+    assert.equal(task.available, true);
+    assert.deepEqual(task.origins.map(source => source.sourceName), ['Land store']);
+});
+
+test('completed cannon-building tasks migrate into persistent ship-combat ownership', () => {
+    const ids = require('../tasksMap.json');
+    const name = 'Build a ~|bronze cannon|~';
+    const saved = fresh();
+    saved.version = 9;
+    delete saved.enablerRevision;
+    saved.acquiredEnablers['Iron axe'] = { manual: true };
+    const migrated = R.normalizeState(saved);
+    assert.equal(migrated.enablersInitialized, false, 'the new capability catalogue must be recovered once');
+    const recovered = R.recoverAcquiredEnablers(migrated, { checkedAllTasks: { Construction: { [name]: true } } },
+        chunkData, ids, annotations);
+    assert.equal(recovered.enablersInitialized, true);
+    assert.equal(recovered.enablerRevision, 2);
+    assert.deepEqual(recovered.acquiredEnablers['Iron axe'], { manual: true });
+    assert.ok(recovered.acquiredEnablers['Bronze cannon']?.imported);
+});
+
 test('BIS Skilling can retain an iron tool upgrade without duplicating it as a base Enabler', () => {
     const request = usePreset(makeRequest(['6197']), 'Boardlocked Chunker');
     request.rules['BIS Skilling'] = true;
@@ -1038,10 +1114,10 @@ test('acquired Enabler state and stable acquisition IDs round-trip without guess
     assert.equal(R.enablerItemFromTaskId(R.enablerTaskId('Iron axe')), 'Iron axe');
 });
 
-test('older states migrate to v9, exact completions replace automatic tiers, and explicit tier edits survive', () => {
+test('older states migrate, exact completions replace automatic tiers, and explicit tier edits survive', () => {
     const migrated = R.normalizeState({ version: 1, enabled: true, visitHistory: [], actualLevels: { Cooking: 42 },
         derivedPool: ['stale'], origins: ['stale'] });
-    assert.equal(migrated.version, 9); assert.equal(migrated.actualLevels.Cooking, 42);
+    assert.equal(migrated.version, R.VERSION); assert.equal(migrated.actualLevels.Cooking, 42);
     assert.equal(migrated.progressionInitialized, false); assert.equal(migrated.derivedPool, undefined);
     const legacyFrontiers = Object.fromEntries(R.SKILLS.map(skill => [skill, skill === 'Cooking' ? 4 : 0]));
     const explicit = R.normalizeState({ version: 2, enabled: true, visitHistory: [], progressionFrontiers: legacyFrontiers,
@@ -1052,7 +1128,7 @@ test('older states migrate to v9, exact completions replace automatic tiers, and
     assert.equal(initialized.progressionHighWater.Cooking, 59); assert.equal(initialized.legacyProgressionFrontiers, undefined);
     const v3 = R.normalizeState({ version: 3, enabled: true, visitHistory: [], acquiredEnablers: { 'Iron axe': { manual: true } },
         enablersInitialized: true });
-    assert.deepEqual(v3.acquiredEnablers['Iron axe'], { manual: true }); assert.equal(v3.enablersInitialized, true);
+    assert.deepEqual(v3.acquiredEnablers['Iron axe'], { manual: true }); assert.equal(v3.enablersInitialized, false);
     const imported = R.sanitizeLegacySnapshot({ tempChunks: { unlocked: { 1000: '1000' }, selected: { 9999: 1 }, potential: { 8888: 1 } },
         rules: { Forestry: true, Injected: true }, settings: { theme: 'dark', Injected: true }, globalValids: { stale: true } },
     ['Forestry'], ['theme']);
