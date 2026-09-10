@@ -23,16 +23,15 @@ You have access to everything in previously unlocked chunks, so you can re-enter
 
 ## Start a new account
 
-Open a fresh run and choose your start options before the first roll. The default
-pool excludes Morytania, the desert,
-Prifddinas, quest-locked islands, damaging environments, guild interiors, and
-other poor level-3 starts.
+Open a fresh run and choose your start options before the first roll. The map
+uses the reviewed land-tile list for Standard starts. Mixed coastal chunks still
+begin on land.
 
 Two optional start groups are available before the first roll. Every starting
 tile is on land:
 
-- **Varlamore:** adds the released continent and assumes you completed Children of the Sun before rolling. Starts stay on the connected overworld surface, outside Tempestus and quest-only interiors.
-- **Wilderness:** adds Ferox Enclave and nearby low-risk southern Wilderness tiles. PvP risk still applies.
+- **Varlamore:** adds Varlamore land tiles and assumes you completed Children of the Sun before rolling.
+- **Wilderness:** adds Wilderness land tiles. PvP and normal Wilderness danger still apply.
 
 ## Protect your save
 

@@ -355,10 +355,11 @@
                     queue.push(...(graph[location] || []).filter(next => !connectedStartingLocations.has(next)));
                 }
             }
+            const includedLocations = new Set((policy.includeLocations || []).map(String));
             const groupIds = [];
             for (const rawId of configured[group] || []) {
                 const id = String(rawId);
-                if (!walkable.has(id) || own(blacklisted, id) || own(groupByLocation, id)) continue;
+                if (!walkable.has(id) || isWaterLocation(data, id) || own(blacklisted, id) || own(groupByLocation, id)) continue;
                 let sectionGroups = deriveStartingSectionGroups(data, id, 'land', [...walkable], blacklisted);
                 const configuredSections = policy.sectionGroups?.[id];
                 if (configuredSections) {
@@ -367,7 +368,7 @@
                 }
                 if (connectedStartingLocations) sectionGroups = sectionGroups.filter(sections => {
                     const locations = sections.length ? sections.map(section => id + '-' + section) : [id];
-                    return locations.some(location => connectedStartingLocations.has(location));
+                    return locations.some(location => connectedStartingLocations.has(location) || includedLocations.has(location));
                 });
                 if (!sectionGroups.length) continue;
                 groupByLocation[id] = group;

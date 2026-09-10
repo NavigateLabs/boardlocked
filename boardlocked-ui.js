@@ -1145,7 +1145,7 @@
             <details class="bl-flinch-guide"><summary>Show bear-cub flinch spot</summary><figure><img src="./resources/boardlocked-bear-flinch.jpg" alt="Player standing against the outside corner of the ruined house with the bear cub nearby" loading="lazy"><figcaption>Attack once, return to this corner, and wait for the bear’s health bar to disappear. Repeat until it dies.</figcaption></figure></details>
             <div class="bl-start-grid">
             <label class="bl-start-option"><input id="bl-start-varlamore" type="checkbox"><span><strong>Varlamore starts</strong><small>Assumes Children of the Sun is complete before rolling.</small></span></label>
-            <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds Ferox and nearby southern Wilderness starts. PvP still applies.</small></span></label>
+            <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds Wilderness tiles. PvP and normal Wilderness danger still apply.</small></span></label>
             </div><p id="bl-start-summary" class="bl-muted"></p><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button></section>
             <details id="bl-run-setup"><summary>Continue or import a run</summary>
             <div class="bl-toolbar"><label class="bl-file">Import backup<input id="bl-import" type="file" accept=".json,application/json"></label></div>
