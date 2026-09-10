@@ -1,9 +1,9 @@
 # Boardlocked
 
 Boardlocked is a progression mode for the Old School RuneScape
-[Chunk Picker V2](https://github.com/source-chunk/chunk-picker-v2). Instead of completing
-every possible task in a chunk, a run advances one visit at a time through reachable
-chunks, equipment upgrades, and skill progression.
+[Chunk Picker V2](https://github.com/source-chunk/chunk-picker-v2).
+
+The name comes from a combination of boardgame and the -locked nomer from various osrs game-modes. The idea is that each chunk is a boardgame tile, where you must move and perform one action each turn.
 
 ## Play
 
@@ -16,8 +16,6 @@ Use the task icon in the top-right to reopen the panel.
 ## How Boardlocked plays
 
 Simply, you move one tile then complete one task before you can move again. Movement is adjacent to the tile you're currently standing on, meaning the tiles north, south, east or west. Tiles with no completeable goals turn into free tiles, and whenever you're next to a free tile you will also roll the tiles adjacent to that one.
-
-Usable boats and other transport links can also make a destination rollable, but the destination remains locked until you roll it.
 
 The tasks are similar to those you would expect from chunklocked, I.e. get a new BiS, skilling activity, collection log, quests and such.
 
