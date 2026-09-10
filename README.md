@@ -24,7 +24,7 @@ Boardlocked offers one of them: the highest-level recipe you can currently do.
 Completing it covers that resource family, while distinct methods such as making
 cannonballs remain separate goals. A new resource starts a new family.
 
-You have access to everything in previously unlocked chunks, so you can re-enter areas you have previously been to. However you must focus on your goal. I.e. if you need to get woodcutting to lvl 60, that should be the goal you focus on in your rollable chunks and you shouldn't go train thieving.
+You have access to everything in previously unlocked chunks, so you can re-enter areas you have previously been to. However you must focus on your goal. I.e. if you need to get woodcutting to lvl 60, that should be the goal you focus on in your unlocked chunks and you shouldn't go train thieving.
 
 ## Start a new account
 
