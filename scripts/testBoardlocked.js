@@ -1080,6 +1080,41 @@ test('processing logs inherits the axe requirement until logs are directly obtai
     assert.ok(shaft.origins.some(source => source.sourceType === 'spawn' && source.sourceName === 'Logs'));
 });
 
+test('available gathering milestones come before dependent processing tasks', () => {
+    const request = usePreset(makeRequest(['4912']), 'Boardlocked Chunker');
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    request.boardlocked.state.acquiredEnablers.Tinderbox = { manual: true };
+    const result = runWorker(request).result;
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const adaptResult = legacy => R.adaptTasks(result.tasks, legacy, request.boardlocked.state,
+        request.chunks, result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
+    let tasks = adaptResult({});
+    const chop = tasks.find(task => task.name === 'Chop ~|logs|~');
+    assert.ok(chop?.eligible);
+    for (const name of ['Burn ~|logs|~', 'Fletch ~|logs|~ into shafts']) {
+        const downstream = tasks.find(task => task.name === name);
+        assert.equal(downstream?.eligible, false, name);
+        assert.equal(downstream?.resourceMilestoneBlocked, true, name);
+        assert.deepEqual(downstream?.blockedByTaskIds, [chop.taskId], name);
+        assert.match(downstream?.eligibilityReason, /Complete Chop logs before using Logs/);
+    }
+
+    tasks = adaptResult({ checkedAllTasks: { Woodcutting: { 'Chop ~|logs|~': true } } });
+    assert.ok(tasks.find(task => task.name === 'Burn ~|logs|~')?.eligible);
+    assert.ok(tasks.find(task => task.name === 'Fletch ~|logs|~ into shafts')?.eligible);
+
+    const direct = usePreset(makeRequest(['4912', '12850']), 'Boardlocked Chunker');
+    direct.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    direct.boardlocked.state.acquiredEnablers.Tinderbox = { manual: true };
+    const directResult = runWorker(direct).result;
+    const directTasks = R.adaptTasks(directResult.tasks, {}, direct.boardlocked.state, direct.chunks,
+        directResult.sections, direct.manualSections, R.buildTaskCatalog(direct.chunkInfo, direct.boardlocked.tasksMap), direct.boardlocked.tasksMap);
+    assert.ok(directTasks.find(task => task.name === 'Burn ~|logs|~')?.eligible,
+        'a direct log spawn bypasses the gathering milestone');
+    assert.ok(directTasks.find(task => task.name === 'Fletch ~|logs|~ into shafts')?.eligible,
+        'a direct log spawn bypasses the gathering milestone');
+});
+
 test('iron axe acquired first satisfies the base family without requiring bronze afterward', () => {
     const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
     request.boardlocked.state.acquiredEnablers['Iron axe'] = { manual: true };

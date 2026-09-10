@@ -647,6 +647,28 @@
                 whyWouldBeIneligible: activeOrigins.length ? task.whyWouldBeIneligible : [...task.whyWouldBeIneligible, 'covered by a more specific obtainable-item task'] };
         });
     }
+    function orderResourceMilestoneTasks(tasks, legacy = {}, state = null, ids = {}) {
+        const byId = new Map(tasks.map(task => [task.taskId, task]));
+        const completed = completionIds(legacy, ids);
+        return tasks.map(task => {
+            if (!task.eligible || !task.resourceMilestoneDependencies?.length) return task;
+            const blocking = task.resourceMilestoneDependencies.filter(dependency => {
+                const producers = dependency.producerTaskIds.map(id => byId.get(id)).filter(Boolean);
+                const satisfied = dependency.producers.some(producer => completed.has(producer.taskId) || completed.has(producer.name) ||
+                    (producer.level && (state?.progressionHighWater?.[producer.skill] || 0) >= producer.level));
+                return !satisfied && producers.some(producer => producer.eligible);
+            });
+            if (!blocking.length) return task;
+            const producerTaskIds = [...new Set(blocking.flatMap(dependency => dependency.producerTaskIds))];
+            const producerNames = [...new Set(producerTaskIds.map(id => byId.get(id)?.displayName).filter(Boolean))];
+            const resources = [...new Set(blocking.map(dependency => dependency.resource))];
+            const reason = 'Complete ' + producerNames.join(' or ') + ' before using ' + resources.join(' or ') + ' for this task';
+            return { ...task, eligible: false, resourceMilestoneBlocked: true,
+                resourceMilestoneDependencies: blocking, blockedByTaskIds: producerTaskIds,
+                eligibilityReason: reason,
+                whyWouldBeIneligible: [...task.whyWouldBeIneligible, 'an available resource-gathering milestone must be completed first'] };
+        });
+    }
     function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks, ids = {}) {
         const completedItems = completedEquipmentItems(legacy, state, ids);
         const adapted = tasks.map(task => {
@@ -676,7 +698,7 @@
                     ...(!origins.length ? ['no attributed origin'] : []), ...(origins.length && !activeOrigins.length ? ['origin geography or section closed'] : [])
                 ] };
         });
-        return collapseRedundantEquipmentTasks(adapted);
+        return orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(adapted), legacy, state, ids);
     }
 
     function travelConnectionPairs(connections = []) {
@@ -1423,6 +1445,36 @@
                 mandatoryResourceRequirements(raw).map(requirement => ({ ...requirement,
                     requiredViaResource: canonicalItemKey(raw).replaceAll('*', '') }))));
         }
+        function taskResourceMilestoneDependencies(taskName, meta) {
+            return (meta.Items || []).filter(raw => raw.includes('*')).flatMap(raw => {
+                let hasDirectSource = false;
+                const producers = new Map();
+                for (const itemName of expand(raw, codes.itemsPlus).map(canonicalItemKey)) {
+                    const resource = itemName.replaceAll('*', '');
+                    for (const [source, type] of Object.entries(base.items?.[resource] || base.items?.[resource + '*'] || {})) {
+                        let directOrigins = [];
+                        if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', resource, 'Direct item spawn');
+                        else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
+                        else if (String(type).includes('drop')) directOrigins = acquisitionOrigins(resource, source, fixed('monsters', source));
+                        else directOrigins = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
+                        if (directOrigins.length) {
+                            hasDirectSource = true;
+                            continue;
+                        }
+                        const producerSkill = knownNames.get(source), producerMeta = data.challenges[producerSkill]?.[source];
+                        if (!producerMeta || source === taskName || !taskOrigins(source, producerSkill).length) continue;
+                        const producer = taskMetadata(source, producerSkill, producerMeta, ids);
+                        if (producer.taskClass !== 'skill_progression') continue;
+                        producers.set(producer.taskId, { taskId: producer.taskId, name: producer.name,
+                            displayName: producer.displayName, skill: producer.skill, level: producer.level });
+                    }
+                }
+                return hasDirectSource || !producers.size ? [] : [{
+                    resource: canonicalItemKey(raw).replaceAll('*', ''),
+                    producerTaskIds: [...producers.keys()], producers: [...producers.values()]
+                }];
+            });
+        }
         const forestry = annotations.forestry || {};
         const forestryCategories = new Set(forestry.taskCategories || []);
         const isDirectForestry = meta => (meta?.Category || []).some(category => forestryCategories.has(category));
@@ -1532,6 +1584,8 @@
                 record.displayName = '[' + record.bisReason + '] ' + record.displayName;
             }
             record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, requirementMeta);
+            record.resourceMilestoneDependencies = record.taskClass === 'skill_progression' ?
+                taskResourceMilestoneDependencies(name, requirementMeta) : [];
             const requiredEnablers = uniqueRequirements([
                 ...taskEnablerRequirements(data, requirementSkill, requirementMeta, enablerModel, record.taskClass),
                 ...taskResourceRequirements(requirementMeta)
