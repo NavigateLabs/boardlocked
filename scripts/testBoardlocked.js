@@ -33,7 +33,7 @@ test('fresh and migrated runs keep initialization choices explicit', () => {
     assert.equal(migrated.startingSectionPolicy, null);
 });
 
-test('curated start pool excludes gated and hazardous regions unless explicitly enabled', () => {
+test('curated start pool covers released Varlamore while excluding gated and hazardous starts', () => {
     const base = R.deriveStartingPool(chunkData, annotations, fresh().initialization);
     const expanded = R.deriveStartingPool(chunkData, annotations,
         { druidicRitual: true, varlamore: true, wilderness: true, ocean: true });
@@ -43,7 +43,7 @@ test('curated start pool excludes gated and hazardous regions unless explicitly 
     assert.ok(allConfigured.every(id => chunkData.chunks[id] && chunkData.walkableChunks.map(String).includes(id)));
     const noQuest = new Set(chunkData.rollingChunks.noquest.map(String));
     assert.ok(annotations.initialization.startingTiles.standard.every(id => noQuest.has(id)), 'standard starts stay quest-free');
-    for (const gatedInterior of ['4922', '5935', '6191', '6198', '6454', '10293', '11319', '11571']) {
+    for (const gatedInterior of ['4922', '5933', '6198', '6454', '10293', '11319', '11571']) {
         assert.ok(!allConfigured.includes(gatedInterior), gatedInterior + ' gated guild area must not be a random start');
     }
     assert.ok(base.ids.every(id => !R.isWaterLocation(chunkData, id)), 'ocean chunks stay out of land-only starts');
@@ -60,7 +60,29 @@ test('curated start pool excludes gated and hazardous regions unless explicitly 
     }
     assert.ok(base.ids.includes('12850'), 'Lumbridge is a normal start');
     for (const excluded of ['13621', '12844', '8755', '12349', '12079']) assert.ok(!base.ids.includes(excluded));
-    assert.ok(expanded.ids.includes('6704'), 'Varlamore town is enabled');
+    const sourceVarlamore = chunkData.rollingChunks.varlamore.map(String).sort((a, b) => Number(a) - Number(b));
+    const configuredVarlamore = annotations.initialization.startingTiles.varlamore;
+    const excludedVarlamore = annotations.initialization.startingTileExclusions.varlamore;
+    assert.deepEqual([...configuredVarlamore, ...Object.keys(excludedVarlamore)].sort((a, b) => Number(a) - Number(b)),
+        sourceVarlamore, 'every upstream Varlamore tile must be included or have an audited exclusion');
+    assert.equal(expanded.groups.find(group => group.id === 'varlamore').locationIds.length, 71);
+    assert.ok(expanded.ids.includes('4656'), 'Tlati Rainforest is enabled');
+    assert.ok(expanded.ids.includes('5420'), 'Aldarin is enabled');
+    assert.ok(expanded.ids.includes('5428'), 'Auburn Valley is enabled');
+    assert.ok(expanded.ids.includes('6704'), 'Civitas illa Fortis is enabled');
+    assert.ok(expanded.ids.includes('7216'), 'the accessible Colosseum exterior is enabled');
+    for (const id of Object.keys(excludedVarlamore)) assert.ok(!expanded.ids.includes(id), id + ' stays excluded');
+    assert.deepEqual(expanded.arrivalSectionGroupsByLocation['4910'], [['1']], 'isolated picnic-pond island is omitted');
+    assert.deepEqual(expanded.arrivalSectionGroupsByLocation['4911'], [['1', '3']], 'isolated Gemstone Crab island is omitted');
+    assert.deepEqual(expanded.arrivalSectionGroupsByLocation['4916'], [['3'], ['4']], 'only the Varlamore side of Custodia is used');
+    assert.deepEqual(expanded.arrivalSectionGroupsByLocation['4917'], [['1']], 'Kourend and Stranglewood fragments are omitted');
+    assert.deepEqual(expanded.arrivalSectionGroupsByLocation['5677'], [['1', '2']], 'quest theatre interior is omitted');
+    assert.deepEqual(expanded.arrivalSectionGroupsByLocation['5678'], [['1', '2']], 'quest theatre approach is omitted');
+    assert.deepEqual(expanded.arrivalSectionGroupsByLocation['6191'], [['2']], 'Hunter Guild start stays on the outside path');
+    assert.deepEqual(expanded.arrivalSectionGroupsByLocation['7216'], [['1', '2']], 'Colosseum arena is omitted');
+    const withoutFortisAnchor = R.deriveStartingPool(chunkData, annotations, { varlamore: true }, { '6704': true });
+    assert.equal(withoutFortisAnchor.groups.find(group => group.id === 'varlamore').locationIds.length, 70,
+        'blacklisting the reference tile removes only that tile, not the region it identifies');
     assert.ok(expanded.ids.includes('12600'), 'safe Wilderness hub is enabled');
     assert.ok(expanded.ids.includes('12080'), 'near-Port-Sarim ocean is enabled');
     assert.ok(!expanded.ids.includes('12349'), 'deep Wilderness Mage Arena stays excluded');

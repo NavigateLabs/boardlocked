@@ -72,13 +72,32 @@
                     '7227', '7478', '7479'
                 ]),
                 // Children of the Sun is treated as account initialization when
-                // this group is enabled. Later quest areas (Cam Torum, Custodia,
-                // Tempestus) and the Colosseum are intentionally absent.
+                // this group is enabled. This covers every released overworld
+                // tile in the source data. Per-area rules below keep starts on
+                // the connected surface and out of unreleased or quest-only
+                // interiors.
                 varlamore: Object.freeze([
-                    '5934', '6189', '6190', '6192', '6193', '6195',
-                    '6445', '6446', '6447', '6448', '6449', '6451', '6701', '6702',
-                    '6703', '6704', '6705', '6706', '6707', '6957', '6958', '6959',
-                    '6960', '6961'
+                    // Tlati Rainforest and the released Custodia Pass.
+                    '4656', '4910', '4911', '4912', '4913', '4916', '4917',
+                    '5167', '5168', '5169', '5172', '5173', '5423', '5679',
+
+                    // Aldarin.
+                    '5165', '5166', '5420', '5421', '5422', '5676', '5677',
+                    '5678',
+
+                    // River Varla, Ralos' Rise, the Hailstorm Mountains, and
+                    // Auburn Valley.
+                    '5424', '5425', '5426', '5427', '5428', '5429', '5680',
+                    '5681', '5682', '5683', '5684', '5936', '5937', '5938',
+                    '5939', '5940', '6194', '6196',
+
+                    // Avium Savannah, Civitas illa Fortis, and the released
+                    // Colosseum exterior.
+                    '5934', '5935', '6189', '6190', '6191', '6192', '6193',
+                    '6195', '6445', '6446', '6447', '6448', '6449', '6450',
+                    '6451', '6701', '6702', '6703', '6704', '6705', '6706',
+                    '6707', '6957', '6958', '6959', '6960', '6961', '7215',
+                    '7216', '7217', '7472'
                 ]),
                 // The safe side of Ferox and nearby low-risk woodland.
                 // Dragon, boss, lava, crater, altar, and deep-Wilderness tiles are
@@ -92,6 +111,31 @@
                     '11820', '12077', '12080', '12333', '12334', '12335',
                     '12592'
                 ])
+            }),
+            startingAreaPolicies: Object.freeze({
+                varlamore: Object.freeze({
+                    // 6704-1 is the ordinary Fortis surface. Only land sections
+                    // in its connected map component may be selected. This
+                    // removes isolated pond islands, the Death on the Isle
+                    // theatre interior, Kourend-side mountain fragments, and
+                    // other disconnected geometry without discarding the usable
+                    // part of a mixed chunk.
+                    connectedTo: '6704-1',
+                    sectionGroups: Object.freeze({
+                        // Section 1 contains the level-46 Hunter Guild. Section 2
+                        // is the outside path between the backyard and Ortus Farm.
+                        '6191': Object.freeze([Object.freeze(['2'])])
+                    })
+                })
+            }),
+            // Together with startingTiles.varlamore, this accounts for every
+            // chunk in rollingChunks.varlamore from the upstream map export.
+            startingTileExclusions: Object.freeze({
+                varlamore: Object.freeze({
+                    '4915': 'Tempestus is not released or accessible.',
+                    '5171': 'Tempestus is not released or accessible.',
+                    '5933': 'Villa Lucens Theatre is a quest-only interior with no connection to the Aldarin surface.'
+                })
             })
         }),
         persistentEnablers: Object.freeze({

@@ -273,6 +273,7 @@
 
     function deriveStartingPool(data = {}, annotations = {}, options = {}, blacklisted = {}) {
         const configured = annotations.initialization?.startingTiles || {};
+        const areaPolicies = annotations.initialization?.startingAreaPolicies || {};
         const walkable = new Set((data.walkableChunks || []).map(String));
         const groupOrder = ['standard', 'varlamore', 'wilderness', 'ocean'];
         const enabled = { standard: true, varlamore: options.varlamore === true,
@@ -280,13 +281,42 @@
         const ids = [], groupByLocation = {}, arrivalSectionsByLocation = {}, arrivalSectionGroupsByLocation = {}, groups = [];
         for (const group of groupOrder) {
             if (!enabled[group]) continue;
+            const policy = areaPolicies[group] || {};
+            let connectedStartingLocations = null;
+            if (policy.connectedTo) {
+                // The component describes the physical region, independent of
+                // which individual tiles a player has blacklisted for a run.
+                const allowed = [...walkable];
+                const unlocked = Object.fromEntries(allowed.map(id => [id, id]));
+                const openSections = Object.fromEntries(allowed.map(id => [id, Object.fromEntries(
+                    Object.keys(data.sections?.[id] || {}).filter(section => section !== '0').map(section => [section, true]))]));
+                const graph = buildTravelGraph(data, unlocked, openSections, []).sectionGraph;
+                connectedStartingLocations = new Set();
+                const queue = graph[policy.connectedTo] ? [policy.connectedTo] : [];
+                for (let next = 0; next < queue.length; next++) {
+                    const location = queue[next];
+                    if (connectedStartingLocations.has(location)) continue;
+                    connectedStartingLocations.add(location);
+                    queue.push(...(graph[location] || []).filter(next => !connectedStartingLocations.has(next)));
+                }
+            }
             const groupIds = [];
             for (const rawId of configured[group] || []) {
                 const id = String(rawId);
                 if (!walkable.has(id) || own(blacklisted, id) || own(groupByLocation, id)) continue;
                 const water = group === 'ocean';
+                let sectionGroups = deriveStartingSectionGroups(data, id, water ? 'water' : 'land', [...walkable], blacklisted);
+                const configuredSections = policy.sectionGroups?.[id];
+                if (configuredSections) {
+                    const permitted = new Set(configuredSections.flat().map(String));
+                    sectionGroups = sectionGroups.map(sections => sections.filter(section => permitted.has(section))).filter(sections => sections.length);
+                }
+                if (connectedStartingLocations) sectionGroups = sectionGroups.filter(sections => {
+                    const locations = sections.length ? sections.map(section => id + '-' + section) : [id];
+                    return locations.some(location => connectedStartingLocations.has(location));
+                });
+                if (!sectionGroups.length) continue;
                 groupByLocation[id] = group;
-                const sectionGroups = deriveStartingSectionGroups(data, id, water ? 'water' : 'land', [...walkable], blacklisted);
                 arrivalSectionGroupsByLocation[id] = sectionGroups;
                 arrivalSectionsByLocation[id] = sectionGroups[0] || [];
                 ids.push(id); groupIds.push(id);
