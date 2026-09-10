@@ -1114,6 +1114,19 @@ test('available gathering milestones come before dependent processing tasks', ()
         'a direct log spawn bypasses the gathering milestone');
 });
 
+test('a dependent task stays blocked while its gathering milestone is outside the progression window', () => {
+    const producer = task('gather-high', ['1000'], { skill: 'Woodcutting', level: 60,
+        advancesSkillProgression: true, eligible: false, progressionBlocked: true });
+    const consumer = task('consume-high', ['1000'], { skill: 'Fletching', level: 1,
+        resourceMilestoneDependencies: [{ resource: 'Yew logs', producerTaskIds: [producer.taskId],
+            producers: [{ taskId: producer.taskId, name: producer.name, displayName: producer.displayName,
+                skill: producer.skill, level: producer.level }] }] });
+    const result = adapt([producer, consumer]).find(item => item.taskId === consumer.taskId);
+    assert.equal(result.eligible, false);
+    assert.equal(result.resourceMilestoneBlocked, true);
+    assert.match(result.eligibilityReason, /gather-high/);
+});
+
 test('cyclical resource chains stay dormant until an external entry task is completed', () => {
     const producer = id => ({ taskId: id, name: id, displayName: id, skill: 'Woodcutting', level: 1 });
     const a = task('a', ['1000'], { resourceMilestoneDependencies: [{ resource: 'A input',
@@ -1576,6 +1589,35 @@ test('Forestry case D: a closed non-Guild tree section cannot satisfy the tree g
     assert.ok(!result.tasks.some(task => task.accessResult?.forestry && task.available));
     const gate = result.accessDiagnostics.find(entry => entry.forestry && /tree source/.test(entry.reason));
     assert.ok(gate); assert.equal(gate.kit.valid, true); assert.equal(gate.treeSource.valid, false);
+});
+
+test('Forestry Shop rewards wait for the kit and every required log milestone', () => {
+    const request = usePreset(makeRequest(['5427']), 'Boardlocked Chunker');
+    request.boardlocked.state.actualLevels.Woodcutting = 99;
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    request.boardlocked.state.enablersInitialized = true;
+
+    let result = runWorker(request).result;
+    assert.ok(result.tasks.some(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Forestry kit'));
+    assert.ok(!result.tasks.some(task => task.taskClass === 'enabler' && /^Lumberjack /.test(task.enablerItemKey || '')),
+        'shop proximity alone cannot create outfit acquisition goals');
+
+    request.boardlocked.state.acquiredEnablers['Forestry kit'] = { manual: true };
+    result = runWorker(request).result;
+    const logCostOutputs = new Set(Object.values(request.chunkInfo.challenges.Nonskill).filter(meta =>
+        meta.Source === 'shop' && meta.NPCs?.includes('Friendly Forester') && meta.Items?.some(item => /logs\*$/.test(item)))
+        .map(meta => meta.Output));
+    const presentLogCostRewards = result.tasks.filter(task => task.acquisition && logCostOutputs.has(task.acquisition.itemKey));
+    assert.ok(presentLogCostRewards.length >= 8, 'the audit must cover the Forestry Shop log-cost rewards available here');
+    assert.ok(presentLogCostRewards.every(task => !task.available));
+    assert.ok(presentLogCostRewards.every(task => /complete Chop/.test(task.accessResult.reason)));
+    assert.ok(!result.tasks.some(task => task.taskClass === 'enabler' && /^Lumberjack /.test(task.enablerItemKey || '')));
+
+    request.boardlocked.state.progressionHighWater.Woodcutting = 75;
+    request.boardlocked.state.progressionInitialized = true;
+    result = runWorker(request).result;
+    assert.deepEqual(result.tasks.filter(task => task.taskClass === 'enabler' && /^Lumberjack /.test(task.enablerItemKey || ''))
+        .map(task => task.enablerItemKey).sort(), ['Lumberjack boots', 'Lumberjack hat', 'Lumberjack legs']);
 });
 
 test('real worker: strict Guild sources, enabler provenance, old-chunk reactivation and rare collection tasks', () => {

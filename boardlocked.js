@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 15;
+    const VERSION = 16;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -682,14 +682,14 @@
         return tasks.map(task => {
             if (!task.eligible || !task.resourceMilestoneDependencies?.length) return task;
             const blocking = task.resourceMilestoneDependencies.filter(dependency => {
-                const producers = dependency.producerTaskIds.map(id => byId.get(id)).filter(Boolean);
                 const satisfied = dependency.producers.some(producer => completed.has(producer.taskId) || completed.has(producer.name) ||
                     (producer.level && (state?.progressionHighWater?.[producer.skill] || 0) >= producer.level));
-                return !satisfied && producers.some(producer => producer.eligible);
+                return !satisfied && dependency.producers.length > 0;
             });
             if (!blocking.length) return task;
             const producerTaskIds = [...new Set(blocking.flatMap(dependency => dependency.producerTaskIds))];
-            const producerNames = [...new Set(producerTaskIds.map(id => byId.get(id)?.displayName).filter(Boolean))];
+            const producerNames = [...new Set(blocking.flatMap(dependency => dependency.producers).map(producer =>
+                byId.get(producer.taskId)?.displayName || producer.displayName).filter(Boolean))];
             const resources = [...new Set(blocking.map(dependency => dependency.resource))];
             const reason = 'Complete ' + producerNames.join(' or ') + ' before using ' + resources.join(' or ') + ' for this task';
             return { ...task, eligible: false, resourceMilestoneBlocked: true,
@@ -1223,8 +1223,8 @@
             Number(b.skill === skill) - Number(a.skill === skill) || a.satisfyingItems.length - b.satisfyingItems.length)[0] || null;
     }
 
-    function taskEnablerRequirements(data, skill, meta, model, taskClass = null) {
-        if (taskClass === 'bis' || taskClass === 'collection' || skill === 'Nonskill') return [];
+    function taskEnablerRequirements(data, skill, meta, model, taskClass = null, includeNonskill = false) {
+        if (taskClass === 'bis' || taskClass === 'collection' || (skill === 'Nonskill' && !includeNonskill)) return [];
         const result = [];
         for (const raw of meta.Items || []) {
             if (raw.includes('*')) continue;
@@ -1605,6 +1605,65 @@
             forestryTreeRecords.push({ name, skill, treeTypes: meta.Objects.flatMap(object => expand(object, codes.objectsPlus)),
                 validSources: filterForestryOrigins(before), excludedSources: uniqueOrigins(before).filter(isExcludedForestryOrigin) });
         }
+        const allForestryTreeOrigins = uniqueOrigins(forestryTreeRecords.flatMap(record => record.validSources));
+        const forestryKitCapability = forestry.kitItem ? chooseItemCapability(enablerModel, forestry.kitItem, 'Woodcutting') : null;
+        const forestryAxeCapability = enablerModel.byRequirement.get('Axe[+]');
+        const milestoneComplete = producer => isComplete({ ...producer, taskClass: 'skill_progression' }, legacy, state) ||
+            (producer.level && (state.progressionHighWater?.[producer.skill] || 0) >= producer.level);
+        function acquisitionPath(itemName, source, type) {
+            let directOrigins = [];
+            if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', itemName, 'Direct item spawn');
+            else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
+            else if (String(type).includes('drop')) directOrigins = acquisitionOrigins(itemName, source, fixed('monsters', source));
+            else directOrigins = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
+            if (directOrigins.length) return { source, sourceType: type, origins: uniqueOrigins(directOrigins), available: true,
+                resourceMilestones: [], persistentEnablers: [], forestry: null };
+            const sourceSkill = knownNames.get(source), sourceMeta = data.challenges[sourceSkill]?.[source];
+            const origins = sourceMeta ? taskOrigins(source, sourceSkill) : [];
+            if (!sourceMeta || !origins.length) return null;
+            const resourceMilestones = taskResourceMilestoneDependencies(source, sourceMeta).map(dependency => ({
+                ...dependency, satisfied: dependency.producers.some(milestoneComplete)
+            }));
+            const sourceClass = taskMetadata(source, sourceSkill, sourceMeta, ids).taskClass;
+            const persistentEnablers = uniqueRequirements([
+                ...taskEnablerRequirements(data, sourceSkill, sourceMeta, enablerModel, sourceClass, true),
+                ...taskResourceRequirements(sourceMeta)
+            ]).map(requirement => enablerRequirementStatus(requirement, state, data, sourceSkill));
+            const forestrySource = isDirectForestry(sourceMeta) || (sourceMeta.Source === 'shop' &&
+                (sourceMeta.NPCs || []).includes(forestry.kitNpc) && canonicalItemKey(sourceMeta.Output) !== forestry.kitItem);
+            let forestryStatus = null;
+            if (forestrySource) {
+                const forestryRequirements = [];
+                if (forestryKitCapability) forestryRequirements.push(enablerRequirementStatus(requirementFromCapability(forestryKitCapability),
+                    state, data, 'Woodcutting'));
+                if (forestryAxeCapability) forestryRequirements.push(enablerRequirementStatus(requirementFromCapability(forestryAxeCapability),
+                    state, data, 'Woodcutting'));
+                forestryStatus = { required: true, treeOrigins: allForestryTreeOrigins, persistentEnablers: forestryRequirements,
+                    satisfied: allForestryTreeOrigins.length > 0 && forestryRequirements.every(requirement => requirement.satisfied) };
+            }
+            return { source, sourceSkill, sourceType: type, origins, resourceMilestones, persistentEnablers, forestry: forestryStatus,
+                available: resourceMilestones.every(dependency => dependency.satisfied) &&
+                    persistentEnablers.every(requirement => requirement.satisfied) && (!forestryStatus || forestryStatus.satisfied) };
+        }
+        function itemAcquisitionStatus(itemName) {
+            const paths = Object.entries(base.items?.[itemName] || base.items?.[itemName + '*'] || {})
+                .map(([source, type]) => acquisitionPath(itemName, source, type)).filter(Boolean);
+            const availablePaths = paths.filter(path => path.available);
+            const missingMilestones = [...new Map(paths.flatMap(path => path.resourceMilestones || []).filter(dependency => !dependency.satisfied)
+                .map(dependency => [dependency.resource, dependency])).values()];
+            const missingEnablers = uniqueRequirements(paths.flatMap(path => [
+                ...(path.persistentEnablers || []), ...(path.forestry?.persistentEnablers || [])
+            ]).filter(requirement => !requirement.satisfied));
+            const needsForestryTree = paths.some(path => path.forestry && !path.forestry.treeOrigins.length);
+            const reasons = [
+                ...missingEnablers.map(requirement => 'obtain ' + (requirement.requiresSpecificItem ? requirement.itemKey : requirement.capabilityLabel)),
+                ...missingMilestones.map(dependency => 'complete ' + dependency.producers.map(producer => producer.displayName).join(' or ')),
+                ...(needsForestryTree ? ['unlock an eligible non-Guild Forestry tree'] : [])
+            ];
+            return { itemKey: itemName, paths, availablePaths, available: availablePaths.length > 0,
+                origins: uniqueOrigins(availablePaths.flatMap(path => path.origins)), missingMilestones, missingEnablers,
+                reason: reasons.length ? 'Acquisition prerequisites: ' + reasons.join('; ') : 'No accessible acquisition path' };
+        }
         const equipmentByFormattedName = new Map(Object.entries(data.equipment || {}).map(([name, meta]) => [(meta.formatted_name || name.toLowerCase()).replaceAll('#', '/'), name]));
         for (const skill of categories) for (const [name, value] of Object.entries(valids[skill] || {})) {
             const meta = data.challenges[skill]?.[name] || {};
@@ -1665,6 +1724,21 @@
             if (record.taskClass === 'bis' && record.bisReason && !record.displayName.startsWith('[')) {
                 record.displayName = '[' + record.bisReason + '] ' + record.displayName;
             }
+            const acquisitionTarget = ['bis', 'collection'].includes(record.taskClass) && requirementMeta.Items?.length === 1 &&
+                !requirementMeta.Items[0].includes('*') ? canonicalItemKey(requirementMeta.Items[0]) : null;
+            if (acquisitionTarget) {
+                const acquisition = itemAcquisitionStatus(acquisitionTarget);
+                if (acquisition.paths.length) {
+                    record.acquisition = acquisition;
+                    record.origins = acquisition.origins;
+                    if (!acquisition.available) {
+                        record.available = false;
+                        record.accessResult = { allowed: false, reason: acquisition.reason, acquisition };
+                        accessDiagnostics.push({ taskId: id, name: record.displayName, allowed: false,
+                            reason: acquisition.reason, acquisition });
+                    }
+                }
+            }
             record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, requirementMeta);
             record.resourceMilestoneDependencies = record.taskClass === 'skill_progression' ?
                 taskResourceMilestoneDependencies(name, requirementMeta) : [];
@@ -1680,10 +1754,12 @@
             if (forestBound) {
                 const kitAcquired = forestryKitAcquired, kitObtainable = kitOrigins.length > 0;
                 const treeValid = treeSources.length > 0;
-                const reason = !kitAcquired && !kitObtainable ? 'Forestry kit unavailable: no accessible ' + (forestry.kitNpc || 'kit provider') :
+                const forestryReason = !kitAcquired && !kitObtainable ? 'Forestry kit unavailable: no accessible ' + (forestry.kitNpc || 'kit provider') :
                     !kitAcquired ? 'Forestry kit is obtainable but has not been registered as acquired' :
                     !treeValid ? 'No eligible non-Guild Forestry tree source is accessible' : 'Acquired Forestry kit and eligible non-Guild tree source verified';
-                record.available = kitAcquired && treeValid;
+                const priorReason = record.accessResult?.allowed === false ? record.accessResult.reason : '';
+                record.available = record.available && kitAcquired && treeValid;
+                const reason = [priorReason, forestryReason].filter(Boolean).join('; ');
                 record.enablers = [
                     { type: 'persistent_item', name: forestry.kitItem, provider: forestry.kitNpc || null, origins: kitOrigins,
                         acquired: kitAcquired, obtainable: kitObtainable, valid: kitAcquired },
@@ -1696,7 +1772,7 @@
                     treeSource: { treeTypes, origins: treeSources, excludedOrigins: excludedTreeSources, valid: treeValid,
                         currentlyAccessible: treeValid, reason: 'Tree object is referenced by Forestry task metadata and is outside excluded origin groups' } };
                 if (!record.available) accessDiagnostics.push({ taskId: id, name: record.displayName, ...record.accessResult });
-            } else record.accessResult = { allowed: true, reason: 'Passed strict source, rule and prerequisite calculation' };
+            } else if (!record.accessResult) record.accessResult = { allowed: true, reason: 'Passed strict source, rule and prerequisite calculation' };
             if (requiredEnablers.length) {
                 record.enablers.push(...requiredEnablers.map(requirement => ({ type: 'persistent_capability', ...requirement })));
                 const missing = requiredEnablers.filter(requirement => !requirement.satisfied);
@@ -1746,7 +1822,8 @@
                     (!request.requirement.requiresSpecificItem || request.requirement.itemKey === itemInfo.itemKey) &&
                     itemUsableForRequirement(itemInfo, request.requirement, state, data, request.taskSkill));
                 if (own(state.acquiredEnablers, itemInfo.itemKey) || !supportsPendingAction) continue;
-                const origins = uniqueOrigins(item(itemInfo.itemKey, new Set()));
+                const acquisition = itemAcquisitionStatus(itemInfo.itemKey);
+                const origins = acquisition.origins;
                 if (!origins.length) continue;
                 const id = enablerTaskId(itemInfo.itemKey), name = 'Obtain ' + articleFor(itemInfo.itemKey) + '~|' + itemInfo.itemKey.toLowerCase() + '|~';
                 const capabilities = (enablerModel.byItem.get(itemInfo.itemKey) || []).filter(capability => pendingCapabilities.has(capability.capabilityId));
@@ -1758,16 +1835,16 @@
                     capabilities: capabilities.map(capability => ({ capabilityId: capability.capabilityId, label: capability.label,
                         familyType: capability.familyType, skill: capability.skill, minimumUseLevel: itemInfo.minimumUseLevel,
                         requiredLevels: itemInfo.requiredLevels || {} })),
-                    requiredBy, skillingBis: itemInfo.skillingBis,
+                    requiredBy, skillingBis: itemInfo.skillingBis, acquisition,
                     accessResult: { allowed: true, reason: 'Persistent enabler is usable and directly obtainable from an accessible source',
-                        itemKey: itemInfo.itemKey, origins, requiredBy } });
+                        itemKey: itemInfo.itemKey, origins, requiredBy, acquisition } });
             }
         }
         const allEnablerItems = [...new Set(enablerModel.capabilities.flatMap(capability => capability.satisfyingItems.map(item => item.itemKey)))];
         const enablerCatalog = allEnablerItems.map(itemKey => {
-            const itemOrigins = uniqueOrigins(item(itemKey, new Set()));
+            const acquisition = itemAcquisitionStatus(itemKey), itemOrigins = acquisition.origins;
             return { itemKey, acquired: own(state.acquiredEnablers, itemKey), acquisition: state.acquiredEnablers[itemKey] || null,
-                currentlyObtainable: itemOrigins.length > 0, origins: itemOrigins,
+                currentlyObtainable: acquisition.available, origins: itemOrigins, acquisitionPaths: acquisition.paths,
                 capabilities: (enablerModel.byItem.get(itemKey) || []).map(capability => ({ capabilityId: capability.capabilityId,
                     label: capability.label, familyType: capability.familyType, skill: capability.skill,
                     minimumUseLevel: capability.satisfyingItems.find(item => item.itemKey === itemKey)?.minimumUseLevel ?? null,

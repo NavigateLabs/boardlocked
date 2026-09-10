@@ -251,7 +251,9 @@ function blOutput(highestOverallCompleted = {}, weaponScores = {}) {
     }
     const output = Boardlocked.buildTasks({ data: chunkInfo, valids: atomicValids,
         base: { ...baseChunkData, items: acquisitionItems }, ids: blContext.tasksMap, rules, state: blContext.state,
-        unlocked: blContext.unlocked, sections: unlockedSections, manualSections, annotations: BoardlockedData });
+        legacy: { completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
+            manualEquipment, backlog }, unlocked: blContext.unlocked, sections: unlockedSections,
+        manualSections, annotations: BoardlockedData });
     Object.keys(baseChunkData.items).forEach(name => blPresentItems.add(name.replace(/\*.*$/, '')));
     const sourceDiagnostics = [...blSourceDiagnostics.values()].filter(gate => {
         if (gate.type !== 'Items') return true;
