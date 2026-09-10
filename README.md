@@ -33,14 +33,11 @@ Prifddinas, quest-locked islands, damaging environments, guild interiors, and
 other poor level-3 starts.
 
 **Druidic Ritual is recommended and enabled by default.** The route is:
-pick up the iron dagger in the goblin house in Lumbridge, kill a level 3 rat in
-Lumbridge Swamp for raw rat meat, buy raw chicken and beef from Wydin's Food
-Store in Port Sarim, then use this
-no-cannon method on a bear cub: attack once, step behind a tree or rock until
-its health bar disappears, repeat for 3–4 solid hits, then finish with Ranged or
-Magic to stay combat level 3. These
-[level-3 flinching notes](https://www.reddit.com/r/UniqueIronmen/comments/1bjsowt)
-describe the same method. Then
+pick up the iron dagger near Lumbridge, kill a level 3 swamp rat for raw rat
+meat, buy raw chicken and beef from Wydin's Food Store in Port Sarim, then sail
+with Veos to Kourend and continue to Land's End. The
+[level-3 start video](https://www.youtube.com/watch?v=ZiEf7s40lEg) shows the
+whole route and the exact no-cannon bear-cub flinch. Then
 [finish Druidic Ritual](https://oldschool.runescape.wiki/w/Druidic_Ritual).
 Enabling this option assumes you complete the route before starting the rolled
 account. Boardlocked records the quest and its level-3 Herblore result.
