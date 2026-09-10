@@ -19,26 +19,9 @@ Simply, you move one tile then complete one task before you can move again. Move
 
 The tasks are similar to those you would expect from chunklocked, I.e. get a new BiS, skilling activity, collection log, quests and such.
 
-When several ordinary recipes use the same main resource for the same skill,
-Boardlocked offers one of them: the highest-level recipe you can currently do.
-Completing it covers that resource family, while distinct methods such as making
-cannonballs remain separate goals. A new resource starts a new family.
-
 You have access to everything in previously unlocked chunks, so you can re-enter areas you have previously been to. However you must focus on your goal. I.e. if you need to get woodcutting to lvl 60, that should be the goal you focus on in your unlocked chunks and you shouldn't go train thieving.
 
 The tasks are more than likely begin very simple (get an axe, cut a tree), but not to worry, after a couple tiles you'll find yourself with increasingly harder tasks.
-
-Slayer starts after one assumed tutorial assignment from Turael. Any Slayer
-master in an unlocked area can then provide assignments once you meet that
-master's quest and location requirements. Combat levels cannot be inferred
-reliably from goals or gear, so numeric master and assignment requirements are
-treated as grinds instead of tracker gates. A reachable master still needs a
-currently assignable monster in your unlocked chunks to start Slayer training.
-Slayer has no fixed task band: a Slayer creature and its drops appear only when
-a reachable master can assign that creature in the accessible location.
-If a Slayer goal requires training, unfinished collection-log and BiS drops from
-assignable monsters in your unlocked chunks are listed as alternative Slayer
-training goals; getting any listed drop completes the visit.
 
 ## Start a new account
 
