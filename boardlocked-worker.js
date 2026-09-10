@@ -197,12 +197,19 @@ function blAddWeaponUpgradeTasks(atomicValids, highestOverallCompleted = {}, wea
         const ownedItem = highestOverallCompleted[key];
         const ownedScore = Number(scores[ownedItem]);
         const baseline = Number.isFinite(ownedScore) ? ownedScore : Number(scores.Unarmed) || 0;
-        for (const [item, rawScore] of Object.entries(scores)) {
+        const upgrades = Object.entries(scores).filter(([item, rawScore]) => {
             const score = Number(rawScore);
-            if (item === 'Unarmed' || !Number.isFinite(score) || score <= baseline || !baseChunkData.items[item] ||
-                !blEquipmentUsable(item) || !blEquipmentObtainable(item)) continue;
+            return item !== 'Unarmed' && Number.isFinite(score) && score > baseline && !!baseChunkData.items[item] &&
+                blEquipmentUsable(item) && blEquipmentObtainable(item);
+        });
+        const bestAvailableScore = Math.max(-Infinity, ...upgrades.map(([, rawScore]) => Number(rawScore)));
+        for (const [item, rawScore] of upgrades) {
+            const score = Number(rawScore);
             const taskName = 'Obtain' + articleFor(item) + '~|' + formatEquip(item) + '|~';
-            const finalBest = highestOverall[key] === item;
+            // More than one item can share the best score for a role. Calling
+            // one an upgrade and another BiS solely because of iteration order
+            // makes identical defensive choices look meaningfully different.
+            const finalBest = score === bestAvailableScore;
             const reason = style + (finalBest ? ' BiS ' : ' upgrade ') + (slot === '2h' ? 'weapon' : slot);
             atomicValids.BiS[taskName] = addReason(atomicValids.BiS[taskName], reason);
             const existing = chunkInfo.challenges.BiS[taskName] || {};

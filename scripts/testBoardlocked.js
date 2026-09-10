@@ -860,6 +860,16 @@ test('equipment collapsing is local to a tile and a completed specific item perm
         'owning gear does not claim a wield milestone before its skill requirement');
     lowLevelState.actualLevels.Attack = 40;
     assert.equal(R.initializeProgression(lowLevelState, catalog, ownedRune, ids).progressionHighWater.Attack, rune.level);
+
+    const steel = catalog.find(task => task.name === 'Wield a ~|steel weapon|~');
+    const completedSteel = { completedChallenges: { BiS: { [ids['Obtain a ~|steel scimitar|~']]: true } } };
+    const completedSteelState = R.initializeProgression(fresh(), catalog, completedSteel, ids);
+    assert.equal(completedSteelState.progressionHighWater.Attack, steel.level,
+        'a completed exact BiS objective proves that its wield requirement was met');
+    result = R.adaptTasks([{ ...steel, origins: [origin('1000')], available: true }], completedSteel,
+        completedSteelState, geo, {}, {}, catalog, ids)[0];
+    assert.equal(result.completed, true); assert.equal(result.implicitlyCompleted, true);
+    assert.equal(result.completionEvidenceItem, 'Steel scimitar');
 });
 
 test('live acceptance worker output replaces unavailable axe actions with specific Enabler acquisitions', () => {
@@ -1255,6 +1265,28 @@ test('bronze dagger ownership exposes both iron dagger and rune scimitar as stri
     assert.doesNotMatch(iron.bisReason, /Magic Tank/, 'equal role score is lateral, not an upgrade');
     assert.ok(rune); assert.match(rune.bisReason, /Melee BiS weapon/);
     assert.ok(!weapons.some(task => task.equipmentName === 'Bronze dagger'));
+});
+
+test('steel weapon choices expose their distinct combat roles and label tied role bests consistently', () => {
+    const request = usePreset(makeRequest(['6705', '6961', '6449', '6193', '5937', '5938']), 'Boardlocked Chunker');
+    request.boardlocked.state.actualLevels.Attack = 5;
+    request.manualEquipment['Steel scimitar'] = true;
+    const calculate = () => runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
+    let weapons = calculate();
+    const longsword = weapons.find(task => task.equipmentName === 'Steel longsword');
+    const dagger = weapons.find(task => task.equipmentName === 'Iron dagger');
+    assert.ok(longsword); assert.equal(longsword.bisReason, 'Melee Tank BiS weapon');
+    assert.match(longsword.displayName, /^\[Melee Tank BiS weapon\] Obtain and wield a steel longsword$/);
+    assert.ok(dagger); assert.equal(dagger.bisReason, 'Magic Tank BiS weapon');
+    assert.match(dagger.displayName, /^\[Magic Tank BiS weapon\] Obtain and wield an iron dagger$/);
+    assert.ok(weapons.filter(task => /longsword/i.test(task.equipmentName || '')).every(task =>
+        task.bisReason === 'Melee Tank BiS weapon'), 'equal tank scores are all described as tied BiS choices');
+
+    request.manualEquipment['Steel longsword'] = true;
+    weapons = calculate();
+    assert.ok(!weapons.some(task => /longsword/i.test(task.equipmentName || '')),
+        'no equal-or-worse tank weapon remains after one tied best is owned');
+    assert.equal(weapons.find(task => task.equipmentName === 'Iron dagger')?.bisReason, 'Magic Tank BiS weapon');
 });
 test('real worker: source backlog removes tasks supplied by that monster', () => {
     const request = makeRequest(['5942']); request.backloggedSources.monsters = { 'Moss giant': true };

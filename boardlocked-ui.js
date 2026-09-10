@@ -364,7 +364,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl9');
+        worker = new Worker('./worker.js?v=6.9.66-bl10');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -872,7 +872,9 @@
         const history = document.getElementById('bl-history'); history.replaceChildren();
         for (const item of state.visitHistory.slice().reverse()) {
             const entry = element('details');
-            const resolved = item.resolvedTaskId ? R.displayName(item.candidateTasks?.[item.resolvedTaskId]?.name || tasksMapReverse[item.resolvedTaskId] || item.resolvedTaskId) : item.resolution || item.status;
+            const savedTask = item.candidateTasks?.[item.resolvedTaskId];
+            const resolved = item.resolvedTaskId ? savedTask?.displayName ||
+                R.displayName(savedTask?.name || tasksMapReverse[item.resolvedTaskId] || item.resolvedTaskId) : item.resolution || item.status;
             entry.append(element('summary', '#' + item.visitNumber + ' · ' + item.locationId + ' · ' + item.kind + ' · ' + resolved), element('p', item.timestamp + ' · ' + item.chunkName));
             const note = element('textarea', item.note || '', { 'aria-label': 'Note for visit ' + item.visitNumber, rows: '2' });
             note.disabled = !canEdit();

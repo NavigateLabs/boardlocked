@@ -449,7 +449,11 @@
     }
     function completedEquipmentItems(legacy = {}, state = null, ids = {}) {
         const result = new Map(), reverseIds = new Map(Object.entries(ids || {}).map(([name, id]) => [String(id), name]));
-        const add = item => { if (item) result.set(comparableItemKey(item), canonicalItemKey(item)); };
+        const add = (item, confirmedEquipped = false) => {
+            if (!item) return;
+            const key = comparableItemKey(item), existing = result.get(key);
+            result.set(key, { item: canonicalItemKey(item), confirmedEquipped: !!confirmedEquipped || !!existing?.confirmedEquipped });
+        };
         for (const [item, owned] of Object.entries(legacy.manualEquipment || {})) if (owned) add(item);
         for (const item of Object.keys(state?.acquiredEnablers || {})) add(item);
         for (const storeName of ['completedChallenges', 'checkedChallenges', 'checkedAllTasks']) {
@@ -458,15 +462,22 @@
                 const name = reverseIds.get(String(key)) || key;
                 if (skill !== 'BiS' && !/(?:^|\))\s*Obtain\b/i.test(displayName(name))) continue;
                 const match = /~\|([^|]+)\|~/.exec(name);
-                if (match) add(match[1]);
+                if (match) add(match[1], skill === 'BiS');
             }
         }
         return result;
     }
     function impliedEquipmentCompletion(task, completedItems, state = null) {
-        if (task.advancesSkillProgression && Number.isFinite(task.level) &&
-            Number.isFinite(state?.actualLevels?.[task.skill]) && state.actualLevels[task.skill] < task.level) return null;
-        return (task.equipmentObjectiveAlternatives || []).find(item => completedItems.has(comparableItemKey(item))) || null;
+        const levelTooLow = task.advancesSkillProgression && Number.isFinite(task.level) &&
+            Number.isFinite(state?.actualLevels?.[task.skill]) && state.actualLevels[task.skill] < task.level;
+        for (const item of task.equipmentObjectiveAlternatives || []) {
+            const evidence = completedItems.get(comparableItemKey(item));
+            // Manually owning an item is not proof that a low-level account can
+            // equip it. Completing a BiS objective is: those tasks explicitly
+            // require the item to be wielded or worn.
+            if (evidence && (!levelTooLow || evidence.confirmedEquipped)) return item;
+        }
+        return null;
     }
     function deriveProgressionHighWater(catalog, legacy, ids = {}, state = null) {
         const done = completionIds(legacy, ids), completedItems = completedEquipmentItems(legacy, state, ids), result = {};
@@ -840,7 +851,8 @@
             [t.taskId, { name: t.name, skill: t.skill, displayName: t.displayName, level: t.level || null,
                 equipmentName: t.equipmentName || null, taskClass: t.taskClass || null,
                 enablerItemKey: t.enablerItemKey || null, provesAcquiredItemKeys: t.provesAcquiredItemKeys || [],
-                capabilities: t.capabilities || [], bisReason: t.bisReason || null, bisSet: t.bisSet || null }]));
+                confirmsEquipped: !!t.confirmsEquipped, capabilities: t.capabilities || [],
+                bisReason: t.bisReason || null, bisSet: t.bisSet || null }]));
         visit.status = visit.candidateTaskIds.length ? 'task_required' : 'resolved';
         if (!visit.candidateTaskIds.length) visit.resolution = 'no_tasks';
         return journal(state, visit);
@@ -1255,6 +1267,12 @@
             if (skill === 'BiS') {
                 record.bisReason = stripMarkup(typeof value === 'string' ? value : meta.Label || record.bisReason);
                 record.category = record.bisReason || 'BiS';
+                const equipmentSlot = data.equipment?.[equipmentName]?.slot;
+                if (equipmentName && equipmentSlot && equipmentSlot !== 'ammo') {
+                    const action = ['weapon', '2h'].includes(equipmentSlot) ? 'Obtain and wield' : 'Obtain and wear';
+                    record.displayName = action + record.displayName.replace(/^Obtain/i, '');
+                    record.confirmsEquipped = true;
+                }
                 if (record.bisReason) record.displayName = '[' + record.bisReason + '] ' + record.displayName;
             }
             let requirementMeta = meta, requirementSkill = skill;
@@ -1266,7 +1284,13 @@
                 record = { ...record, taskClass: native.taskClass, classificationReason: native.classificationReason,
                     advancesSkillProgression: false, skilling: false,
                     bisReason: combinedBisReason, bisSet: native.bisSet };
-                if (skill === 'BiS' && combinedBisReason) record.displayName = '[' + combinedBisReason + '] ' + displayName(record.name);
+                if (skill === 'BiS' && combinedBisReason) {
+                    const slot = data.equipment?.[equipmentName]?.slot;
+                    const actionName = record.confirmsEquipped ?
+                        (['weapon', '2h'].includes(slot) ? 'Obtain and wield' : 'Obtain and wear') + displayName(record.name).replace(/^Obtain/i, '') :
+                        displayName(record.name);
+                    record.displayName = '[' + combinedBisReason + '] ' + actionName;
+                }
                 requirementMeta = data.challenges[nativeSkill][name]; requirementSkill = nativeSkill;
             }
             if (record.taskClass === 'bis' && record.bisReason && !record.displayName.startsWith('[')) {
