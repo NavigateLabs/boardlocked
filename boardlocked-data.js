@@ -116,6 +116,14 @@
                 })
             })
         }),
+        resourceRepresentatives: Object.freeze({
+            // These outputs use a shared material but belong to a separate
+            // gameplay system from ordinary anvil recipes.
+            distinctOutputFamilies: Object.freeze([
+                Object.freeze({ skill: 'Smithing', outputIncludes: 'cannonball', family: 'cannonballs' }),
+                Object.freeze({ skill: 'Smithing', outputIncludes: 'keel parts', family: 'ship-parts' })
+            ])
+        }),
         travelConnections: Object.freeze([
             Object.freeze({
                 id: 'achilka-rowboat',

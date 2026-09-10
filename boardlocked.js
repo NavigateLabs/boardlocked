@@ -501,6 +501,7 @@
             (meta.Set ? 'BIS Skilling · ' + meta.Set : meta.Label || (categories.includes('BIS Skilling') ? 'BIS Skilling' : ''))) : '';
         return { taskId: taskId(name, skill, ids), name, displayName: displayName(name), skill, type: skill,
             category: meta.Label || skill, sourceCategories: categories.slice(), level: meta.Level || null,
+            priority: Number.isFinite(meta.Priority) ? meta.Priority : null,
             description: meta.Description || '', taskClass, classificationReason, advancesSkillProgression,
             skilling: advancesSkillProgression, bisReason,
             bisSet: meta.Set || null };
@@ -669,6 +670,58 @@
                 whyWouldBeIneligible: [...task.whyWouldBeIneligible, 'an available resource-gathering milestone must be completed first'] };
         });
     }
+    function chooseResourceRepresentativeTasks(tasks, state = null) {
+        const families = new Map(), replacements = new Map();
+        const activeSnapshot = state?.currentVisit?.status === 'task_required' ?
+            new Set(state.currentVisit.candidateTaskIds || []) : new Set();
+        for (const task of tasks) if (task.resourceRepresentative?.familyKey) {
+            const key = task.resourceRepresentative.familyKey;
+            if (!families.has(key)) families.set(key, []);
+            families.get(key).push(task);
+        }
+        const rank = (left, right, preferHighest) => {
+            const levelOrder = preferHighest ? (right.level || 0) - (left.level || 0) : (left.level || 0) - (right.level || 0);
+            return levelOrder || (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER) ||
+                left.taskId.localeCompare(right.taskId);
+        };
+        for (const members of families.values()) {
+            const candidates = members.filter(task => task.eligible);
+            if (candidates.length < 2 && !members.some(task => task.completed)) continue;
+            const snapshotCandidates = candidates.filter(task => activeSnapshot.has(task.taskId));
+            if (snapshotCandidates.length) {
+                const preserved = new Set(snapshotCandidates.map(task => task.taskId));
+                for (const task of candidates) if (!preserved.has(task.taskId)) replacements.set(task.taskId,
+                    { ...task, eligible: false, resourceRepresentativeBlocked: true,
+                        representedByTaskId: snapshotCandidates[0].taskId,
+                        eligibilityReason: 'This visit already selected ' + snapshotCandidates.map(item => item.displayName).join(' or ') +
+                            ' for ' + task.resourceRepresentative.resourceLabel,
+                        whyWouldBeIneligible: [...task.whyWouldBeIneligible, 'another recipe represents this resource in the active visit'] });
+                continue;
+            }
+            const completed = members.slice().filter(task => task.completed).sort((a, b) => rank(a, b, true))[0];
+            if (completed) {
+                for (const task of candidates) replacements.set(task.taskId,
+                    { ...task, eligible: false, resourceRepresentativeBlocked: true,
+                        resourceRepresentativeCompleted: true, representedByTaskId: completed.taskId,
+                        eligibilityReason: task.resourceRepresentative.resourceLabel + ' is already represented by ' + completed.displayName,
+                        whyWouldBeIneligible: [...task.whyWouldBeIneligible, 'this resource recipe family already has a completed representative'] });
+                continue;
+            }
+            if (candidates.length < 2) continue;
+            const actualLevel = state?.actualLevels?.[candidates[0].skill] || 1;
+            const currentlyPerformable = candidates.filter(task => (task.level || 1) <= actualLevel);
+            const pool = currentlyPerformable.length ? currentlyPerformable : candidates;
+            const representative = pool.slice().sort((a, b) => rank(a, b, currentlyPerformable.length > 0))[0];
+            replacements.set(representative.taskId, { ...representative, resourceRepresentativeSelected: true,
+                resourceRepresentativeGroupSize: members.length });
+            for (const task of candidates) if (task.taskId !== representative.taskId) replacements.set(task.taskId,
+                { ...task, eligible: false, resourceRepresentativeBlocked: true,
+                    representedByTaskId: representative.taskId,
+                    eligibilityReason: 'Represented by ' + representative.displayName + ' for ' + task.resourceRepresentative.resourceLabel,
+                    whyWouldBeIneligible: [...task.whyWouldBeIneligible, 'another currently achievable recipe represents this resource'] });
+        }
+        return tasks.map(task => replacements.get(task.taskId) || task);
+    }
     function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks, ids = {}) {
         const completedItems = completedEquipmentItems(legacy, state, ids);
         const adapted = tasks.map(task => {
@@ -698,7 +751,8 @@
                     ...(!origins.length ? ['no attributed origin'] : []), ...(origins.length && !activeOrigins.length ? ['origin geography or section closed'] : [])
                 ] };
         });
-        return orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(adapted), legacy, state, ids);
+        const ordered = orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(adapted), legacy, state, ids);
+        return chooseResourceRepresentativeTasks(ordered, state);
     }
 
     function travelConnectionPairs(connections = []) {
@@ -1475,6 +1529,25 @@
                 }];
             });
         }
+        function taskResourceRepresentative(name, skill, meta) {
+            const primaryIndex = (meta.Items || []).findIndex(raw => String(raw).includes('*'));
+            if (primaryIndex < 0) return null;
+            const resource = canonicalItemKey(meta.Items[primaryIndex]);
+            const rules = annotations.resourceRepresentatives?.distinctOutputFamilies || [];
+            const output = String(meta.Output || displayName(name)).toLowerCase();
+            const distinct = rules.find(rule => (!rule.skill || rule.skill === skill) &&
+                output.includes(String(rule.outputIncludes || '').toLowerCase()));
+            const list = values => (values || []).map(canonicalItemKey).sort();
+            const requirements = value => Object.entries(value || {}).sort(([left], [right]) => left.localeCompare(right));
+            const method = distinct?.family || JSON.stringify({
+                items: list((meta.Items || []).filter((_, index) => index !== primaryIndex)),
+                objects: list(meta.Objects), npcs: list(meta.NPCs), monsters: list(meta.Monsters),
+                mix: list(meta.Mix), chunks: list(meta.Chunks), outputObject: meta['Output Object'] || null,
+                tasks: requirements(meta.Tasks), skills: requirements(meta.Skills)
+            });
+            return { resource, resourceLabel: resource.replace(/\[\+\](?:x\d+)?/g, ''), method,
+                familyKey: JSON.stringify([skill, resource, method]) };
+        }
         const forestry = annotations.forestry || {};
         const forestryCategories = new Set(forestry.taskCategories || []);
         const isDirectForestry = meta => (meta?.Category || []).some(category => forestryCategories.has(category));
@@ -1586,6 +1659,8 @@
             record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, requirementMeta);
             record.resourceMilestoneDependencies = record.taskClass === 'skill_progression' ?
                 taskResourceMilestoneDependencies(name, requirementMeta) : [];
+            record.resourceRepresentative = record.taskClass === 'skill_progression' ?
+                taskResourceRepresentative(name, requirementSkill, requirementMeta) : null;
             const requiredEnablers = uniqueRequirements([
                 ...taskEnablerRequirements(data, requirementSkill, requirementMeta, enablerModel, record.taskClass),
                 ...taskResourceRequirements(requirementMeta)

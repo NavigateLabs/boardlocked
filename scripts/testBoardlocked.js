@@ -1115,6 +1115,96 @@ test('available gathering milestones come before dependent processing tasks', ()
         'a direct log spawn bypasses the gathering milestone');
 });
 
+test('one currently achievable recipe represents each resource and skill family', () => {
+    const request = usePreset(makeRequest(['4912']), 'Boardlocked Chunker');
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    const result = runWorker(request).result;
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const baseLegacy = { checkedAllTasks: { Woodcutting: { 'Chop ~|logs|~': true } } };
+    const expected = new Map([
+        [1, 'Fletch ~|logs|~ into shafts'],
+        [3, 'Fletch ~|logs|~ into javelin shafts'],
+        [6, 'Fletch a ~|shortbow (u)|~'],
+        [9, 'Fletch a ~|wooden stock|~'],
+        [10, 'Fletch a ~|longbow (u)|~']
+    ]);
+    const adaptAt = (level, legacy = baseLegacy, state = request.boardlocked.state) => {
+        const current = { ...state, actualLevels: { ...state.actualLevels, Fletching: level } };
+        return R.adaptTasks(result.tasks, legacy, current, request.chunks, result.sections,
+            request.manualSections, catalog, request.boardlocked.tasksMap);
+    };
+    for (const [level, name] of expected) {
+        const family = adaptAt(level).filter(task => task.skill === 'Fletching' && task.resourceRepresentative?.resource === 'Logs');
+        assert.deepEqual(family.filter(task => task.eligible).map(task => task.name), [name], 'Fletching ' + level);
+        if (level > 1) assert.equal(family.find(task => task.name === name)?.resourceRepresentativeSelected, true);
+    }
+
+    const completedLegacy = { checkedAllTasks: { ...baseLegacy.checkedAllTasks,
+        Fletching: { 'Fletch ~|logs|~ into javelin shafts': true } } };
+    const represented = adaptAt(10, completedLegacy).filter(task =>
+        task.skill === 'Fletching' && task.resourceRepresentative?.resource === 'Logs');
+    assert.equal(represented.some(task => task.eligible), false);
+    assert.ok(represented.filter(task => !task.completed).every(task => task.resourceRepresentativeCompleted));
+
+    let visitState = { ...request.boardlocked.state,
+        actualLevels: { ...request.boardlocked.state.actualLevels, Fletching: 3 } };
+    let tasks = R.adaptTasks(result.tasks, baseLegacy, visitState, request.chunks, result.sections,
+        request.manualSections, catalog, request.boardlocked.tasksMap);
+    visitState = R.snapshotVisit(R.startVisit(visitState, { kind: 'revisit', locationId: '4912' }), tasks);
+    visitState.actualLevels.Fletching = 10;
+    tasks = R.adaptTasks(result.tasks, baseLegacy, visitState, request.chunks, result.sections,
+        request.manualSections, catalog, request.boardlocked.tasksMap);
+    assert.equal(tasks.find(task => task.name === 'Fletch ~|logs|~ into javelin shafts')?.eligible, true,
+        'an active visit keeps the representative selected when it was rolled');
+    assert.equal(tasks.find(task => task.name === 'Fletch a ~|longbow (u)|~')?.eligible, false);
+});
+
+test('bronze bars select one ordinary Smithing recipe at the current level', () => {
+    const request = usePreset(makeRequest(['12342', '12850']), 'Boardlocked Chunker');
+    Object.assign(request.boardlocked.state.acquiredEnablers, {
+        Hammer: { manual: true }, 'Bronze pickaxe': { manual: true }
+    });
+    request.boardlocked.state.actualLevels.Smithing = 10;
+    const result = runWorker(request).result;
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const legacy = { checkedAllTasks: { Smithing: { 'Smelt a ~|bronze bar|~': true } } };
+    const dagger = result.tasks.find(task => task.name === 'Smith a ~|bronze dagger|~');
+    assert.ok(dagger?.resourceRepresentative?.familyKey);
+    const expected = new Map([
+        [1, 'Smith a ~|bronze dagger|~'],
+        [3, 'Smith a ~|bronze med helm|~'],
+        [5, 'Smith a ~|bronze scimitar|~'],
+        [10, 'Smith a ~|bronze battleaxe|~']
+    ]);
+    for (const [level, name] of expected) {
+        const state = { ...request.boardlocked.state,
+            actualLevels: { ...request.boardlocked.state.actualLevels, Smithing: level } };
+        const tasks = R.adaptTasks(result.tasks, legacy, state, request.chunks, result.sections,
+            request.manualSections, catalog, request.boardlocked.tasksMap);
+        const ordinary = tasks.filter(task => task.resourceRepresentative?.familyKey === dagger.resourceRepresentative.familyKey);
+        assert.deepEqual(ordinary.filter(task => task.eligible).map(task => task.name), [name], 'Smithing ' + level);
+    }
+});
+
+test('a distinct process remains separate when it consumes the same resource', () => {
+    const challenges = { Smithing: {
+        Dagger: { Items: ['Bronze bar*'], Objects: ['Anvil'], Level: 1, Primary: true, Output: 'Bronze dagger', Priority: 1 },
+        Sword: { Items: ['Bronze bar*'], Objects: ['Anvil'], Level: 4, Primary: true, Output: 'Bronze sword', Priority: 1 },
+        Cannon: { Items: ['Bronze bar*'], Objects: ['Anvil'], Level: 5, Primary: true, Output: 'Bronze cannonball', Priority: 1 }
+    }, Extra: {}, Quest: {}, Diary: {}, BiS: {} };
+    const data = { challenges, codeItems: { itemsPlus: {}, objectsPlus: {}, tools: {} },
+        taskUnlocks: { Items: {} }, equipment: {} };
+    const state = fresh(); state.actualLevels.Smithing = 5;
+    const result = R.buildTasks({ data, valids: { Smithing: { Dagger: 1, Sword: 4, Cannon: 5 } },
+        base: { objects: { Anvil: { '1000': true } }, items: { 'Bronze bar': { '1000': 'primary-spawn' } },
+            npcs: {}, monsters: {}, shops: {} },
+        rules: { 'Show Skill Tasks': true }, state, unlocked: { '1000': '1000' }, annotations });
+    const tasks = R.adaptTasks(result.tasks, {}, state, { '1000': '1000' }, {}, {}, R.buildTaskCatalog(data));
+    assert.deepEqual(tasks.filter(task => task.eligible).map(task => task.name).sort(), ['Cannon', 'Sword']);
+    assert.notEqual(tasks.find(task => task.name === 'Cannon').resourceRepresentative.familyKey,
+        tasks.find(task => task.name === 'Sword').resourceRepresentative.familyKey);
+});
+
 test('iron axe acquired first satisfies the base family without requiring bronze afterward', () => {
     const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
     request.boardlocked.state.acquiredEnablers['Iron axe'] = { manual: true };
