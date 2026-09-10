@@ -552,7 +552,7 @@
             candidate.locationId === selected.locationId);
         if (!current || !startingPool.ids.includes(current.locationId)) {
             selectedStartingCandidate = null;
-            notice('That tile is no longer available. Choose another highlighted tile.');
+            notice('That tile is no longer available. Choose another marked tile.');
             drawCanvas();
             return;
         }
@@ -1256,21 +1256,35 @@
                 const point = convertToXY(id), sizeX = totalZoom * imgW / rowSize, sizeY = totalZoom * imgH / (fullSize / rowSize);
                 const x = dragTotalX + point.x * sizeX, y = dragTotalY + point.y * sizeY;
                 const selected = id === selectedStartingCandidate?.locationId;
-                context.fillStyle = selected ? 'rgba(255, 209, 102, .48)' : 'rgba(67, 210, 111, .32)';
-                context.fillRect(x + 3, y + 3, sizeX - 6, sizeY - 6);
+                const hovered = id === String(hoveredChunk);
+                if (selected || hovered) {
+                    context.fillStyle = selected ? 'rgba(255, 209, 102, .18)' : 'rgba(22, 133, 96, .08)';
+                    context.fillRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
+                }
                 if (selected) {
                     context.save();
-                    context.globalAlpha = .68;
+                    context.globalAlpha = .42;
                     for (const sectionId of selectedStartingCandidate.metadata?.entrySections || []) {
                         const overlay = sectionOverlay(id, sectionId);
                         if (overlay?.canvas) context.drawImage(overlay.canvas, x + 3, y + 3, sizeX - 6, sizeY - 6);
                     }
                     context.restore();
                 }
-                context.strokeStyle = selected ? '#d99b00' : '#196f45';
-                context.lineWidth = selected ? 5 : 2;
+                context.strokeStyle = selected ? '#d99b00' : 'rgba(13, 104, 77, .8)';
+                context.lineWidth = selected ? 4 : hovered ? 2 : 1.5;
                 context.setLineDash([]);
-                context.strokeRect(x + 3, y + 3, sizeX - 6, sizeY - 6);
+                if (selected || hovered) {
+                    context.strokeRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
+                } else {
+                    const inset = 5, corner = Math.max(6, Math.min(14, Math.min(sizeX, sizeY) * .18));
+                    const left = x + inset, right = x + sizeX - inset, top = y + inset, bottom = y + sizeY - inset;
+                    context.beginPath();
+                    context.moveTo(left, top + corner); context.lineTo(left, top); context.lineTo(left + corner, top);
+                    context.moveTo(right - corner, top); context.lineTo(right, top); context.lineTo(right, top + corner);
+                    context.moveTo(right, bottom - corner); context.lineTo(right, bottom); context.lineTo(right - corner, bottom);
+                    context.moveTo(left + corner, bottom); context.lineTo(left, bottom); context.lineTo(left, bottom - corner);
+                    context.stroke();
+                }
                 if (selected && sizeX >= 44 && sizeY >= 36) {
                     const marker = 'START';
                     context.font = 'bold ' + Math.max(9, Math.min(15, sizeX * .16)) + 'px Arial, sans-serif';
@@ -1361,7 +1375,7 @@
             <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds wilderness tiles.</small></span></label>
             </div><p id="bl-start-summary" class="bl-muted"></p>
             <div id="bl-start-actions"><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button><button id="bl-start-pick" class="bl-start-pick" type="button">Pick starting tile</button></div>
-            <div id="bl-start-picker" class="bl-start-picker" hidden><p><strong>Click a highlighted tile on the map.</strong> You can change your pick before confirming.</p><p id="bl-start-choice" class="bl-start-choice" aria-live="polite"></p><div class="bl-start-picker-actions"><button id="bl-start-confirm" class="bl-primary" type="button">Confirm start</button><button id="bl-start-cancel" type="button">Cancel</button></div></div></section>
+            <div id="bl-start-picker" class="bl-start-picker" hidden><p><strong>Click a marked tile on the map.</strong> You can change your pick before confirming.</p><p id="bl-start-choice" class="bl-start-choice" aria-live="polite"></p><div class="bl-start-picker-actions"><button id="bl-start-confirm" class="bl-primary" type="button">Confirm start</button><button id="bl-start-cancel" type="button">Cancel</button></div></div></section>
             <div id="bl-mode-content" hidden>
             <button id="bl-roll" class="bl-primary" type="button">Roll next location</button>
             <button id="bl-sections" type="button" hidden>Choose accessible sections</button>

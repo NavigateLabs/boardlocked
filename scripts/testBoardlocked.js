@@ -2192,7 +2192,7 @@ test('manual starting-tile selection is staged behind an explicit confirmation',
     const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
     assert.match(ui, /<button id="bl-start-pick"[^>]*>Pick starting tile<\/button>/);
     assert.match(ui, /<button id="bl-start-confirm"[^>]*>Confirm start<\/button>/);
-    assert.match(ui, /Click a highlighted tile on the map\./);
+    assert.match(ui, /Click a marked tile on the map\./);
     assert.match(ui, /function handleStartingTileClick\(locationId\)/);
     assert.match(index, /handleStartingTileClick\?\.\(chunkId\)/);
     const selectBody = ui.slice(ui.indexOf('function handleStartingTileClick'), ui.indexOf('function confirmStartingTile'));
