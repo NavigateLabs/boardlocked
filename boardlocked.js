@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 27;
+    const VERSION = 28;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -710,7 +710,9 @@
         const byId = new Map(tasks.map(task => [task.taskId, task]));
         const completed = completionIds(legacy, ids);
         return tasks.map(task => {
-            if (!task.eligible || !task.resourceMilestoneDependencies?.length) return task;
+            const waitingOnlyForPersistentEnablers = task.availableWithoutPersistentEnablers === true &&
+                !task.completed && !task.backlogged && !task.superseded && !task.progressionBlocked && task.activeOrigins?.length > 0;
+            if ((!task.eligible && !waitingOnlyForPersistentEnablers) || !task.resourceMilestoneDependencies?.length) return task;
             const blocking = task.resourceMilestoneDependencies.filter(dependency => {
                 const satisfied = dependency.producers.some(producer => completed.has(producer.taskId) || completed.has(producer.name) ||
                     (producer.level && (state?.progressionHighWater?.[producer.skill] || 0) >= producer.level));
@@ -803,6 +805,23 @@
         }
         return tasks.map(task => replacements.get(task.taskId) || task);
     }
+    function scopeEnablersToCurrentProgression(tasks) {
+        const byId = new Map(tasks.map(task => [task.taskId, task]));
+        return tasks.map(task => {
+            if (task.taskClass !== 'enabler' || !task.requiredBy?.length) return task;
+            const actionable = task.requiredBy.filter(dependency => {
+                const target = byId.get(dependency.taskId);
+                return target && target.availableWithoutPersistentEnablers !== false &&
+                    !target.completed && !target.backlogged && !target.superseded && !target.progressionBlocked &&
+                    !target.resourceMilestoneBlocked && target.activeOrigins?.length > 0;
+            });
+            if (actionable.length) return { ...task, requiredBy: actionable,
+                accessResult: task.accessResult ? { ...task.accessResult, requiredBy: actionable } : task.accessResult };
+            return { ...task, eligible: false, enablerProgressionDeferred: true,
+                eligibilityReason: 'No unfinished task in the current progression window needs ' + task.enablerItemKey,
+                whyWouldBeIneligible: [...(task.whyWouldBeIneligible || []), 'no dependent task is in the current progression window'] };
+        });
+    }
     function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks, ids = {}) {
         const completedItems = completedEquipmentItems(legacy, state, ids);
         const adapted = tasks.map(task => {
@@ -837,8 +856,9 @@
                 ] };
         });
         const withCatchUp = openCatchUpMilestones(adapted, state);
-        const ordered = orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(withCatchUp), legacy, state, ids);
-        return chooseResourceRepresentativeTasks(ordered, state);
+        const progressionScoped = scopeEnablersToCurrentProgression(withCatchUp);
+        const ordered = orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(progressionScoped), legacy, state, ids);
+        return scopeEnablersToCurrentProgression(chooseResourceRepresentativeTasks(ordered, state));
     }
 
     function actualCombatLevel(levels = {}) {
@@ -2168,6 +2188,7 @@
                 taskResourceMilestoneDependencies(name, requirementMeta) : [];
             record.resourceRepresentative = record.taskClass === 'skill_progression' ?
                 resourceRepresentativeMetadata(name, requirementSkill, requirementMeta, annotations) : null;
+            const availableBeforeForestryAndPersistentEnablers = record.available !== false;
             const requiredEnablers = uniqueRequirements([
                 ...taskEnablerRequirements(data, requirementSkill, requirementMeta, enablerModel, record.taskClass),
                 ...taskResourceRequirements(requirementMeta)
@@ -2204,6 +2225,9 @@
                 if (!record.available) accessDiagnostics.push({ taskId: id, name: record.displayName, ...record.accessResult });
             } else if (!record.accessResult) record.accessResult = { allowed: true, reason: 'Passed strict source, rule and prerequisite calculation' };
             record = applySlayerProgression(record, requirementMeta, requirementSkill);
+            record.availableWithoutPersistentEnablers = availableBeforeForestryAndPersistentEnablers &&
+                !record.slayerProgression?.blocked && (!forestBound || (treeSources.length > 0 &&
+                    (forestryKitAcquired || kitOrigins.length > 0)));
             if (requiredEnablers.length) {
                 record.enablers.push(...requiredEnablers.map(requirement => ({ type: 'persistent_capability', ...requirement })));
                 const missing = requiredEnablers.filter(requirement => !requirement.satisfied);
@@ -2259,6 +2283,8 @@
                 if (!origins.length) continue;
                 const id = enablerTaskId(itemInfo.itemKey), name = 'Obtain ' + articleFor(itemInfo.itemKey) + '~|' + itemInfo.itemKey.toLowerCase() + '|~';
                 const capabilities = (enablerModel.byItem.get(itemInfo.itemKey) || []).filter(capability => pendingCapabilities.has(capability.capabilityId));
+                const itemRequiredBy = requiredBy.filter(dependency =>
+                    !dependency.requiresSpecificItem || dependency.itemKey === itemInfo.itemKey);
                 tasks.set(id, { taskId: id, name, displayName: displayName(name), skill: 'Unlocks / Tools', type: 'Unlocks / Tools',
                     category: 'Unlocks / Tools', sourceCategories: [], level: null, description: '', taskClass: 'enabler',
                     classificationReason: 'Specific obtainable reusable item establishes a missing persistent capability',
@@ -2267,9 +2293,9 @@
                     capabilities: capabilities.map(capability => ({ capabilityId: capability.capabilityId, label: capability.label,
                         familyType: capability.familyType, skill: capability.skill, minimumUseLevel: itemInfo.minimumUseLevel,
                         requiredLevels: itemInfo.requiredLevels || {} })),
-                    requiredBy, skillingBis: itemInfo.skillingBis, acquisition,
+                    requiredBy: itemRequiredBy, skillingBis: itemInfo.skillingBis, acquisition,
                     accessResult: { allowed: true, reason: 'Persistent enabler is usable and directly obtainable from an accessible source',
-                        itemKey: itemInfo.itemKey, origins, requiredBy, acquisition } });
+                        itemKey: itemInfo.itemKey, origins, requiredBy: itemRequiredBy, acquisition } });
             }
         }
         const allEnablerItems = [...new Set(enablerModel.capabilities.flatMap(capability => capability.satisfyingItems.map(item => item.itemKey)))];

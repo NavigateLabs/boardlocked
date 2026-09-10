@@ -131309,14 +131309,15 @@
 						"Fishing spot (small net, bait)": 2
 					},
 					"Spawn": {
-						"Big fishing net": 2,
+						"Big fishing net": 1,
 						"Bones": 3,
 						"Bronze axe": 1,
 						"Coins": 3,
 						"Knife": 1,
 						"Plank": 6,
 						"Rope": 3,
-						"Seaweed": 14
+						"Seaweed": 14,
+						"Small fishing net": 1
 					}
 				},
 				"2": {},

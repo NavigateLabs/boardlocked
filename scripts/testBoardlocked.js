@@ -1271,6 +1271,41 @@ test('live acceptance worker output offers axe Enablers and blocks concrete gath
     assert.ok(!tasks.some(task => task.accessResult?.forestry && task.eligible));
 });
 
+test('Shipwreck Cove offers the small net before shrimp and defers the higher-level big net', () => {
+    const spawns = chunkData.chunks['6195'].Sections['1'].Spawn;
+    assert.equal(spawns['Small fishing net'], 1);
+    assert.equal(spawns['Big fishing net'], 1);
+
+    const request = usePreset(makeRequest(['6195']), 'Boardlocked Chunker');
+    request.manualSections = { '6195': { '1': true } };
+    request.boardlocked.state.progressionHighWater.Cooking = 13;
+    request.boardlocked.state.progressionInitialized = true;
+    request.boardlocked.state.actualLevels.Cooking = 13;
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    let result = runWorker(request).result;
+    let tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
+        result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
+    const smallNet = tasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Small fishing net');
+    const bigNet = tasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Big fishing net');
+    const shrimps = tasks.find(task => task.name === 'Catch ~|raw shrimps|~');
+    assert.equal(smallNet?.eligible, true, 'the level-one fishing route first offers its required net');
+    assert.ok(smallNet.requiredBy.length > 0);
+    assert.ok(smallNet.requiredBy.every(dependency => !dependency.requiresSpecificItem || dependency.itemKey === 'Small fishing net'));
+    assert.equal(bigNet?.eligible, false, 'a tool used only by later Fishing tasks waits for that progression window');
+    assert.equal(bigNet?.enablerProgressionDeferred, true);
+    assert.equal(shrimps?.progressionBlocked, false);
+    assert.equal(shrimps?.eligible, false);
+    assert.match(shrimps?.eligibilityReason || '', /Small fishing net/);
+
+    request.boardlocked.state.acquiredEnablers['Small fishing net'] = { manual: true };
+    result = runWorker(request).result;
+    tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
+        result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
+    assert.equal(tasks.find(task => task.name === 'Catch ~|raw shrimps|~')?.eligible, true,
+        'registering the net exposes the concrete level-one fishing action');
+    assert.ok(!tasks.some(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Small fishing net' && task.eligible));
+});
+
 test('reusable containers cannot obtain themselves through fill-empty or cook-eat cycles', () => {
     const fixture = sourceFixture();
     fixture.data = {
