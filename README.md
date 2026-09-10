@@ -29,6 +29,8 @@ Open a fresh run and choose your start options before the first roll. The map
 uses the reviewed land-tile list for Standard starts. Mixed coastal chunks still
 begin on land.
 
+Before starting talk to Turael once and go though the options to unlock slayer. If you accidentally get a assignment you should cancel it. It is also strongly reccomended to do Druidic Ritual to have access to herblore.
+
 Two optional start groups are available before the first roll. Every starting
 tile is on land:
 
