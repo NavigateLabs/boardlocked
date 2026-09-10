@@ -972,6 +972,26 @@ test('bronze axe acquisition satisfies the base family, activates future Woodcut
     assert.deepEqual(R.snapshotVisit(visit, afterTasks).currentVisit.candidateTaskIds, snapshotIds);
 });
 
+test('processing logs inherits the axe requirement until logs are directly obtainable', () => {
+    const taskName = 'Fletch ~|logs|~ into shafts';
+    const request = usePreset(makeRequest(['4912']), 'Boardlocked Chunker');
+    let shaft = runWorker(request).result.tasks.find(task => task.name === taskName);
+    assert.ok(shaft, 'the live Tal Teklan case exposes the Fletching task');
+    assert.equal(shaft.available, false);
+    assert.match(shaft.accessResult.reason, /Persistent enabler not acquired: Axe/);
+    assert.equal(shaft.accessResult.persistentEnablers.some(requirement =>
+        requirement.requiredViaResource === 'Logs' && requirement.capabilityId === 'group:Axe[+]'), true);
+
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    shaft = runWorker(request).result.tasks.find(task => task.name === taskName);
+    assert.equal(shaft.available, true, 'actually acquiring the offered axe unlocks log processing');
+
+    const directLogs = usePreset(makeRequest(['4912', '12850']), 'Boardlocked Chunker');
+    shaft = runWorker(directLogs).result.tasks.find(task => task.name === taskName);
+    assert.equal(shaft.available, true, 'a direct log spawn remains a valid axe-free source');
+    assert.ok(shaft.origins.some(source => source.sourceType === 'spawn' && source.sourceName === 'Logs'));
+});
+
 test('iron axe acquired first satisfies the base family without requiring bronze afterward', () => {
     const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
     request.boardlocked.state.acquiredEnablers['Iron axe'] = { manual: true };

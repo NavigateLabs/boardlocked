@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 11;
+    const VERSION = 12;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -1316,6 +1316,56 @@
             if (result.length) originCache.set(key, result);
             return result;
         }
+        const resourceRequirementCache = new Map();
+        const requirementIdentity = requirement => requirement.capabilityId + ':' +
+            (requirement.requiresSpecificItem ? requirement.itemKey : '*');
+        const uniqueRequirements = requirements => [...new Map(requirements.map(requirement =>
+            [requirementIdentity(requirement), requirement])).values()];
+        function mandatoryResourceRequirements(raw, visiting = new Set()) {
+            const paths = expand(raw, codes.itemsPlus).flatMap(itemName => resourceRequirementPaths(itemName, visiting));
+            if (!paths.length) return [];
+            const common = new Set(paths[0].map(requirementIdentity));
+            for (const path of paths.slice(1)) {
+                const keys = new Set(path.map(requirementIdentity));
+                for (const key of common) if (!keys.has(key)) common.delete(key);
+            }
+            return paths[0].filter(requirement => common.has(requirementIdentity(requirement)));
+        }
+        function resourceRequirementPaths(itemName, visiting = new Set()) {
+            const name = canonicalItemKey(itemName).replaceAll('*', '');
+            const key = 'resource-requirements:' + name;
+            if (visiting.has(key)) return [];
+            if (resourceRequirementCache.has(key)) return resourceRequirementCache.get(key);
+            const next = new Set(visiting).add(key), paths = [];
+            for (const [source, type] of Object.entries(base.items?.[name] || base.items?.[name + '*'] || {})) {
+                let directOrigins = [];
+                if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', name, 'Direct item spawn');
+                else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
+                else if (String(type).includes('drop')) directOrigins = acquisitionOrigins(name, source, fixed('monsters', source));
+                else directOrigins = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
+                if (directOrigins.length) {
+                    const shipRequirement = shipCombatMonsters.has(source) && shipCannonCapability ?
+                        [requirementFromCapability(shipCannonCapability)] : [];
+                    paths.push(shipRequirement);
+                    continue;
+                }
+                const producerSkill = knownNames.get(source), producerMeta = data.challenges[producerSkill]?.[source];
+                if (!producerMeta || !taskOrigins(source, producerSkill, next).length) continue;
+                const producerClass = taskMetadata(source, producerSkill, producerMeta, ids).taskClass;
+                const requirements = taskEnablerRequirements(data, producerSkill, producerMeta, enablerModel, producerClass);
+                for (const resource of (producerMeta.Items || []).filter(rawItem => rawItem.includes('*'))) {
+                    requirements.push(...mandatoryResourceRequirements(resource, next));
+                }
+                paths.push(uniqueRequirements(requirements));
+            }
+            if (paths.length) resourceRequirementCache.set(key, paths);
+            return paths;
+        }
+        function taskResourceRequirements(meta) {
+            return uniqueRequirements((meta.Items || []).filter(raw => raw.includes('*')).flatMap(raw =>
+                mandatoryResourceRequirements(raw).map(requirement => ({ ...requirement,
+                    requiredViaResource: canonicalItemKey(raw).replaceAll('*', '') }))));
+        }
         const forestry = annotations.forestry || {};
         const forestryCategories = new Set(forestry.taskCategories || []);
         const isDirectForestry = meta => (meta?.Category || []).some(category => forestryCategories.has(category));
@@ -1425,8 +1475,10 @@
                 record.displayName = '[' + record.bisReason + '] ' + record.displayName;
             }
             record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, requirementMeta);
-            const requiredEnablers = taskEnablerRequirements(data, requirementSkill, requirementMeta, enablerModel, record.taskClass)
-                .map(requirement => enablerRequirementStatus(requirement, state, data, requirementSkill));
+            const requiredEnablers = uniqueRequirements([
+                ...taskEnablerRequirements(data, requirementSkill, requirementMeta, enablerModel, record.taskClass),
+                ...taskResourceRequirements(requirementMeta)
+            ]).map(requirement => enablerRequirementStatus(requirement, state, data, requirementSkill));
             if (shipCannonStatus && (shipCannonStatus.satisfied || !origins.length)) requiredEnablers.push(shipCannonStatus);
             record.provesAcquiredItemKeys = specificAcquisitionItems(data, requirementSkill, requirementMeta, record.taskClass, enablerModel);
             for (const requirement of requiredEnablers) if (requirement.requiresSpecificItem) record.provesAcquiredItemKeys.push(requirement.itemKey);
