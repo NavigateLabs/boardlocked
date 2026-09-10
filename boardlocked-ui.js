@@ -339,7 +339,7 @@
         pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, travelGraph, state.travelAnchor, state.travelAnchorSections);
         const woke = pool.live.filter(id => oldDormant.has(id) && id !== state.currentVisit?.locationId);
         if (dataReady && woke.length && !/^(Run imported|Added unlocked chunks)/.test(message)) {
-            message = woke.join(', ') + ' has new available tasks and returned to the travel graph as an encounter.';
+            message = woke.join(', ') + ' now has available tasks and can be rolled again.';
         }
     }
     function invalidate() {
@@ -411,7 +411,7 @@
                 state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'manual_unlock', locationId: id });
             }
             for (const id of removed) state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'manual_relock', locationId: id });
-            if (removed.includes(state.currentVisit?.locationId) && !R.canRoll(state)) message = 'The current visit location was removed by a map edit. Its snapshot remains unresolved; explicitly void it to continue.';
+            if (removed.includes(state.currentVisit?.locationId) && !R.canRoll(state)) message = 'Your current tile was removed from the map, but its task is still active. Use Void / recalculate current visit to continue.';
         }
         previousUnlocked = unlocked;
         // Also covers completion from legacy panels, source/area edits and equipment.
@@ -424,11 +424,11 @@
     function roll() {
         if (!canEdit()) return notice('Unlock this map or enter Sandbox Mode to roll.');
         if (!state.enabled) return;
-        if (busy || error || !dataReady) return notice('Wait for a successful task/access calculation before rolling.');
+        if (busy || error || !dataReady) return notice('Still checking tasks and routes. Try again in a moment.');
         rebuild();
-        if (!R.canRoll(state)) return notice('Complete any one snapshotted task, or use Void / recalculate current visit.');
+        if (!R.canRoll(state)) return notice('Complete one of the current visit tasks, or use Void / recalculate current visit.');
         const candidate = !hasStarted() ? R.chooseStartingCandidate(pool.candidates, startingPool) : R.chooseCandidate(pool.candidates);
-        if (!candidate) return notice('No reachable encounter or new boundary tile. Check the current tile, section access, backlogs, and map frontier.');
+        if (!candidate) return notice('There is nowhere to roll from this tile. Check its open routes, tasks, and blacklisted tiles.');
         begin(candidate);
     }
     function begin(candidate) {
@@ -493,19 +493,19 @@
     }
     function voidCurrent() {
         if (!canEdit() || R.canRoll(state)) return;
-        if (!confirm('Administratively void this visit and recalculate? No task will be marked completed. The void and original snapshot remain in the journal.')) return;
+        if (!confirm('Void this visit and recalculate its tasks? No task will be marked complete.')) return;
         state = R.voidVisit(state, 'Voided by player; recalculated for future visits');
         save(); schedule();
     }
     function allowRelock(id) {
         if (String(id) === state.currentVisit?.locationId && !R.canRoll(state)) {
-            notice('Void the current visit before administratively re-locking its chunk.'); return false;
+            notice('Void the current visit before re-locking its chunk.'); return false;
         }
-        return confirm('Administratively re-lock chunk ' + id + '? This changes permanent geography and will be recorded.');
+        return confirm('Re-lock chunk ' + id + '? It will be removed from this run’s unlocked map.');
     }
     function complete(task, checked) {
         if (!canEdit()) return;
-        if (isInitializationTask(task.taskId)) return notice('Initialization quest steps stay completed for this run.');
+        if (isInitializationTask(task.taskId)) return notice('Account-setup quest steps stay completed for this run.');
         const target = task.skill === 'BiS' ? completedChallenges : checkedAllTasks;
         // Clear duplicate legacy representations when unchecking this exact atomic ID.
         if (!checked) {
@@ -547,7 +547,7 @@
         const select = document.getElementById('bl-enabler-select'), itemKey = select?.value;
         if (!itemKey || R.own(state.acquiredEnablers, itemKey)) return;
         state.acquiredEnablers[itemKey] = { acquiredAt: new Date().toISOString(), manual: true,
-            evidence: 'Manually registered in Acquired Enablers editor', source: null };
+            evidence: 'Added manually', source: null };
         state.enablersInitialized = true;
         state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'add_acquired_enabler', itemKey });
         forceUpdatePluginOutput = true; save(); schedule(); render(); setData();
@@ -618,7 +618,7 @@
         state.initialization[key] = checked;
         const questChanged = syncInitializationCompletions(true);
         state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'set_start_option', option: key, enabled: checked });
-        message = ({ druidicRitual: 'Druidic Ritual initialization', varlamore: 'Varlamore starts',
+        message = ({ druidicRitual: 'Druidic Ritual setup', varlamore: 'Varlamore starts',
             wilderness: 'Wilderness starts', ocean: 'Experimental ocean starts' })[key] + (checked ? ' enabled.' : ' disabled.');
         save(); rebuild(); render(); drawCanvas();
         if (questChanged) schedule();
@@ -637,7 +637,7 @@
             check.checked = R.isComplete(task, legacy(), state); check.disabled = !canEdit() || initialized;
             check.onchange = () => complete(task, check.checked);
             row.append(check, element('span', task.skill + (task.level ? ' [' + task.level + ']' : '') + ' · ' + task.displayName +
-                (initialized ? ' · Initialization' : '')));
+                (initialized ? ' · Account setup' : '')));
             container.append(row);
         }
         if (matches.length > 30) container.append(element('p', 'Showing 30 matches. Narrow your search.'));
@@ -716,21 +716,21 @@
         const select = document.getElementById('bl-enabler-select'), ambiguityList = document.getElementById('bl-enabler-ambiguities');
         if (!summary || !acquiredList || !select) return;
         const acquiredKeys = Object.keys(state.acquiredEnablers).sort((a, b) => a.localeCompare(b));
-        summary.textContent = 'Acquired Enablers (' + acquiredKeys.length + ')';
+        summary.textContent = 'Acquired tools (' + acquiredKeys.length + ')';
         acquiredList.replaceChildren();
         const byItem = new Map(enablerCatalog.map(item => [item.itemKey, item]));
         for (const itemKey of acquiredKeys) {
             const item = byItem.get(itemKey), acquisition = state.acquiredEnablers[itemKey] || {};
             const row = element('div', null, { className: 'bl-enabler-record' });
-            const capabilities = item?.capabilities?.map(capability => capability.label).join(', ') || 'Capability metadata unavailable in current calculation';
+            const capabilities = item?.capabilities?.map(capability => capability.label).join(', ') || 'Uses not listed';
             const source = acquisition.source ? [acquisition.source.sourceType, acquisition.source.sourceName,
                 acquisition.source.chunkId + (acquisition.source.sectionId ? '-' + acquisition.source.sectionId : '')].filter(Boolean).join(' · ') :
-                acquisition.manual ? 'Manual record' : acquisition.evidence || 'Imported specific acquisition evidence';
+                acquisition.manual ? 'Added manually' : acquisition.evidence || 'Recovered from completed tasks';
             row.append(element('strong', itemKey), element('small', capabilities + ' · ' + source));
             const remove = button('Remove', () => removeEnabler(itemKey)); remove.disabled = !canEdit(); row.append(remove);
             acquiredList.append(row);
         }
-        if (!acquiredKeys.length) acquiredList.append(element('p', 'No persistent enablers have been registered yet.'));
+        if (!acquiredKeys.length) acquiredList.append(element('p', 'No reusable tools recorded yet.'));
         const previous = select.value; select.replaceChildren(element('option', 'Choose a known reusable item…', { value: '' }));
         for (const item of enablerCatalog.filter(item => !R.own(state.acquiredEnablers, item.itemKey))) {
             const capability = item.capabilities.map(entry => entry.label).join(', ');
@@ -745,7 +745,7 @@
                 row.append(element('summary', ambiguity.requirement), element('pre', JSON.stringify(ambiguity, null, 2)));
                 ambiguityList.append(row);
             }
-            if (!enablerAmbiguities.length) ambiguityList.append(element('p', 'No unresolved reusable-tool classifications in this dataset scan.'));
+            if (!enablerAmbiguities.length) ambiguityList.append(element('p', 'No unclear tool requirements.'));
         }
     }
     function render() {
@@ -792,7 +792,7 @@
             state.travelAnchor ? 'Current tile · ' + state.travelAnchor + ' — ' + label(state.travelAnchor) : 'No current tile';
         const arrivalLabel = visit?.arrivalMedium && visit.arrivalMedium !== 'whole' ? ' · ' + visit.arrivalMedium.toUpperCase() +
             (visit.arrivalSections?.length ? ' ' + visit.arrivalSections.join(' + ') : '') : '';
-        document.getElementById('bl-visit-status').textContent = visit ? visit.kind.toUpperCase() + arrivalLabel + ' · ' + ({ pending_calculation: 'Awaiting task/section calculation', task_required: 'Complete any 1 task', resolved: ({ no_tasks: 'No tasks — free roll', task_completed: 'Complete', admin_void: 'Administratively voided' })[visit.resolution] })[visit.status] : state.travelAnchor ? 'Current travel position.' : 'Roll a starting tile to begin.';
+        document.getElementById('bl-visit-status').textContent = visit ? visit.kind.toUpperCase() + arrivalLabel + ' · ' + ({ pending_calculation: 'Checking tasks and routes', task_required: 'Complete any 1 task', resolved: ({ no_tasks: 'No tasks — free roll', task_completed: 'Complete', admin_void: 'Voided' })[visit.resolution] })[visit.status] : state.travelAnchor ? 'Current travel position.' : 'Roll a starting tile to begin.';
         const areaHint = document.getElementById('bl-area-hint'), areaSections = currentAreaSections();
         areaHint.hidden = !state.travelAnchor || !areaSections.length;
         if (!areaHint.hidden) {
@@ -1120,8 +1120,9 @@
             <div class="bl-preset"><strong id="bl-preset-status">Rules: Boardlocked defaults</strong><div class="bl-toolbar"><button id="bl-show-rules" type="button">Chunk Rules</button><button id="bl-reset-preset" type="button">Restore Boardlocked rules</button></div></div>
             <p id="bl-message" role="status" aria-live="polite"></p>
             <section id="bl-start-setup" class="bl-start-setup"><h3>Start a new account</h3>
-            <label class="bl-start-option"><input id="bl-start-druidicRitual" type="checkbox"><span><strong>Druidic Ritual <em>recommended</em></strong><small>Counts as initialization and starts Herblore at 3.</small></span></label>
-            <p class="bl-start-route">Iron dagger near Lumbridge → level-3 swamp rat for rat meat → buy raw chicken + beef at Wydin's in Port Sarim → sail with Veos to Kourend, then Land's End → <a href="https://www.youtube.com/watch?v=ZiEf7s40lEg" target="_blank" rel="noopener">follow the exact bear-cub flinch</a> → <a href="https://oldschool.runescape.wiki/w/Druidic_Ritual" target="_blank" rel="noopener">finish the quest</a>.</p>
+            <label class="bl-start-option"><input id="bl-start-druidicRitual" type="checkbox"><span><strong>Druidic Ritual <em>recommended</em></strong><small>Complete it before your first roll; Herblore starts at 3.</small></span></label>
+            <ol class="bl-start-route"><li>Pick up the iron dagger near Lumbridge.</li><li>Kill a level-3 rat in Lumbridge Swamp for raw rat meat. Avoid the level-6 rat.</li><li>Buy raw chicken and raw beef from Wydin’s Food Store in Port Sarim.</li><li>Ask Veos for Kourend, then take his boat to Land’s End.</li><li>Flinch the bear cub beside the ruined house, take its meat, and finish Druidic Ritual.</li></ol>
+            <details class="bl-flinch-guide"><summary>Show bear-cub flinch spot</summary><figure><img src="./resources/boardlocked-bear-flinch.jpg" alt="Player standing against the outside corner of the ruined house with the bear cub nearby" loading="lazy"><figcaption>Attack once, return to this corner, and wait for the bear’s health bar to disappear. Repeat until it dies.</figcaption></figure></details>
             <div class="bl-start-grid">
             <label class="bl-start-option"><input id="bl-start-varlamore" type="checkbox"><span><strong>Varlamore starts</strong><small>Assumes Children of the Sun is complete before rolling.</small></span></label>
             <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Curated shallow and low-risk tiles; PvP still applies.</small></span></label>
@@ -1129,27 +1130,27 @@
             </div><p id="bl-start-summary" class="bl-muted"></p><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button></section>
             <details id="bl-run-setup"><summary>Continue or import a run</summary>
             <div class="bl-toolbar"><label class="bl-file">Import backup<input id="bl-import" type="file" accept=".json,application/json"></label></div>
-            <h3>Continue an existing run</h3><p>Add your unlocked chunk IDs in order, separated by commas. Current rules and progress automatically classify each as an encounter or a free travel tile. This adds geography without inventing past visits.</p>
+            <h3>Continue an existing run</h3><p>Add your unlocked chunk IDs in order, separated by commas. The map will mark each chunk as free or show the tasks you can complete there.</p>
             <label>Already unlocked chunks<textarea id="bl-setup-chunks" rows="2" placeholder="Chunk IDs, in unlock order"></textarea></label>
             <p class="bl-muted">You can specify accessible sections as chunk-section IDs. Otherwise the map will ask you to choose any sections it needs.</p>
             <button id="bl-add-unlocked" type="button">Add unlocked chunks</button><pre id="bl-setup-status" role="status"></pre>
             <h3>Record completed tasks</h3><p>Search for tasks you already did. Completed ordinary Skill Tasks establish the highest completed task level for each skill. Enter actual skill levels under Current levels.</p>
             <input id="bl-past-search" type="search" placeholder="Search past task, e.g. cooked chicken" aria-label="Search completed tasks to record"><div id="bl-past-tasks"></div>
-            <h3>Current tile / resume a visit</h3><p>An import uses its current visit, then its latest unlocked chunk, as the travel start. Correct that start here if needed. Resume a visit only when you still owe a task in that chunk.</p>
+            <h3>Current tile / resume a visit</h3><p>After an import, your current tile comes from the unfinished visit or the last unlocked chunk. Change it here if that is wrong. Resume a visit only when you still owe a task there.</p>
             <label>Unlocked chunk or chunk-section ID <input id="bl-admin-location" inputmode="text" placeholder="9270-1 or 9270-W1"></label><div class="bl-toolbar"><button id="bl-set-anchor" type="button">Set current tile / section</button><button id="bl-admin-visit" type="button">Resume unfinished visit here</button></div>
             </details>
-            <div id="bl-mode-content"><p class="bl-muted">Travel starts at the current tile. Free tiles are crossed automatically when building the pool; the first new tile or unfinished-task tile in each direction gets one ticket.</p>
+            <div id="bl-mode-content"><p class="bl-muted">Each roll follows every open route from your current tile, crossing FREE tiles until it reaches a new tile or one with an unfinished task.</p>
             <div class="bl-map-legend" aria-label="Map legend"><span><i class="bl-key-current"></i>Current</span><span><i class="bl-key-area"></i>Your area</span><span><i class="bl-key-free"></i>Free</span><span><i class="bl-key-encounter"></i>Reachable encounter</span><span><i class="bl-key-boundary"></i>Rollable new tile</span></div>
             <button id="bl-roll" class="bl-primary" type="button">Roll next location</button>
             <button id="bl-sections" type="button" hidden>Choose accessible sections</button>
             <section><h3>Current visit</h3><strong id="bl-visit-title"></strong><p id="bl-visit-status"></p><p id="bl-area-hint" class="bl-area-hint" hidden></p><div id="bl-candidates"></div>
             <button id="bl-void" type="button">Void / recalculate current visit</button></section>
             <section><h3>Roll pool</h3><p id="bl-pool-summary"></p><details><summary>Locations and task counts</summary><div id="bl-locations"></div></details></section>
-            <details><summary id="bl-enabler-summary">Acquired Enablers (0)</summary><p>Persistent tools are recorded only after a specific item acquisition or a manual recovery entry. Changing this list recalculates every unlocked chunk.</p>
+            <details><summary id="bl-enabler-summary">Acquired tools (0)</summary><p>Reusable tools such as axes stay unlocked after you get them. If an old save is missing one, add it here.</p>
             <div class="bl-toolbar"><select id="bl-enabler-select" aria-label="Known persistent enabler to register"><option value="">Choose a known reusable item…</option></select><button id="bl-add-enabler" type="button">Mark acquired</button></div>
-            <div id="bl-enabler-list"></div><details><summary>Ambiguous tool metadata</summary><p>These requirements are not treated as persistent until the data or annotation layer proves they are reusable.</p><div id="bl-enabler-ambiguities"></div></details></details>
+            <div id="bl-enabler-list"></div><details><summary>Unclear tool requirements</summary><p>These items are not treated as reusable because their task data is unclear.</p><div id="bl-enabler-ambiguities"></div></details></details>
             <details><summary>Levels &amp; skill progression</summary><p>Actual levels control source access. Highest completed task levels separately control each skill’s rolling progression window.</p><div id="bl-levels"></div><h3>Highest completed task levels</h3><div id="bl-frontiers"></div><button id="bl-rebuild-frontiers" type="button">Rebuild from completed tasks</button><p id="bl-milestones"></p></details>
-            <details><summary id="bl-task-count">Other tasks & progress</summary><p>Record incidental progress here. Only a Current visit candidate resolves the visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search atomic tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
+            <details><summary id="bl-task-count">Other tasks &amp; progress</summary><p>Check off anything you completed outside your current roll. To finish the current visit, complete a task listed under Current visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
             <details><summary>Diagnostics and overrides</summary>
             <details><summary id="bl-unassigned-count">Unassigned Boardlocked Tasks</summary><div id="bl-unassigned"></div></details>
             <details><summary id="bl-gate-count">Access diagnostics</summary><div id="bl-gates"></div></details>

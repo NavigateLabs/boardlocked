@@ -708,7 +708,7 @@
     function setTravelAnchor(state, locationId, reason = 'Set current travel tile', timestamp = new Date().toISOString()) {
         const parsed = parseLocation(locationId);
         if (!parsed) throw new Error('Invalid travel anchor');
-        if (!canRoll(state)) throw new Error('Complete or administratively void the current visit first');
+        if (!canRoll(state)) throw new Error('Complete or void the current visit first');
         return { ...state, travelAnchor: parsed.chunkId, travelAnchorSections: parsed.sectionId ? [parsed.sectionId] : null,
             adminHistory: [...state.adminHistory,
             { timestamp, action: 'set_travel_anchor', locationId: parsed.chunkId, sectionId: parsed.sectionId, reason }] };
@@ -824,7 +824,7 @@
         return { ...state, currentVisit: visit, visitHistory };
     }
     function startVisit(state, candidate, chunkName = '', timestamp = new Date().toISOString()) {
-        if (!canRoll(state)) throw new Error('Complete or administratively void the current visit first');
+        if (!canRoll(state)) throw new Error('Complete or void the current visit first');
         if (!candidate) throw new Error('No locations available');
         const entrySections = [...new Set((candidate.metadata?.entrySections || []).map(String))];
         const arrivalMedium = candidate.metadata?.arrivalMedium || (!entrySections.length ? 'whole' :

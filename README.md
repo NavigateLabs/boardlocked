@@ -35,15 +35,19 @@ pool excludes Morytania, the desert,
 Prifddinas, quest-locked islands, damaging environments, guild interiors, and
 other poor level-3 starts.
 
-**Druidic Ritual is recommended and enabled by default.** The route is:
-pick up the iron dagger near Lumbridge, kill a level 3 swamp rat for raw rat
-meat, buy raw chicken and beef from Wydin's Food Store in Port Sarim, then sail
-with Veos to Kourend and continue to Land's End. The
-[level-3 start video](https://www.youtube.com/watch?v=ZiEf7s40lEg) shows the
-whole route. Then
-[finish Druidic Ritual](https://oldschool.runescape.wiki/w/Druidic_Ritual).
-Enabling this option assumes you complete the route before starting the rolled
-account.
+**Druidic Ritual is recommended and enabled by default.** Complete this setup
+before your first roll:
+
+1. Pick up the iron dagger near Lumbridge.
+2. Kill a level 3 rat in Lumbridge Swamp for raw rat meat. Avoid the level 6 rat.
+3. Buy raw chicken and raw beef from Wydin's Food Store in Port Sarim.
+4. Ask Veos for Kourend, then take his boat to Land's End.
+5. Flinch the bear cub beside the ruined house, take its meat, and finish Druidic Ritual.
+
+![Bear cub flinch spot](resources/boardlocked-bear-flinch.jpg)
+
+Attack once, return to the marked corner, and wait for the bear's health bar to
+disappear. Repeat until it dies.
 
 Three optional start groups are available before the first roll:
 
