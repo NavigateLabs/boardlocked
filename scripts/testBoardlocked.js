@@ -29,6 +29,7 @@ test('fresh and migrated runs keep initialization choices explicit', () => {
     assert.deepEqual(migrated.initialization, { druidicRitual: false, varlamore: false, wilderness: false, ocean: false });
     assert.deepEqual(migrated.initializationApplied, {});
     assert.deepEqual(migrated.initializationLevelFloors, {});
+    assert.deepEqual(migrated.slayerMasters, {});
     assert.equal(current.startingSectionPolicy, R.STARTING_SECTION_POLICY);
     assert.equal(migrated.startingSectionPolicy, null);
 });
@@ -928,6 +929,15 @@ test('Slayer account setup and master tasks remain independent progression entry
     const ui = fs.readFileSync(path.join(__dirname, '..', 'boardlocked-ui.js'), 'utf8');
     assert.doesNotMatch(ui, /id="bl-level-/);
     assert.doesNotMatch(ui, /Levels &amp; skill progression/);
+    assert.match(ui, /id="bl-slayer-master-summary"/);
+});
+
+test('Slayer master decisions survive migration and reject invalid states', () => {
+    let state = R.setSlayerMasterState(fresh(), 'Nieve', 'pending');
+    state = R.setSlayerMasterState(state, 'Vannaka', 'usable');
+    const restored = R.normalizeState(state);
+    assert.deepEqual(restored.slayerMasters, { Nieve: 'pending', Vannaka: 'usable' });
+    assert.throws(() => R.normalizeState({ ...fresh(), slayerMasters: { Nieve: 'maybe' } }), /Invalid Slayer master state/);
 });
 
 test('completed skill goals automatically provide minimum level evidence', () => {
@@ -960,26 +970,40 @@ test('Slayer progression uses the full assignment pool of a usable master', () =
     assert.equal(stranded.ceiling, 1);
 });
 
-test('Slayer masters defer unknown numeric grinds and Konar keeps location restrictions', () => {
+test('Slayer masters wait for one-time confirmation and Konar keeps location restrictions', () => {
     const lowLevel = fresh(); lowLevel.actualLevels.Slayer = 22;
     const legacy = { completedChallenges: { Quest: { '~|Priest in Peril|~ Complete the quest': true } } };
     let model = R.slayerProgressionModel({ data: chunkData, state: lowLevel, legacy, ids: require('../tasksMap.json'),
         base: { npcs: { Vannaka: { '12698': true } }, monsters: { 'Hill Giant': { '5688': true } } },
         unlocked: { '12698': true, '5688': true }, sections: {}, manualSections: {} });
-    assert.equal(model.trainingAvailable, true, 'unknown combat level must not hide a geographically reachable master');
-    assert.equal(model.ceiling, 85);
-    assert.equal(model.masters[0].deferredSkillRequirements.Combat, 40);
+    assert.equal(model.trainingAvailable, false);
+    assert.deepEqual(model.unknownMasters.map(master => master.master), ['Vannaka']);
+    assert.equal(model.unknownMasters[0].requiredCombat, 40);
+    assert.equal(model.unknownMonsterSupportAtOrigin('Hill Giant', { chunkId: '5688', sectionId: null })[0].master, 'Vannaka');
 
     const state = fresh(); Object.assign(state.actualLevels,
         { Slayer: 22, Attack: 50, Strength: 50, Defence: 50, Hitpoints: 50, Prayer: 30 });
     model = R.slayerProgressionModel({ data: chunkData, state, legacy, ids: require('../tasksMap.json'),
         base: { npcs: { Vannaka: { '12698': true } }, monsters: { 'Hill Giant': { '5688': true } } },
         unlocked: { '12698': true, '5688': true }, sections: {}, manualSections: {} });
+    assert.equal(model.trainingAvailable, false, 'inferred combat stats never activate a master');
+    state.slayerMasters.Vannaka = 'usable';
+    model = R.slayerProgressionModel({ data: chunkData, state, legacy, ids: require('../tasksMap.json'),
+        base: { npcs: { Vannaka: { '12698': true } }, monsters: { 'Hill Giant': { '5688': true } } },
+        unlocked: { '12698': true, '5688': true }, sections: {}, manualSections: {} });
     assert.equal(model.trainingAvailable, true);
-    assert.equal(model.ceiling, 85, 'numeric assignment requirements remain visible grinds rather than inferred gates');
+    assert.equal(model.ceiling, 85);
     assert.equal(model.nextMilestone, 25);
 
+    state.slayerMasters.Vannaka = 'pending';
+    model = R.slayerProgressionModel({ data: chunkData, state, legacy, ids: require('../tasksMap.json'),
+        base: { npcs: { Vannaka: { '12698': true } }, monsters: { 'Hill Giant': { '5688': true } } },
+        unlocked: { '12698': true, '5688': true }, sections: {}, manualSections: {} });
+    assert.equal(model.trainingAvailable, false);
+    assert.deepEqual(model.pendingMasters.map(master => master.master), ['Vannaka']);
+
     Object.assign(state.actualLevels, { Slayer: 50, Attack: 75, Strength: 75, Defence: 75, Hitpoints: 75, Prayer: 50 });
+    state.slayerMasters = { 'Konar quo Maten': 'usable' };
     model = R.slayerProgressionModel({ data: chunkData, state,
         legacy: { completedChallenges: { Quest: { '~|Priest in Peril|~ Complete the quest': true } } },
         ids: require('../tasksMap.json'),
@@ -989,6 +1013,29 @@ test('Slayer masters defer unknown numeric grinds and Konar keeps location restr
     assert.equal(model.supportsMonsterAtOrigin('Bloodveld', { chunkId: '13623', sectionId: null }), true);
     assert.equal(model.supportsMonsterAtOrigin('Bloodveld', { chunkId: '5688', sectionId: null }), false,
         'Konar support applies only to the location named by her assignment');
+});
+
+test('an otherwise empty visit asks once for its lowest unconfirmed Slayer master', () => {
+    const visitState = R.startVisit(fresh(), { kind: 'frontier', locationId: '9000' });
+    const blocked = { ...task('blocked', ['9000']), available: false, eligible: false,
+        slayerMasterConfirmation: { status: 'unknown', origins: [origin('9000')], masters: [
+            { master: 'Nieve', requiredCombat: 85 }, { master: 'Vannaka', requiredCombat: 40 }
+        ] } };
+    const prompt = R.slayerMasterConfirmationForVisit([blocked], visitState.currentVisit);
+    assert.equal(prompt.master, 'Vannaka');
+    assert.equal(prompt.requiredCombat, 40);
+    assert.deepEqual(prompt.blockedTaskIds, ['blocked']);
+    assert.equal(R.slayerMasterConfirmationForVisit([blocked, task('ordinary', ['9000'])], visitState.currentVisit), null,
+        'an ordinary goal is shown without interrupting the visit');
+    const pending = { ...blocked, slayerMasterConfirmation: null,
+        slayerMasterDeferred: { status: 'pending', origins: [origin('9000')], masters: [{ master: 'Vannaka', requiredCombat: 40 }] } };
+    assert.equal(R.slayerMasterConfirmationForVisit([pending], visitState.currentVisit), null);
+    assert.ok(R.derivePool([], { '9000': '9000' }, [blocked], null).live.includes('9000'),
+        'an unknown master keeps exactly one route into its confirmation');
+    const resolved = R.snapshotVisit(visitState, [pending]);
+    assert.equal(resolved.currentVisit.resolution, 'no_tasks');
+    assert.ok(!R.derivePool([], { '9000': '9000' }, [pending], resolved.currentVisit).live.includes('9000'),
+        'pending Slayer goals never create an encounter ticket');
 });
 
 test('a Slayer training visit accepts incidental drops only from the supporting master pool', () => {
@@ -1946,10 +1993,36 @@ test('real worker: Turael exposes his currently assignable pool without exposing
     assert.equal(crawlingHandLog.available, true, 'collection drops share the same valid Slayer source');
     assert.equal(crawlingHandLog.slayerTrainingAlternative, true);
     assert.deepEqual(crawlingHandLog.slayerTrainingMasters, ['Turael']);
-    assert.equal(banshee.available, true, 'unknown combat level does not create a false-negative assignment gate');
+    assert.equal(banshee.available, true, 'the level-3 setup master needs no confirmation');
     assert.equal(abyssalDemon.available, false);
     assert.ok(!R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections,
         request.manualSections).some(task => task.eligible && task.name === abyssalDemon.name));
+});
+
+test('real worker: a combat-gated master changes every dependent route together', () => {
+    const calculate = status => {
+        const request = usePreset(makeRequest(['12698', '13623']), 'Boardlocked Chunker');
+        request.manualPrimary.Slayer = true;
+        request.completedChallenges.Quest = { '~|Priest in Peril|~ Complete the quest': true };
+        request.boardlocked.state.actualLevels.Slayer = 1;
+        if (status) request.boardlocked.state.slayerMasters = { Vannaka: status };
+        return runWorker(request).result;
+    };
+    let result = calculate(null);
+    const assignment = result.tasks.find(task => /assignment from .*Vannaka/.test(task.name));
+    const dependent = result.tasks.filter(task => task.slayerMasterConfirmation?.masters.some(master => master.master === 'Vannaka'));
+    assert.equal(assignment.available, false);
+    assert.equal(assignment.slayerMasterConfirmation.status, 'unknown');
+    assert.ok(dependent.length > 1, 'the decision applies to the full dependent pool');
+    assert.equal(result.slayerMasters.find(master => master.master === 'Vannaka').status, 'unknown');
+
+    result = calculate('pending');
+    assert.equal(result.tasks.find(task => task.name === assignment.name).slayerMasterDeferred.status, 'pending');
+    assert.ok(!result.tasks.some(task => task.slayerMasterConfirmation?.masters.some(master => master.master === 'Vannaka')));
+
+    result = calculate('usable');
+    assert.equal(result.tasks.find(task => task.name === assignment.name).available, true);
+    assert.ok(!result.tasks.find(task => task.name === assignment.name).slayerMasterDeferred);
 });
 
 test('real worker: actual Slayer level cannot bypass the usable-master pool', () => {

@@ -23,6 +23,11 @@ You have access to everything in previously unlocked chunks, so you can re-enter
 
 The tasks are more than likely begin very simple (get an axe, cut a tree), but not to worry, after a couple chunks you'll find yourself with increasingly harder tasks.
 
+Boardlocked does not estimate Combat. When a chunk's only remaining goals need a
+combat-gated Slayer master, the panel asks once whether you can use that master.
+Answering no hides every dependent goal until you activate the master under
+**Slayer masters**.
+
 ## Start a new account
 
 Open a fresh run and choose your start options before the first roll. The map

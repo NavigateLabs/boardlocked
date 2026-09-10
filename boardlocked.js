@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 23;
+    const VERSION = 24;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -47,6 +47,7 @@
             travelAnchorSections: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
+            slayerMasters: {},
             rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input, enablerRevision: input ? 0 : ENABLER_REVISION,
             startingSectionPolicy: input ? null : STARTING_SECTION_POLICY,
             initialization: { druidicRitual: !input, varlamore: false, wilderness: false, ocean: false },
@@ -121,6 +122,15 @@
                         throw new Error('Invalid acquired enabler record');
                     }
                     state.acquiredEnablers[canonicalItemKey(itemKey)] = acquisition === true ? { imported: true } : copy(acquisition);
+                }
+            }
+            if (input.slayerMasters !== undefined) {
+                if (!input.slayerMasters || Array.isArray(input.slayerMasters) || typeof input.slayerMasters !== 'object') {
+                    throw new Error('Invalid Slayer master states');
+                }
+                for (const [master, status] of Object.entries(input.slayerMasters)) {
+                    if (!master || !['pending', 'usable'].includes(status)) throw new Error('Invalid Slayer master state: ' + master);
+                    state.slayerMasters[master] = status;
                 }
             }
         }
@@ -834,6 +844,11 @@
                 Math.floor((levels.Magic || 1) * 1.5)));
     }
 
+    function setSlayerMasterState(state, master, status) {
+        if (!master || !['pending', 'usable'].includes(status)) throw new Error('Invalid Slayer master state');
+        return { ...state, slayerMasters: { ...(state.slayerMasters || {}), [master]: status } };
+    }
+
     // Slayer weights are probabilities within one master's assignment table.
     // They are reported for diagnostics, but never compared between masters.
     function slayerProgressionModel({ data, state, legacy = {}, base = {}, ids = {}, unlocked = {}, sections = {}, manualSections = {} }) {
@@ -898,18 +913,25 @@
                 entryOrigins(record.entry, monster).length));
             const priority = Number(candidate.meta.Priority || 0);
             candidates.push({ master, priority, requiredSlayer: candidate.requiredSlayer,
+                requiredCombat: Number(candidate.deferredSkillRequirements.Combat || 3),
                 deferredSkillRequirements: candidate.deferredSkillRequirements,
                 currentAssignableWeight: currentEntries.reduce((sum, record) => sum + record.weight, 0),
                 currentDoableWeight: doableEntries.reduce((sum, record) => sum + record.weight, 0),
                 currentDoableFamilies: [...new Set(doableEntries.map(record => record.family))],
                 maximumSupportedLevel: Math.max(actualLevel, ...futureEntries.map(record => record.level)), futureEntries });
         }
-        // At least one currently reachable assignment is needed to start or
-        // continue training. Once such a master exists, other geographically
-        // and quest-accessible masters may be reached through that training;
-        // their unknown combat requirement is an explicit grind.
-        const trainingSeed = candidates.some(master => master.requiredSlayer <= actualLevel && master.currentDoableFamilies.length > 0);
-        const masters = trainingSeed ? candidates : [];
+        const statusOf = master => master.requiredCombat <= 3 ? 'usable' : state.slayerMasters?.[master.master] || 'unknown';
+        candidates.forEach(master => { master.status = statusOf(master); });
+        // A confirmed low-level master with one currently doable assignment
+        // provides the training route to higher-Slayer masters. Without such a
+        // route, only masters that could start training now may request their
+        // one-time combat confirmation.
+        const seedMasters = candidates.filter(master => master.requiredSlayer <= actualLevel && master.currentDoableFamilies.length > 0);
+        const hasUsableSeed = seedMasters.some(master => master.status === 'usable');
+        const reachableMasters = hasUsableSeed ? candidates : seedMasters;
+        const masters = reachableMasters.filter(master => master.status === 'usable');
+        const unknownMasters = reachableMasters.filter(master => master.status === 'unknown');
+        const pendingMasters = reachableMasters.filter(master => master.status === 'pending');
         const maximumSupportedLevel = Math.max(actualLevel, ...masters.map(master => master.maximumSupportedLevel));
         // Keep the next table milestone as a diagnostic. Slayer does not use a
         // numeric task band: exact membership in a usable master's pool is the
@@ -924,16 +946,31 @@
             if (!families.includes(family)) families.push(family);
             monsterFamilies.set(monster, families);
         }
-        const monsterSupportAtOrigin = (monster, origin) => masters.flatMap(master => master.futureEntries.filter(record =>
+        const supportFrom = (masterPool, monster, origin) => masterPool.flatMap(master => master.futureEntries.filter(record =>
             (monsterFamilies.get(monster) || []).includes(record.family) && entryOrigins(record.entry, monster).some(location =>
                 locationMatches(location, origin.chunkId + (origin.sectionId ? '-' + origin.sectionId : '')))).map(record => ({
                     master: master.master, family: record.family, level: record.level, weight: record.weight,
+                    requiredCombat: master.requiredCombat,
                     deferredCombatLevel: record.deferredCombatLevel,
                     deferredSkillRequirements: record.deferredSkillRequirements
                 })));
+        const monsterSupportAtOrigin = (monster, origin) => supportFrom(masters, monster, origin);
+        const unknownMonsterSupportAtOrigin = (monster, origin) => supportFrom(unknownMasters, monster, origin);
+        const pendingMonsterSupportAtOrigin = (monster, origin) => supportFrom(pendingMasters, monster, origin);
         const supportsMonsterAtOrigin = (monster, origin) => monsterSupportAtOrigin(monster, origin).length > 0;
+        const candidateByName = new Map(candidates.map(master => [master.master, master]));
+        const masterStatuses = Object.keys(data.slayerMasterTasks || {}).map(master => {
+            const found = masterChallenge(master), candidate = candidateByName.get(master);
+            const requiredCombat = Number(found?.[1]?.Skills?.Combat || 3);
+            return { master, requiredCombat, requiredSlayer: Number(found?.[1]?.Level || 1),
+                status: requiredCombat <= 3 ? 'usable' : state.slayerMasters?.[master] || 'unknown',
+                accessible: !!candidate, reachable: reachableMasters.includes(candidate) };
+        });
         return { actualLevel, combatLevel, trainingAvailable: masters.length > 0, ceiling, nextMilestone,
-            maximumSupportedLevel, masters, monsterSupportAtOrigin, supportsMonsterAtOrigin };
+            maximumSupportedLevel, masters, unknownMasters, pendingMasters, reachableMasters,
+            masterStatuses,
+            monsterSupportAtOrigin, unknownMonsterSupportAtOrigin, pendingMonsterSupportAtOrigin,
+            supportsMonsterAtOrigin };
     }
 
     function travelConnectionPairs(connections = []) {
@@ -1098,8 +1135,15 @@
     function derivePool(frontier, unlocked, tasks, currentVisit, travelGraph = null, travelAnchor = null, travelAnchorSections = null) {
         const byLocation = {}, byNode = {};
         for (const id of Object.keys(unlocked || {})) byLocation[id] = [];
-        for (const task of tasks) if (task.eligible) {
-            for (const origin of uniqueOrigins(task.activeOrigins || [])) {
+        for (const task of tasks) {
+            // An unconfirmed master gets one encounter ticket so the player has
+            // a chance to answer once. A pending master gets none, which keeps
+            // its dependent chunks dormant until the master is activated.
+            const awaitingMaster = task.slayerMasterConfirmation?.status === 'unknown' &&
+                !task.slayerMasterConfirmation.otherRequirementsBlocked && !task.completed && !task.backlogged &&
+                !task.superseded && !task.progressionBlocked;
+            const ticketOrigins = task.eligible ? task.activeOrigins || [] : awaitingMaster ? task.slayerMasterConfirmation.origins || [] : [];
+            for (const origin of uniqueOrigins(ticketOrigins)) {
                 const id = origin.chunkId;
                 if (own(byLocation, id) && !byLocation[id].includes(task.taskId)) byLocation[id].push(task.taskId);
                 const node = id + (origin.sectionId ? '-' + origin.sectionId : '');
@@ -1249,6 +1293,24 @@
         const arrivalSections = new Set(visit.arrivalSections || []);
         return task.activeOrigins?.some(origin => origin.chunkId === visit.locationId &&
             (!arrivalSections.size || !origin.sectionId || arrivalSections.has(origin.sectionId)));
+    }
+    function slayerMasterConfirmationForVisit(tasks, visit) {
+        if (visit?.status !== 'pending_calculation') return null;
+        const reachableIds = new Set(visit.reachableTaskIds || []);
+        const direct = tasks.filter(task => task.eligible &&
+            (reachableIds.size ? reachableIds.has(task.taskId) : taskMatchesVisit(task, visit)));
+        if (direct.length) return null;
+        const arrivalSections = new Set(visit.arrivalSections || []);
+        const originMatches = origin => origin.chunkId === visit.locationId &&
+            (!arrivalSections.size || !origin.sectionId || arrivalSections.has(origin.sectionId));
+        const blockedTasks = tasks.filter(task => task.slayerMasterConfirmation?.status === 'unknown' &&
+            !task.slayerMasterConfirmation.otherRequirementsBlocked && !task.completed && !task.backlogged &&
+            !task.superseded && !task.progressionBlocked &&
+            (task.slayerMasterConfirmation.origins || []).some(originMatches));
+        const masters = [...new Map(blockedTasks.flatMap(task => task.slayerMasterConfirmation.masters || [])
+            .map(master => [master.master, master])).values()]
+            .sort((left, right) => left.requiredCombat - right.requiredCombat || left.master.localeCompare(right.master));
+        return masters.length ? { ...masters[0], blockedTaskIds: blockedTasks.map(task => task.taskId), masters } : null;
     }
     function snapshotVisit(state, tasks) {
         if (state.currentVisit?.status !== 'pending_calculation') return state;
@@ -1804,6 +1866,7 @@
         const milestoneComplete = producer => isComplete({ ...producer, taskClass: 'skill_progression' }, legacy, state) ||
             (producer.level && (state.progressionHighWater?.[producer.skill] || 0) >= producer.level);
         function applySlayerProgression(record, requirementMeta, requirementSkill) {
+            const otherwiseAvailable = record.available !== false;
             const explicitRequirement = Math.max(
                 requirementSkill === 'Slayer' ? Number(requirementMeta.Level || 1) : 1,
                 Number(requirementMeta.Skills?.Slayer || 1), Number(requirementMeta.SkillsNeeded?.Slayer || 1),
@@ -1812,17 +1875,40 @@
             const checked = (record.origins || []).map(origin => {
                 const monsterRequirement = origin.sourceType === 'monsters' ? Number(data.slayerMonsters?.[origin.sourceName] || 1) : 1;
                 const requirement = Math.max(explicitRequirement, monsterRequirement);
-                const support = origin.sourceType === 'monsters' ?
+                const directMaster = origin.sourceType === 'npcs' ?
+                    slayerProgression.masterStatuses.find(master => master.master === origin.sourceName && master.accessible) : null;
+                const directSupport = directMaster ? [{ master: directMaster.master, requiredCombat: directMaster.requiredCombat }] : [];
+                const support = directMaster?.status === 'usable' ? directSupport : origin.sourceType === 'monsters' ?
                     slayerProgression.monsterSupportAtOrigin(origin.sourceName, origin) : [];
+                const unknownSupport = directMaster?.status === 'unknown' ? directSupport : origin.sourceType === 'monsters' ?
+                    slayerProgression.unknownMonsterSupportAtOrigin(origin.sourceName, origin) :
+                    slayerProgression.unknownMasters.map(master => ({ master: master.master, requiredCombat: master.requiredCombat }));
+                const pendingSupport = directMaster?.status === 'pending' ? directSupport : origin.sourceType === 'monsters' ?
+                    slayerProgression.pendingMonsterSupportAtOrigin(origin.sourceName, origin) :
+                    slayerProgression.pendingMasters.map(master => ({ master: master.master, requiredCombat: master.requiredCombat }));
+                if (directMaster && directMaster.status !== 'usable') return { origin, requirement, support, unknownSupport, pendingSupport,
+                    allowed: false, masterStatus: directMaster.status,
+                    reason: directMaster.status === 'unknown' ? 'A Slayer master needs one-time confirmation' : 'This Slayer master is marked unavailable' };
                 // Slayer-gated creatures and their drops must occur in a pool
                 // belonging to a geographically and quest-reachable master.
-                // Numeric master requirements remain explicit grinds.
-                if (monsterRequirement > 1 && !support.length) return { origin, requirement, support, allowed: false,
-                    reason: 'This Slayer creature is not assignable by a reachable Slayer master' };
+                if (monsterRequirement > 1 && !support.length) {
+                    if (unknownSupport.length) return { origin, requirement, support, unknownSupport, pendingSupport, allowed: false,
+                        masterStatus: 'unknown', reason: 'A Slayer master needs one-time confirmation' };
+                    if (pendingSupport.length) return { origin, requirement, support, unknownSupport, pendingSupport, allowed: false,
+                        masterStatus: 'pending', reason: 'Its Slayer master is marked unavailable' };
+                    return { origin, requirement, support, unknownSupport, pendingSupport, allowed: false,
+                        reason: 'This Slayer creature is not assignable by a reachable Slayer master' };
+                }
                 if (requirement <= slayerProgression.actualLevel) return { origin, requirement, support, allowed: true,
                     reason: 'Slayer level and master assignment access met' };
-                if (!slayerProgression.trainingAvailable) return { origin, requirement, allowed: false,
-                    reason: 'No reachable Slayer master has a currently doable assignment in unlocked chunks' };
+                if (!slayerProgression.trainingAvailable) {
+                    if (unknownSupport.length) return { origin, requirement, support, unknownSupport, pendingSupport, allowed: false,
+                        masterStatus: 'unknown', reason: 'A Slayer master needs one-time confirmation' };
+                    if (pendingSupport.length) return { origin, requirement, support, unknownSupport, pendingSupport, allowed: false,
+                        masterStatus: 'pending', reason: 'Its Slayer master is marked unavailable' };
+                    return { origin, requirement, support, unknownSupport, pendingSupport, allowed: false,
+                        reason: 'No reachable Slayer master has a currently doable assignment in unlocked chunks' };
+                }
                 return { origin, requirement, support, allowed: true,
                     reason: 'Reachable by training through a Slayer master that assigns this creature' };
             });
@@ -1832,10 +1918,12 @@
             const incidentalTrainingDrop = ['bis', 'collection'].includes(record.taskClass) && slayerTrainingOrigins.length > 0;
             if (incidentalTrainingDrop) record = { ...record, slayerTrainingAlternative: true,
                 slayerTrainingOrigins, slayerTrainingMasters };
-            const requiresSlayer = explicitRequirement > 1 || checked.some(result => result.requirement > 1);
+            const requiresSlayer = explicitRequirement > 1 || checked.some(result => result.requirement > 1 || result.masterStatus);
             if (!requiresSlayer) return record;
             const allowedOrigins = checked.filter(result => result.allowed).map(result => result.origin);
             const blockedOrigins = checked.filter(result => !result.allowed);
+            const unknownOrigins = checked.filter(result => result.masterStatus === 'unknown');
+            const pendingOrigins = checked.filter(result => result.masterStatus === 'pending');
             const supportingMasters = [...new Set(checked.filter(result => result.allowed)
                 .flatMap(result => result.support || []).map(support => support.master))];
             const summary = {
@@ -1854,6 +1942,17 @@
                 requiresTraining: checked.some(result => result.allowed && result.requirement > slayerProgression.actualLevel),
                 blockedOrigins, blocked: !allowedOrigins.length
             };
+            const masterDependency = (status, results, supportKey) => results.length ? {
+                status,
+                origins: uniqueOrigins(results.map(result => result.origin)),
+                masters: [...new Map(results.flatMap(result => result[supportKey] || []).map(master =>
+                    [master.master, { master: master.master, requiredCombat: master.requiredCombat }])).values()]
+                    .sort((left, right) => left.requiredCombat - right.requiredCombat || left.master.localeCompare(right.master))
+            } : null;
+            const confirmation = masterDependency('unknown', unknownOrigins, 'unknownSupport');
+            const deferred = masterDependency('pending', pendingOrigins, 'pendingSupport');
+            if (confirmation && otherwiseAvailable) record.slayerMasterConfirmation = confirmation;
+            if (deferred && otherwiseAvailable) record.slayerMasterDeferred = deferred;
             if (allowedOrigins.length) {
                 record.origins = uniqueOrigins(allowedOrigins);
                 record.slayerProgression = summary;
@@ -2055,6 +2154,7 @@
                         reason: existing + (shipCombatMissing ? 'Ship combat requires an acquired cannon and the Sailing/Ranged levels to use it (bronze starts at 28 Sailing)' :
                             'Persistent enabler not acquired: ' + detail), persistentEnablers: requiredEnablers,
                         blockedShipCombatOrigins };
+                    if (record.slayerMasterConfirmation) record.slayerMasterConfirmation.otherRequirementsBlocked = true;
                     accessDiagnostics.push({ taskId: id, name: record.displayName, allowed: false,
                         reason: record.accessResult.reason, persistentEnablers: requiredEnablers });
                 } else record.accessResult = { ...(record.accessResult || {}), persistentEnablers: requiredEnablers };
@@ -2142,6 +2242,7 @@
             }
         }
         return { tasks: [...tasks.values()], unassigned: diagnostics, accessDiagnostics,
+            slayerMasters: slayerProgression.masterStatuses,
             enablerCatalog, enablerAmbiguities: enablerModel.ambiguous };
     }
     return { VERSION, STARTING_SECTION_POLICY, SKILLS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
@@ -2151,11 +2252,11 @@
         equipmentObjectiveAlternatives, isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
-        actualCombatLevel, slayerProgressionModel,
+        actualCombatLevel, setSlayerMasterState, slayerProgressionModel,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,
         migrateStartingSections, deriveStartingPool, chooseStartingCandidate, canRoll,
-        startVisit, snapshotVisit, addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
+        startVisit, slayerMasterConfirmationForVisit, snapshotVisit, addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });

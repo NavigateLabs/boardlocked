@@ -10,7 +10,7 @@
     let state = boardlockedState(), loadedKey = '', localProfile = null, pendingStoredState = null;
     let worker = null, generation = 0, busy = true, error = '', timer = null;
     let rawTasks = [], tasks = [], sections = {}, diagnostics = [], sourceCounts = {};
-    let enablerCatalog = [], enablerAmbiguities = [];
+    let enablerCatalog = [], enablerAmbiguities = [], slayerMasterCatalog = [], slayerConfirmation = null;
     let pool = R.derivePool([], {}, [], null), travelGraph = null, signature = '', previousUnlocked = null;
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
     let panel = null, message = '', dataReady = false;
@@ -389,7 +389,7 @@
         ensureMap();
         if (!state.enabled) return;
         clearTimeout(timer); timer = null;
-        generation++; worker?.terminate(); worker = null; busy = true;
+        generation++; worker?.terminate(); worker = null; busy = true; slayerConfirmation = null;
         render();
     }
     function calculate(request) {
@@ -407,7 +407,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl24');
+        worker = new Worker('./worker.js?v=6.9.66-bl25');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -416,10 +416,12 @@
             if (result.type !== 'boardlocked' || result.requestId !== requestId) return;
             rawTasks = result.tasks; sections = result.sections;
             enablerCatalog = result.enablerCatalog || []; enablerAmbiguities = result.enablerAmbiguities || [];
+            slayerMasterCatalog = result.slayerMasters || [];
             diagnostics = result.accessDiagnostics; sourceCounts = result.sourceCounts;
             busy = false;
             rebuild();
-            state = R.snapshotVisit(state, tasks);
+            slayerConfirmation = R.slayerMasterConfirmationForVisit(tasks, state.currentVisit);
+            if (!slayerConfirmation) state = R.snapshotVisit(state, tasks);
             pool.current = state.travelAnchor;
             dataReady = true;
             save(); render(); drawCanvas();
@@ -428,7 +430,8 @@
         worker.postMessage({ ...request, requestId, manualSections: strictSections,
             boardlocked: { state: { actualLevels: state.actualLevels, progressionHighWater: state.progressionHighWater,
                     originOverrides: state.originOverrides,
-                    accessOverrides: state.accessOverrides, acquiredEnablers: state.acquiredEnablers },
+                    accessOverrides: state.accessOverrides, acquiredEnablers: state.acquiredEnablers,
+                    slayerMasters: state.slayerMasters },
                 checkedAllTasks, tasksMap, unlocked: tempChunks.unlocked || {} } });
         render();
     }
@@ -808,6 +811,54 @@
             if (!enablerAmbiguities.length) ambiguityList.append(element('p', 'No unclear tool requirements.'));
         }
     }
+    function changeSlayerMasters(records, status, action) {
+        const names = [...new Set(records.map(record => record.master).filter(Boolean))];
+        if (!canEdit() || !names.length) return;
+        for (const master of names) state = R.setSlayerMasterState(state, master, status);
+        state.adminHistory.push({ timestamp: new Date().toISOString(), action,
+            masters: names, status });
+        message = status === 'usable' ? names.join(', ') + (names.length === 1 ? ' is' : ' are') + ' now available for Slayer routes.' :
+            names.join(', ') + (names.length === 1 ? ' is' : ' are') + ' deferred until you can use the master.';
+        save(); schedule();
+    }
+    function answerSlayerMaster(canUse) {
+        if (!slayerConfirmation) return;
+        if (canUse) {
+            const targets = slayerMasterCatalog.filter(master => master.requiredCombat <= slayerConfirmation.requiredCombat &&
+                master.requiredCombat > 3 && master.status !== 'usable');
+            changeSlayerMasters(targets.length ? targets : [slayerConfirmation], 'usable', 'confirm_slayer_master');
+        } else {
+            // Failing the lowest relevant Combat check also answers every
+            // currently reachable higher check, preventing a second prompt.
+            const targets = slayerMasterCatalog.filter(master => master.reachable && master.status === 'unknown' &&
+                master.requiredCombat >= slayerConfirmation.requiredCombat);
+            changeSlayerMasters(targets.length ? targets : [slayerConfirmation], 'pending', 'defer_slayer_master');
+        }
+    }
+    function activateSlayerMaster(master) {
+        const selected = slayerMasterCatalog.find(record => record.master === master) ||
+            { master, requiredCombat: Number.MAX_SAFE_INTEGER };
+        const targets = slayerMasterCatalog.filter(record => record.requiredCombat <= selected.requiredCombat &&
+            record.requiredCombat > 3 && record.status !== 'usable');
+        changeSlayerMasters(targets.length ? targets : [selected], 'usable', 'activate_slayer_master');
+    }
+    function renderSlayerMasters() {
+        const summary = document.getElementById('bl-slayer-master-summary');
+        const list = document.getElementById('bl-slayer-masters');
+        if (!summary || !list) return;
+        const pending = Object.entries(state.slayerMasters || {}).filter(([, status]) => status === 'pending')
+            .map(([master]) => slayerMasterCatalog.find(record => record.master === master) || { master, requiredCombat: null })
+            .sort((left, right) => (left.requiredCombat || Infinity) - (right.requiredCombat || Infinity) || left.master.localeCompare(right.master));
+        summary.textContent = 'Slayer masters' + (pending.length ? ' (' + pending.length + ' pending)' : '');
+        list.replaceChildren();
+        for (const record of pending) {
+            const row = element('div', null, { className: 'bl-enabler-record' });
+            row.append(element('strong', record.master), element('small', record.requiredCombat ? 'Requires ' + record.requiredCombat + ' Combat' : 'Marked unavailable'));
+            const activate = button('I can use ' + record.master + ' now', () => activateSlayerMaster(record.master));
+            activate.disabled = !canEdit() || busy; row.append(activate); list.append(row);
+        }
+        if (!pending.length) list.append(element('p', 'No Slayer masters are waiting for confirmation.'));
+    }
     function render() {
         if (!panel) return;
         document.body.classList.add('bl-enabled');
@@ -833,6 +884,7 @@
         }
         document.getElementById('bl-sections').hidden = !busy || globalSectionsValid;
         renderEnablers();
+        renderSlayerMasters();
         document.getElementById('bl-setup-status').textContent = setupLocations.map(id => id + ': ' + (busy ? 'calculating' : pool.live.includes(id) ?
             'encounter (' + pool.byLocation[id].length + ' eligible tasks)' : 'free travel tile')).join('\n');
         renderPastTasks();
@@ -851,7 +903,9 @@
             state.travelAnchor ? 'Current tile · ' + state.travelAnchor + ' — ' + label(state.travelAnchor) : 'No current tile';
         const arrivalLabel = visit?.arrivalMedium && visit.arrivalMedium !== 'whole' ? ' · ' + visit.arrivalMedium.toUpperCase() +
             (visit.arrivalSections?.length ? ' ' + visit.arrivalSections.join(' + ') : '') : '';
-        document.getElementById('bl-visit-status').textContent = visit ? visit.kind.toUpperCase() + arrivalLabel + ' · ' + ({ pending_calculation: 'Checking tasks and routes', task_required: 'Complete any 1 task', resolved: ({ no_tasks: 'No tasks — free roll', task_completed: 'Complete', admin_void: 'Voided' })[visit.resolution] })[visit.status] : state.travelAnchor ? 'Current travel position.' : 'Roll a starting tile to begin.';
+        document.getElementById('bl-visit-status').textContent = visit ? visit.kind.toUpperCase() + arrivalLabel + ' · ' +
+            (slayerConfirmation ? 'Slayer master confirmation needed' : ({ pending_calculation: 'Checking tasks and routes', task_required: 'Complete any 1 task', resolved: ({ no_tasks: 'No tasks — free roll', task_completed: 'Complete', admin_void: 'Voided' })[visit.resolution] })[visit.status]) :
+            state.travelAnchor ? 'Current travel position.' : 'Roll a starting tile to begin.';
         const areaHint = document.getElementById('bl-area-hint'), areaSections = currentAreaSections();
         areaHint.hidden = !state.travelAnchor || !areaSections.length;
         if (!areaHint.hidden) {
@@ -865,7 +919,17 @@
         }
         const candidates = document.getElementById('bl-candidates'); candidates.replaceChildren();
         const completedIds = R.completionIds(legacy(), tasksMap);
-        if (visit) {
+        if (visit && slayerConfirmation) {
+            const prompt = element('div', null, { className: 'bl-slayer-confirmation' });
+            prompt.append(element('strong', 'Can you currently use ' + slayerConfirmation.master + '?'),
+                element('p', 'Requires ' + slayerConfirmation.requiredCombat + ' Combat.'));
+            const choices = element('div', null, { className: 'bl-toolbar' });
+            const yes = button('Yes', () => answerSlayerMaster(true));
+            const no = button('No, defer these goals', () => answerSlayerMaster(false));
+            yes.disabled = no.disabled = !canEdit() || busy; choices.append(yes, no); prompt.append(choices,
+                element('small', 'No hides every dependent Slayer route until you activate the master later.'));
+            candidates.append(prompt);
+        } else if (visit) {
             const snapshotIds = new Set(visit.candidateTaskIds);
             taskList(candidates, visit.candidateTaskIds.map(id => {
                 const savedTask = visit.candidateTasks?.[id] || {};
@@ -1169,7 +1233,7 @@
             <label>Already unlocked chunks<textarea id="bl-setup-chunks" rows="2" placeholder="Chunk IDs, in unlock order"></textarea></label>
             <p class="bl-muted">You can specify accessible sections as chunk-section IDs. Otherwise the map will ask you to choose any sections it needs.</p>
             <button id="bl-add-unlocked" type="button">Add unlocked chunks</button><pre id="bl-setup-status" role="status"></pre>
-            <h3>Record completed tasks</h3><p>Search for tasks you already did. Completed ordinary Skill Tasks establish the highest completed task level for each skill. Enter actual skill levels under Current levels.</p>
+            <h3>Record completed tasks</h3><p>Search for tasks you already did. Completed ordinary skill tasks establish the highest completed task level for each skill.</p>
             <input id="bl-past-search" type="search" placeholder="Search past task, e.g. cooked chicken" aria-label="Search completed tasks to record"><div id="bl-past-tasks"></div>
             <h3>Current tile / resume a visit</h3><p>After an import, your current tile comes from the unfinished visit or the last unlocked chunk. Change it here if that is wrong. Resume a visit only when you still owe a task there.</p>
             <label>Unlocked chunk or chunk-section ID <input id="bl-admin-location" inputmode="text" placeholder="9270-1 or 9270-W1"></label><div class="bl-toolbar"><button id="bl-set-anchor" type="button">Set current tile / section</button><button id="bl-admin-visit" type="button">Resume unfinished visit here</button></div>
@@ -1184,6 +1248,7 @@
             <details><summary id="bl-enabler-summary">Acquired tools (0)</summary><p>Reusable tools such as axes stay unlocked after you get them. If an old save is missing one, add it here.</p>
             <div class="bl-toolbar"><select id="bl-enabler-select" aria-label="Known persistent enabler to register"><option value="">Choose a known reusable item…</option></select><button id="bl-add-enabler" type="button">Mark acquired</button></div>
             <div id="bl-enabler-list"></div><details><summary>Unclear tool requirements</summary><p>These items are not treated as reusable because their task data is unclear.</p><div id="bl-enabler-ambiguities"></div></details></details>
+            <details><summary id="bl-slayer-master-summary">Slayer masters</summary><p>Masters you cannot use yet wait here. Activating one restores every goal that depends on it.</p><div id="bl-slayer-masters"></div></details>
             <details><summary id="bl-task-count">Other tasks &amp; progress</summary><p>Record past goals, quests, and permanent unlocks here. Routine training does not complete the current visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
             <details><summary>Diagnostics and overrides</summary>
             <details><summary id="bl-unassigned-count">Unassigned Boardlocked Tasks</summary><div id="bl-unassigned"></div></details>
@@ -1246,6 +1311,7 @@
         },
         debug: () => ({ state: R.copy(state), pool: R.copy(pool), tasks: R.copy(tasks), progressionHighWater: { ...state.progressionHighWater },
             enablerCatalog: R.copy(enablerCatalog), enablerAmbiguities: R.copy(enablerAmbiguities),
+            slayerMasterCatalog: R.copy(slayerMasterCatalog), slayerConfirmation: R.copy(slayerConfirmation),
             rulePreset: activeRulePreset(), diagnostics: R.copy(diagnostics), sourceCounts, busy, error, generation }),
         inspectTask: id => tasks.find(task => task.taskId === id),
         inspectChunk: id => ({ locationId: String(id), current: pool.current === String(id),

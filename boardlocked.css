@@ -50,6 +50,9 @@
 #bl-panel .bl-enabler-record { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 7px 0; border-bottom: 1px solid #8884; }
 #bl-panel .bl-enabler-record small { grid-column: 1; overflow-wrap: anywhere; }
 #bl-panel .bl-enabler-record button { grid-column: 2; grid-row: 1 / span 2; }
+#bl-panel .bl-slayer-confirmation { margin: 8px 0; padding: 10px; border: 1px solid #7a5b00; border-radius: 5px; background: #ffd16633; }
+#bl-panel .bl-slayer-confirmation p { margin: 3px 0 8px; }
+#bl-panel .bl-slayer-confirmation small { display: block; margin-top: 7px; opacity: .8; }
 #bl-panel .bl-file input { max-width: 150px; display: block; font-size: 11px; }
 #bl-panel .bl-muted, #bl-storage-label { opacity: .8; font-size: 12px; }
 #bl-panel .bl-save-warning { padding: 7px 9px; background: #fff3cd; color: #5d4600; border: 1px solid #caa83b; border-radius: 4px; font-size: 12px; }
