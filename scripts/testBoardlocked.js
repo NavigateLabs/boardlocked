@@ -1537,6 +1537,21 @@ test('adding Boardlocked Chunker leaves the upstream Vanilla, Xtreme and Supreme
     for (const name of ['Vanilla Chunker', 'Xtreme Chunker', 'Supreme Chunker']) assert.equal(JSON.stringify(current[name]), JSON.stringify(before[name]), name);
 });
 
+test('Forestry participation is source data rather than a separate Boardlocked goal family', () => {
+    const sourceTasks = [];
+    const xpTasks = [];
+    for (const [skill, tasks] of Object.entries(chunkData.challenges)) for (const [name, meta] of Object.entries(tasks || {})) {
+        if (R.isRedundantForestryParticipationTask(meta)) sourceTasks.push({ skill, name });
+        if (meta.Category?.includes('ForestryXp')) xpTasks.push({ skill, name });
+    }
+    assert.equal(sourceTasks.length, 19, 'all named-event and tree-specific participation variants are covered');
+    assert.equal(xpTasks.length, 20, 'the separate Forestry XP family remains distinct');
+    const catalogIds = new Set(R.buildTaskCatalog(chunkData, require('../tasksMap.json')).map(task => task.taskId));
+    assert.ok(sourceTasks.every(task => !catalogIds.has(R.taskId(task.name, task.skill, require('../tasksMap.json')))));
+    assert.ok(xpTasks.some(task => catalogIds.has(R.taskId(task.name, task.skill, require('../tasksMap.json')))),
+        'Forestry XP activities are not removed with participation sources');
+});
+
 test('Forestry case A: tree access without a kit yields no task and explains the missing Friendly Forester', () => {
     const request = makeRequest(['5942']); request.boardlocked.state.actualLevels.Woodcutting = 99;
     const result = runWorker(request).result;
@@ -1562,17 +1577,20 @@ test('Forestry case B: kit access plus Guild-only trees still yields no eligible
     assert.ok(gate.treeSource.excludedOrigins.some(origin => ['6198', '6454'].includes(origin.chunkId)));
 });
 
-test('Forestry case C: a kit provider and non-Guild tree produce a task with separate origins and enablers', () => {
+test('Forestry case C: participation stays hidden while its collection reward keeps the source requirements', () => {
     const request = makeRequest(['5427', '5942']); request.boardlocked.state.actualLevels.Woodcutting = 99;
     request.boardlocked.state.acquiredEnablers['Forestry kit'] = { manual: true };
     request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
     const result = runWorker(request).result;
-    const task = result.tasks.find(task => task.sourceCategories?.includes('Forestry') && /oak trees/.test(task.name) && task.available &&
-        task.accessResult.treeSource.origins.some(origin => origin.chunkId === '5942'));
-    assert.ok(task); assert.equal(task.taskClass, 'activity'); assert.equal(task.advancesSkillProgression, false);
+    assert.ok(!result.tasks.some(task => task.sourceCategories?.includes('Forestry')),
+        'raw participation sources do not become goals');
+    const task = result.tasks.find(task => /fox whistle/.test(task.name) && task.available);
+    assert.ok(task); assert.equal(task.taskClass, 'collection'); assert.equal(task.advancesSkillProgression, false);
     assert.ok(task.accessResult.kit.origins.some(origin => origin.chunkId === '5427'));
+    assert.ok(task.accessResult.treeSource.origins.some(origin => origin.chunkId === '5942'));
     assert.ok(task.enablers.some(enabler => enabler.type === 'forestry_tree'));
-    assert.ok(task.origins.every(origin => !['6198', '6454'].includes(origin.chunkId)));
+    assert.ok(task.acquisition.paths.some(path => /Participate in the Poacher/.test(path.source)),
+        'the hidden participation record still proves how the reward is obtained');
 });
 
 test('Forestry case D: a closed non-Guild tree section cannot satisfy the tree gate', () => {
