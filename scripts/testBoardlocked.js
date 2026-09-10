@@ -278,6 +278,18 @@ test('current tile never receives a roll ticket when it has additional tasks', (
     assert.deepEqual(sectioned.live, ['1000']);
     assert.deepEqual(sectioned.byLocation['1000'], ['section-here']);
     assert.equal(sectioned.candidates.length, 0);
+
+    const connectedSections = { sectionGraph: {
+        '1000-1': ['1000-2'], '1000-2': ['1000-1', '2000-1'], '2000-1': ['1000-2']
+    }, nodesByChunk: { '1000': ['1000-1', '1000-2'], '2000': ['2000-1'] } };
+    const afterCompletion = R.derivePool(['2000'], unlocked, sectionTasks,
+        { locationId: '1000', status: 'resolved' }, connectedSections, '1000', ['1']);
+    assert.deepEqual(afterCompletion.candidates.map(candidate => [candidate.kind, candidate.locationId]),
+        [['frontier', '2000']], 'another live section in the current tile remains a route, not a revisit ticket');
+
+    const ready = fresh(); ready.travelAnchor = '1000';
+    assert.throws(() => R.startVisit(ready, { kind: 'revisit', locationId: '1000' }),
+        /current tile cannot be rolled again/, 'visit creation independently enforces the same invariant');
 });
 test('travel graph respects accessible sections and can enter any section of a locked boundary tile', () => {
     const data = { sections: {
@@ -464,7 +476,7 @@ test('revisit state operations do not mutate geographical objects', () => {
     const before = JSON.stringify(geography);
     let state = start(adapt([task('a')]));
     state = R.resolveVisit(state, new Set(['a']));
-    R.startVisit(state, { kind: 'revisit', locationId: '1000' });
+    R.startVisit(state, { kind: 'revisit', locationId: '2000' });
     assert.equal(JSON.stringify(geography), before);
 });
 test('the same revisit can be chosen consecutively', () => {

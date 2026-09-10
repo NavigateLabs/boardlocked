@@ -877,6 +877,14 @@
                             metadata.distance = Math.min(metadata.distance, distance + 1);
                             metadata.entrySections = [...new Set([...metadata.entrySections, ...entrySections])];
                         }
+                    } else if (locationId === current) {
+                        // Connected sections inside the tile we are standing on
+                        // remain usable as routes, but can never become a revisit
+                        // encounter even when recalculation reveals another task.
+                        if (!traversed.has(node)) {
+                            traversed.add(node);
+                            queue.push({ id: node, distance });
+                        }
                     } else if ((byNode[node] || []).length) {
                         const entrySections = parsed.sectionId ? [parsed.sectionId] : [];
                         if (!found.has(locationId)) found.set(locationId, { kind: 'revisit', locationId, weight: 1,
@@ -931,7 +939,9 @@
                 reachableLive.push(locationId);
             }
         }
-        return { candidates, live, dormant, reachableLive, reachableFree, byLocation, current };
+        return { candidates: candidates.filter(candidate => candidate.locationId !== current), live, dormant,
+            reachableLive: reachableLive.filter(id => id !== current), reachableFree: reachableFree.filter(id => id !== current),
+            byLocation, current };
     }
     function chooseCandidate(pool, rng = Math.random) {
         if (!pool.length) return null;
@@ -949,6 +959,11 @@
     function startVisit(state, candidate, chunkName = '', timestamp = new Date().toISOString()) {
         if (!canRoll(state)) throw new Error('Complete or void the current visit first');
         if (!candidate) throw new Error('No locations available');
+        const destination = parseLocation(candidate.locationId)?.chunkId;
+        const current = parseLocation(state.travelAnchor)?.chunkId;
+        if (candidate.kind !== 'admin' && current && destination === current) {
+            throw new Error('The current tile cannot be rolled again');
+        }
         const entrySections = [...new Set((candidate.metadata?.entrySections || []).map(String))];
         const arrivalMedium = candidate.metadata?.arrivalMedium || (!entrySections.length ? 'whole' :
             entrySections.every(section => section.startsWith('W')) ? 'water' : entrySections.some(section => section.startsWith('W')) ? 'mixed' : 'land');
