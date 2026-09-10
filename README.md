@@ -38,7 +38,7 @@ Two optional start groups are available before the first roll. Every starting
 tile is on land:
 
 - **Varlamore:** adds Varlamore land tiles and assumes you completed Children of the Sun before rolling.
-- **Wilderness:** adds Wilderness land tiles. PvP and normal Wilderness danger still apply.
+- **Wilderness:** adds Wilderness land tiles for masochists.
 
 ## Protect your save
 
