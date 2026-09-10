@@ -30,10 +30,12 @@ The tasks are more than likely begin very simple (get an axe, cut a tree), but n
 
 Slayer starts after one assumed tutorial assignment from Turael. Any Slayer
 master in an unlocked area can then provide assignments once you meet that
-master's combat, Slayer, quest, and location requirements. A master is usable
-while at least one task they can currently assign has a monster in your unlocked
-chunks. Slayer has no fixed task band: a Slayer creature and its drops appear
-only when a usable master can assign that creature in the accessible location.
+master's quest and location requirements. Combat levels cannot be inferred
+reliably from goals or gear, so numeric master and assignment requirements are
+treated as grinds instead of tracker gates. A reachable master still needs a
+currently assignable monster in your unlocked chunks to start Slayer training.
+Slayer has no fixed task band: a Slayer creature and its drops appear only when
+a reachable master can assign that creature in the accessible location.
 If a Slayer goal requires training, unfinished collection-log and BiS drops from
 assignable monsters in your unlocked chunks are listed as alternative Slayer
 training goals; getting any listed drop completes the visit.

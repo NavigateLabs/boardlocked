@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 22;
+    const VERSION = 23;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -642,7 +642,12 @@
     function reconcileProgression(state, catalog, legacy = {}, ids = {}) {
         const next = initializeProgression(state, catalog, legacy, ids);
         const derived = deriveProgressionHighWater(catalog, legacy, ids, next);
-        for (const skill of SKILLS) next.progressionHighWater[skill] = Math.max(next.progressionHighWater[skill] || 0, derived[skill]);
+        for (const skill of SKILLS) {
+            next.progressionHighWater[skill] = Math.max(next.progressionHighWater[skill] || 0, derived[skill]);
+            // Completing a levelled skill goal proves this minimum real level.
+            // The UI no longer asks players to maintain a second full level list.
+            next.actualLevels[skill] = Math.max(next.actualLevels[skill] || (skill === 'Hitpoints' ? 10 : 1), derived[skill] || 0);
+        }
         return next;
     }
     function setProgressionHighWater(state, skill, level) {
@@ -845,8 +850,6 @@
             const choices = expand(raw, codes.tasksPlus), count = raw.includes('[+]x') ? Number(raw.split('[+]x')[1]) : 1;
             return choices.filter(name => complete(name.split('--')[0], skill)).length >= count;
         });
-        const skillsMet = requirements => Object.entries(requirements || {}).every(([skill, minimum]) =>
-            (skill === 'Combat' ? combatLevel : Number(levels[skill]) || 1) >= Number(minimum));
         const locationMatches = (left, right) => {
             const a = parseLocation(left), b = parseLocation(right);
             if (!a || !b) return String(left) === String(right);
@@ -862,15 +865,19 @@
         };
         const masterChallenge = master => Object.entries(data.challenges?.Slayer || {}).find(([name, meta]) =>
             /^Receive a Slayer assignment from\b/.test(displayName(name)) && (meta.NPCs || []).includes(master));
-        const masterRequirementsMet = master => {
+        const masterCandidate = master => {
             const found = masterChallenge(master);
-            if (!found || !Object.keys(base.npcs?.[master] || {}).length) return false;
+            if (!found || !Object.keys(base.npcs?.[master] || {}).length) return null;
             const [name, meta] = found;
-            return actualLevel >= Number(meta.Level || 1) && skillsMet(meta.Skills) && requirementsComplete(meta.Tasks, name, meta) &&
-                (meta.Chunks || []).every(groupAvailable);
+            if (!requirementsComplete(meta.Tasks, name, meta) || !(meta.Chunks || []).every(groupAvailable)) return null;
+            return { name, meta, requiredSlayer: Number(meta.Level || 1),
+                deferredSkillRequirements: { ...(meta.Skills || {}) } };
         };
-        const entryNonLevelRequirementsMet = entry => combatLevel >= Number(entry.CombatLevel || 3) &&
-            skillsMet(entry.Skills) && requirementsComplete(entry.Tasks);
+        // Combat and other numeric requirements are grinds, not tracker gates.
+        // There is no reliable way to infer a player's exact levels from goals,
+        // so excluding these entries would create false negatives. Quest and
+        // other discrete completion requirements remain authoritative.
+        const entryNonLevelRequirementsMet = entry => requirementsComplete(entry.Tasks);
         const entryOrigins = (entry, monster) => {
             const origins = Object.keys(base.monsters?.[monster] || {});
             if (!entry.Chunks?.length) return origins;
@@ -878,22 +885,31 @@
             return origins.filter(origin => allowed.some(location => locationMatches(origin, location)));
         };
         const familyMonsters = family => Object.keys(codes.slayerTasks?.[family] || {});
-        const masters = [];
+        const candidates = [];
         for (const [master, entries] of Object.entries(data.slayerMasterTasks || {})) {
-            if (!masterRequirementsMet(master)) continue;
+            const candidate = masterCandidate(master);
+            if (!candidate) continue;
             const futureEntries = Object.entries(entries).filter(([, entry]) => entryNonLevelRequirementsMet(entry)).map(([name, entry]) => ({
-                name, family: name.split(' - ')[0], level: Number(entry.Level || 1), weight: Number(entry.Weight || 0), entry
+                name, family: name.split(' - ')[0], level: Number(entry.Level || 1), weight: Number(entry.Weight || 0), entry,
+                deferredCombatLevel: Number(entry.CombatLevel || 3), deferredSkillRequirements: { ...(entry.Skills || {}) }
             }));
             const currentEntries = futureEntries.filter(record => record.level <= actualLevel);
             const doableEntries = currentEntries.filter(record => familyMonsters(record.family).some(monster =>
                 entryOrigins(record.entry, monster).length));
-            if (!doableEntries.length) continue;
-            const found = masterChallenge(master), priority = Number(found?.[1]?.Priority || 0);
-            masters.push({ master, priority, currentAssignableWeight: currentEntries.reduce((sum, record) => sum + record.weight, 0),
+            const priority = Number(candidate.meta.Priority || 0);
+            candidates.push({ master, priority, requiredSlayer: candidate.requiredSlayer,
+                deferredSkillRequirements: candidate.deferredSkillRequirements,
+                currentAssignableWeight: currentEntries.reduce((sum, record) => sum + record.weight, 0),
                 currentDoableWeight: doableEntries.reduce((sum, record) => sum + record.weight, 0),
                 currentDoableFamilies: [...new Set(doableEntries.map(record => record.family))],
                 maximumSupportedLevel: Math.max(actualLevel, ...futureEntries.map(record => record.level)), futureEntries });
         }
+        // At least one currently reachable assignment is needed to start or
+        // continue training. Once such a master exists, other geographically
+        // and quest-accessible masters may be reached through that training;
+        // their unknown combat requirement is an explicit grind.
+        const trainingSeed = candidates.some(master => master.requiredSlayer <= actualLevel && master.currentDoableFamilies.length > 0);
+        const masters = trainingSeed ? candidates : [];
         const maximumSupportedLevel = Math.max(actualLevel, ...masters.map(master => master.maximumSupportedLevel));
         // Keep the next table milestone as a diagnostic. Slayer does not use a
         // numeric task band: exact membership in a usable master's pool is the
@@ -911,7 +927,9 @@
         const monsterSupportAtOrigin = (monster, origin) => masters.flatMap(master => master.futureEntries.filter(record =>
             (monsterFamilies.get(monster) || []).includes(record.family) && entryOrigins(record.entry, monster).some(location =>
                 locationMatches(location, origin.chunkId + (origin.sectionId ? '-' + origin.sectionId : '')))).map(record => ({
-                    master: master.master, family: record.family, level: record.level, weight: record.weight
+                    master: master.master, family: record.family, level: record.level, weight: record.weight,
+                    deferredCombatLevel: record.deferredCombatLevel,
+                    deferredSkillRequirements: record.deferredSkillRequirements
                 })));
         const supportsMonsterAtOrigin = (monster, origin) => monsterSupportAtOrigin(monster, origin).length > 0;
         return { actualLevel, combatLevel, trainingAvailable: masters.length > 0, ceiling, nextMilestone,
@@ -1221,7 +1239,12 @@
         confirmsEquipped: !!task.confirmsEquipped, capabilities: task.capabilities || [],
         bisReason: task.bisReason || null, bisSet: task.bisSet || null,
         slayerTrainingAlternative: !!task.slayerTrainingAlternative,
-        slayerTrainingMasters: task.slayerTrainingMasters || [] });
+        slayerTrainingMasters: task.slayerTrainingMasters || [],
+        slayerProgression: task.slayerProgression ? {
+            requiredLevel: task.slayerProgression.requiredLevel,
+            supportingMasters: task.slayerProgression.supportingMasters || [],
+            requiresTraining: !!task.slayerProgression.requiresTraining
+        } : null });
     function taskMatchesVisit(task, visit) {
         const arrivalSections = new Set(visit.arrivalSections || []);
         return task.activeOrigins?.some(origin => origin.chunkId === visit.locationId &&
@@ -1792,16 +1815,16 @@
                 const support = origin.sourceType === 'monsters' ?
                     slayerProgression.monsterSupportAtOrigin(origin.sourceName, origin) : [];
                 // Slayer-gated creatures and their drops must occur in a pool
-                // belonging to a master the player can actually use. Meeting
-                // the creature's level alone cannot bypass assignment access.
+                // belonging to a geographically and quest-reachable master.
+                // Numeric master requirements remain explicit grinds.
                 if (monsterRequirement > 1 && !support.length) return { origin, requirement, support, allowed: false,
-                    reason: 'This Slayer creature is not assignable by a currently usable master' };
+                    reason: 'This Slayer creature is not assignable by a reachable Slayer master' };
                 if (requirement <= slayerProgression.actualLevel) return { origin, requirement, support, allowed: true,
-                    reason: 'Actual Slayer level and master assignment access met' };
+                    reason: 'Slayer level and master assignment access met' };
                 if (!slayerProgression.trainingAvailable) return { origin, requirement, allowed: false,
-                    reason: 'No accessible Slayer master currently has a doable assignment in unlocked chunks' };
+                    reason: 'No reachable Slayer master has a currently doable assignment in unlocked chunks' };
                 return { origin, requirement, support, allowed: true,
-                    reason: 'Reachable by training through a currently usable master that assigns this creature' };
+                    reason: 'Reachable by training through a Slayer master that assigns this creature' };
             });
             const trainingChecks = checked.filter(result => result.support?.length);
             const slayerTrainingOrigins = uniqueOrigins(trainingChecks.map(result => result.origin));
@@ -1822,9 +1845,12 @@
                 maximumSupportedLevel: slayerProgression.maximumSupportedLevel,
                 trainingAvailable: slayerProgression.trainingAvailable,
                 accessibleMasters: slayerProgression.masters.map(master => ({ master: master.master, priority: master.priority,
+                    requiredSlayer: master.requiredSlayer, deferredSkillRequirements: master.deferredSkillRequirements,
                     currentAssignableWeight: master.currentAssignableWeight, currentDoableWeight: master.currentDoableWeight,
                     currentDoableFamilies: master.currentDoableFamilies, maximumSupportedLevel: master.maximumSupportedLevel })),
-                explicitRequirement, supportingMasters,
+                explicitRequirement,
+                requiredLevel: Math.max(explicitRequirement, ...checked.filter(result => result.allowed).map(result => result.requirement)),
+                supportingMasters,
                 requiresTraining: checked.some(result => result.allowed && result.requirement > slayerProgression.actualLevel),
                 blockedOrigins, blocked: !allowedOrigins.length
             };

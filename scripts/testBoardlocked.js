@@ -925,6 +925,17 @@ test('Slayer account setup and master tasks remain independent progression entry
     assert.equal(R.taskMetadata(name, 'Slayer', meta, require('../tasksMap.json')).taskClass, 'activity');
     assert.equal(R.PROGRESSION_WINDOWS.Slayer, 0);
     assert.equal(R.progressionCeiling(R.buildTaskCatalog(chunkData), 'Slayer', 1, 1), 99);
+    const ui = fs.readFileSync(path.join(__dirname, '..', 'boardlocked-ui.js'), 'utf8');
+    assert.doesNotMatch(ui, /id="bl-level-/);
+    assert.doesNotMatch(ui, /Levels &amp; skill progression/);
+});
+
+test('completed skill goals automatically provide minimum level evidence', () => {
+    const data = { challenges: { Cooking: { 'Cook a fish': { Level: 10, Primary: true } } } };
+    const catalog = R.buildTaskCatalog(data);
+    const state = R.reconcileProgression(fresh(), catalog, { checkedAllTasks: { Cooking: { 'Cook a fish': true } } });
+    assert.equal(state.progressionHighWater.Cooking, 10);
+    assert.equal(state.actualLevels.Cooking, 10);
 });
 
 test('Slayer progression uses the full assignment pool of a usable master', () => {
@@ -949,20 +960,23 @@ test('Slayer progression uses the full assignment pool of a usable master', () =
     assert.equal(stranded.ceiling, 1);
 });
 
-test('Slayer masters require the player combat level and Konar keeps location restrictions', () => {
+test('Slayer masters defer unknown numeric grinds and Konar keeps location restrictions', () => {
     const lowLevel = fresh(); lowLevel.actualLevels.Slayer = 22;
-    let model = R.slayerProgressionModel({ data: chunkData, state: lowLevel, ids: require('../tasksMap.json'),
+    const legacy = { completedChallenges: { Quest: { '~|Priest in Peril|~ Complete the quest': true } } };
+    let model = R.slayerProgressionModel({ data: chunkData, state: lowLevel, legacy, ids: require('../tasksMap.json'),
         base: { npcs: { Vannaka: { '12698': true } }, monsters: { 'Hill Giant': { '5688': true } } },
         unlocked: { '12698': true, '5688': true }, sections: {}, manualSections: {} });
-    assert.equal(model.trainingAvailable, false, 'an unlocked level-40 master is dormant below combat 40');
+    assert.equal(model.trainingAvailable, true, 'unknown combat level must not hide a geographically reachable master');
+    assert.equal(model.ceiling, 85);
+    assert.equal(model.masters[0].deferredSkillRequirements.Combat, 40);
 
     const state = fresh(); Object.assign(state.actualLevels,
         { Slayer: 22, Attack: 50, Strength: 50, Defence: 50, Hitpoints: 50, Prayer: 30 });
-    model = R.slayerProgressionModel({ data: chunkData, state, ids: require('../tasksMap.json'),
+    model = R.slayerProgressionModel({ data: chunkData, state, legacy, ids: require('../tasksMap.json'),
         base: { npcs: { Vannaka: { '12698': true } }, monsters: { 'Hill Giant': { '5688': true } } },
         unlocked: { '12698': true, '5688': true }, sections: {}, manualSections: {} });
     assert.equal(model.trainingAvailable, true);
-    assert.equal(model.ceiling, 55, 'the assignment table also respects its per-creature combat restrictions');
+    assert.equal(model.ceiling, 85, 'numeric assignment requirements remain visible grinds rather than inferred gates');
     assert.equal(model.nextMilestone, 25);
 
     Object.assign(state.actualLevels, { Slayer: 50, Attack: 75, Strength: 75, Defence: 75, Hitpoints: 75, Prayer: 50 });
@@ -1932,8 +1946,7 @@ test('real worker: Turael exposes his currently assignable pool without exposing
     assert.equal(crawlingHandLog.available, true, 'collection drops share the same valid Slayer source');
     assert.equal(crawlingHandLog.slayerTrainingAlternative, true);
     assert.deepEqual(crawlingHandLog.slayerTrainingMasters, ['Turael']);
-    assert.equal(banshee.available, false, 'the current combat level cannot yet receive Turael\'s Banshee assignment');
-    assert.match(banshee.accessResult.reason, /not assignable by a currently usable master/);
+    assert.equal(banshee.available, true, 'unknown combat level does not create a false-negative assignment gate');
     assert.equal(abyssalDemon.available, false);
     assert.ok(!R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections,
         request.manualSections).some(task => task.eligible && task.name === abyssalDemon.name));
@@ -1948,7 +1961,7 @@ test('real worker: actual Slayer level cannot bypass the usable-master pool', ()
     assert.ok(abyssalDemon);
     assert.equal(abyssalDemon.available, false);
     assert.equal(abyssalDemon.slayerProgression.actualLevel, 85);
-    assert.match(abyssalDemon.accessResult.reason, /not assignable by a currently usable master/);
+    assert.match(abyssalDemon.accessResult.reason, /not assignable by a reachable Slayer master/);
 });
 test('real worker: manually closed Guild section beats actual level 99', () => {
     const request = makeRequest(['6198', '5942', '6454', '6197']); request.boardlocked.state.actualLevels.Woodcutting = 99;

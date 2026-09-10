@@ -15,7 +15,7 @@
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
     let panel = null, message = '', dataReady = false;
     let loadFailure = false, recoveredBrowserBackup = false, browserVaultError = null;
-    let catalog = [], catalogData = null, progressionHighWater = {}, setupLocations = [];
+    let catalog = [], catalogData = null, setupLocations = [];
     const BOARDLOCKED_PRESET = 'Boardlocked Chunker';
     const BOARDLOCKED_PRESET_REVISION = 2;
     const legacy = () => ({ checkedAllTasks, checkedChallenges, completedChallenges, manualEquipment, backlog });
@@ -362,7 +362,6 @@
     function rebuild() {
         if (catalogData !== chunkInfo) { catalogData = chunkInfo; catalog = R.buildTaskCatalog(chunkInfo, tasksMap); }
         state = R.reconcileProgression(state, catalog, legacy(), tasksMap);
-        progressionHighWater = { ...state.progressionHighWater };
         const oldDormant = new Set(pool.dormant);
         tasks = R.adaptTasks(rawTasks, legacy(), state, tempChunks.unlocked || {}, sections, manualSections, catalog, tasksMap);
         const previousCandidateCount = state.currentVisit?.candidateTaskIds?.length || 0;
@@ -408,7 +407,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl23');
+        worker = new Worker('./worker.js?v=6.9.66-bl24');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -562,6 +561,12 @@
             if (task.taskClass === 'enabler' && task.enablerItemKey) delete state.acquiredEnablers[task.enablerItemKey];
         } else {
             (target[task.skill] ||= {})[task.taskClass === 'enabler' ? task.taskId : task.name] = true;
+            if (R.SKILLS.includes(task.skill) && Number.isFinite(task.level)) {
+                state.actualLevels[task.skill] = Math.max(state.actualLevels[task.skill] || 1, task.level);
+            }
+            if (Number.isFinite(task.slayerProgression?.requiredLevel)) {
+                state.actualLevels.Slayer = Math.max(state.actualLevels.Slayer || 1, task.slayerProgression.requiredLevel);
+            }
             for (const itemKey of task.provesAcquiredItemKeys || []) if (!R.own(state.acquiredEnablers, itemKey)) {
                 const visitOrigin = (task.activeOrigins || task.origins || []).find(origin => origin.chunkId === state.currentVisit?.locationId) ||
                     (task.activeOrigins || task.origins || [])[0] || null;
@@ -717,7 +722,7 @@
             if (lastCategory !== category) {
                 container.append(element('h4', category));
                 if (category === 'Slayer training') container.append(element('small',
-                    'Any listed drop obtained while training assignments from your usable Slayer masters completes this visit.'));
+                    'Any listed drop obtained while training assignments from your reachable Slayer masters completes this visit.'));
                 lastCategory = category;
             }
             const row = element('div', null, { className: 'bl-task' });
@@ -827,7 +832,6 @@
             $('#chunkInfo2').text(boundaryLabel + ': ' + selectedChunks);
         }
         document.getElementById('bl-sections').hidden = !busy || globalSectionsValid;
-        document.getElementById('bl-milestones').textContent = 'Ordinary Skill Tasks must be above your highest completed task and within that skill’s forward window. Sparse skills automatically expose their nearest next milestone. Special and independent objectives remain live.';
         renderEnablers();
         document.getElementById('bl-setup-status').textContent = setupLocations.map(id => id + ': ' + (busy ? 'calculating' : pool.live.includes(id) ?
             'encounter (' + pool.byLocation[id].length + ' eligible tasks)' : 'free travel tile')).join('\n');
@@ -893,28 +897,6 @@
         ]) {
             locations.append(element('p', title + ': ' + (ids.map(id => id + (title.includes('encounter') ? ' (' + pool.byLocation[id].length + ' tasks)' : '')).join(', ') || 'None')));
         }
-        for (const skill of R.SKILLS) {
-            const input = document.getElementById('bl-level-' + skill);
-            if (document.activeElement !== input) input.value = state.actualLevels[skill];
-            const frontierInput = document.getElementById('bl-frontier-' + skill);
-            if (frontierInput && document.activeElement !== frontierInput) frontierInput.value = state.progressionHighWater[skill];
-            const windowText = document.getElementById('bl-window-' + skill);
-            if (windowText) {
-                if (skill === 'Slayer') {
-                    windowText.textContent = 'No fixed band · usable masters and their assignment pools set the limit';
-                    continue;
-                }
-                const highWater = state.progressionHighWater[skill], windowSize = R.progressionWindow(skill);
-                const ceiling = R.progressionCeiling(catalog, skill, highWater), standard = Math.min(99, highWater + windowSize);
-                const hasLaterTask = catalog.some(task => task.skill === skill && task.advancesSkillProgression && task.level > highWater);
-                windowText.textContent = !hasLaterTask ? 'Complete' : ceiling > standard ?
-                    'Next: level ' + ceiling + ' (nearest; +' + windowSize + ' normally)' :
-                    'Next: ' + (highWater + 1) + '–' + ceiling + ' (+' + windowSize + ')';
-            }
-        }
-        const combatLevel = document.getElementById('bl-combat-level');
-        if (combatLevel) combatLevel.textContent = 'Combat level: ' + R.actualCombatLevel(state.actualLevels) +
-            '. Slayer masters use this calculated level together with their Slayer and quest requirements.';
         const unassigned = tasks.filter(t => !t.origins.length);
         document.getElementById('bl-unassigned-count').textContent = 'Unassigned Boardlocked Tasks (' + unassigned.length + ')';
         const unassignedList = document.getElementById('bl-unassigned'); unassignedList.replaceChildren();
@@ -1045,13 +1027,6 @@
             save(); render();
             calcCurrentChallengesCanvas(true, true, true); drawCanvas();
         } catch (err) { notice('Import was not applied: ' + err.message); }
-    }
-    function rebuildProgression() {
-        if (!canEdit()) return;
-        state = R.initializeProgression(state, catalog, legacy(), tasksMap, true);
-        state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'rebuild_progression_high_water' });
-        progressionHighWater = { ...state.progressionHighWater };
-        save(); rebuild(); render();
     }
     function resetRulePreset() {
         if (!canEdit()) return;
@@ -1209,7 +1184,6 @@
             <details><summary id="bl-enabler-summary">Acquired tools (0)</summary><p>Reusable tools such as axes stay unlocked after you get them. If an old save is missing one, add it here.</p>
             <div class="bl-toolbar"><select id="bl-enabler-select" aria-label="Known persistent enabler to register"><option value="">Choose a known reusable item…</option></select><button id="bl-add-enabler" type="button">Mark acquired</button></div>
             <div id="bl-enabler-list"></div><details><summary>Unclear tool requirements</summary><p>These items are not treated as reusable because their task data is unclear.</p><div id="bl-enabler-ambiguities"></div></details></details>
-            <details><summary>Levels &amp; skill progression</summary><p>Train in any unlocked tile and update your actual levels here. Completed skill goals control the normal task band. If your real level gets ahead, the nearest unfinished task available in a tile can catch up.</p><div id="bl-levels"></div><p id="bl-combat-level"></p><h3>Highest completed task levels</h3><div id="bl-frontiers"></div><button id="bl-rebuild-frontiers" type="button">Rebuild from completed tasks</button><p id="bl-milestones"></p></details>
             <details><summary id="bl-task-count">Other tasks &amp; progress</summary><p>Record past goals, quests, and permanent unlocks here. Routine training does not complete the current visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
             <details><summary>Diagnostics and overrides</summary>
             <details><summary id="bl-unassigned-count">Unassigned Boardlocked Tasks</summary><div id="bl-unassigned"></div></details>
@@ -1243,7 +1217,6 @@
         document.getElementById('bl-reset').onclick = resetRun;
         document.getElementById('bl-reset-preset').onclick = resetRulePreset;
         document.getElementById('bl-show-rules').onclick = () => { setPanelOpen(false); showRules(); };
-        document.getElementById('bl-rebuild-frontiers').onclick = rebuildProgression;
         document.getElementById('bl-enabler-select').onchange = event => {
             document.getElementById('bl-add-enabler').disabled = !canEdit() || !event.target.value;
         };
@@ -1259,39 +1232,6 @@
         document.getElementById('bl-all-tasks').parentElement.addEventListener('toggle', renderAllTasks);
         for (const key of Object.keys(state.initialization)) document.getElementById('bl-start-' + key)
             ?.addEventListener('change', event => setInitializationOption(key, event.target.checked));
-        for (const skill of R.SKILLS) {
-            const line = element('label', skill);
-            const input = element('input', null, { id: 'bl-level-' + skill, type: 'number', min: '1', max: '99', 'aria-label': 'Current ' + skill });
-            input.value = state.actualLevels[skill];
-            input.addEventListener('input', () => {
-                if (!canEdit()) return;
-                const level = Number(input.value);
-                if (!Number.isInteger(level) || level < 1 || level > 99) { input.setCustomValidity('Enter a level from 1 to 99'); return; }
-                input.setCustomValidity(''); state.actualLevels[skill] = level; save(); schedule();
-            });
-            line.append(input); document.getElementById('bl-levels').append(line);
-            const frontierLine = element('label', skill);
-            if (skill === 'Slayer') {
-                frontierLine.append(element('small', 'No fixed band · usable masters and their assignment pools set the limit', { id: 'bl-window-' + skill }));
-                document.getElementById('bl-frontiers').append(frontierLine);
-                continue;
-            }
-            const frontierInput = element('input', null, { id: 'bl-frontier-' + skill, type: 'number', min: '0', max: '99',
-                'aria-label': 'Highest completed ' + skill + ' task level' });
-            frontierInput.value = state.progressionHighWater[skill];
-            frontierInput.oninput = () => {
-                if (!canEdit()) return;
-                const level = Number(frontierInput.value);
-                if (!Number.isInteger(level) || level < 0 || level > 99) { frontierInput.setCustomValidity('Enter a level from 0 to 99'); return; }
-                frontierInput.setCustomValidity('');
-                state = R.setProgressionHighWater(state, skill, level);
-                state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'set_progression_high_water', skill, level });
-                progressionHighWater = { ...state.progressionHighWater };
-                save(); rebuild(); render();
-            };
-            frontierLine.append(frontierInput, element('small', '', { id: 'bl-window-' + skill }));
-            document.getElementById('bl-frontiers').append(frontierLine);
-        }
         render();
     }
     window.boardlockedController = { enabled, notice, calculate, invalidate, onLegacyChange, roll, allowRelock, drawOverlay, bootstrapLocal,
@@ -1304,7 +1244,7 @@
             rebuild(); render();
             document.getElementById('bl-close')?.focus();
         },
-        debug: () => ({ state: R.copy(state), pool: R.copy(pool), tasks: R.copy(tasks), progressionHighWater: { ...progressionHighWater },
+        debug: () => ({ state: R.copy(state), pool: R.copy(pool), tasks: R.copy(tasks), progressionHighWater: { ...state.progressionHighWater },
             enablerCatalog: R.copy(enablerCatalog), enablerAmbiguities: R.copy(enablerAmbiguities),
             rulePreset: activeRulePreset(), diagnostics: R.copy(diagnostics), sourceCounts, busy, error, generation }),
         inspectTask: id => tasks.find(task => task.taskId === id),
