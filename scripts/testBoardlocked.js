@@ -321,6 +321,9 @@ test('the UI uses transport routes when rebuilding imported map candidates', () 
     assert.match(importRebuild, /BoardlockedData\.travelConnections/);
     assert.match(source, /syncDisplayedFrontier\(pool\.candidates\.filter\(candidate => candidate\.kind === 'frontier'\)/,
         'the green map candidates must be synchronized with the final roll pool');
+    assert.match(source, /if \(hasStarted\(\)\) syncDisplayedFrontier/,
+        'possible starting tiles must not be painted as the active travel frontier');
+    assert.match(source, /else syncDisplayedFrontier\(\[\]\)/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {

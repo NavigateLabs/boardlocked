@@ -309,6 +309,10 @@
             return R.deriveConnectedFrontier(chunkInfo, unlocked, walkable, tempChunks.blacklisted || {},
                 BoardlockedData.travelConnections);
         }
+        if (!hasStarted()) {
+            startingPool = R.deriveStartingPool(chunkInfo, BoardlockedData, state.initialization, tempChunks.blacklisted || {});
+            return startingPool.ids;
+        }
         if (Object.keys(tempChunks.selected || {}).length) {
             return Object.keys(tempChunks.selected || {}).filter(id => {
                 const coords = convertToXY(id);
@@ -316,8 +320,7 @@
                     coords.x >= 0 && coords.x < rowSize && coords.y >= 0 && coords.y < fullSize / rowSize;
             });
         }
-        startingPool = R.deriveStartingPool(chunkInfo, BoardlockedData, state.initialization, tempChunks.blacklisted || {});
-        return startingPool.ids;
+        return [];
     }
     function travelConnectionAllowed(from, to) {
         const limits = chunkInfo.sectionsLimits || {};
@@ -350,7 +353,9 @@
         travelGraph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed,
             BoardlockedData.travelConnections);
         pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, travelGraph, state.travelAnchor, state.travelAnchorSections);
-        syncDisplayedFrontier(pool.candidates.filter(candidate => candidate.kind === 'frontier').map(candidate => candidate.locationId));
+        if (hasStarted()) syncDisplayedFrontier(pool.candidates.filter(candidate => candidate.kind === 'frontier')
+            .map(candidate => candidate.locationId));
+        else syncDisplayedFrontier([]);
         const woke = pool.live.filter(id => oldDormant.has(id) && id !== state.currentVisit?.locationId);
         if (dataReady && woke.length && !/^(Run imported|Added unlocked chunks)/.test(message)) {
             message = woke.join(', ') + ' now has available tasks and can be rolled again.';
