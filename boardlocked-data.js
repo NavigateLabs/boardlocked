@@ -99,11 +99,13 @@
                     '6707', '6957', '6958', '6959', '6960', '6961', '7215',
                     '7216', '7217', '7472'
                 ]),
-                // The safe side of Ferox and nearby low-risk woodland.
+                // Ferox and nearby low-risk woodland. Seven chunks along the
+                // Wilderness ditch already belong to the standard pool because
+                // their usable starting area is south of the Wilderness border.
                 // Dragon, boss, lava, crater, altar, and deep-Wilderness tiles are
                 // excluded even though the source dataset calls them quest-free.
                 wilderness: Object.freeze([
-                    '12600', '12857'
+                    '12344', '12600', '12857'
                 ]),
                 // Experimental level-1 Sailing waters around Port Sarim and The
                 // Pandemonium. This avoids adding all 600+ generic ocean squares.

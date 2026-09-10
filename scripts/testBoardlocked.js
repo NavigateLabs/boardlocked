@@ -83,7 +83,8 @@ test('curated start pool covers released Varlamore while excluding gated and haz
     const withoutFortisAnchor = R.deriveStartingPool(chunkData, annotations, { varlamore: true }, { '6704': true });
     assert.equal(withoutFortisAnchor.groups.find(group => group.id === 'varlamore').locationIds.length, 70,
         'blacklisting the reference tile removes only that tile, not the region it identifies');
-    assert.ok(expanded.ids.includes('12600'), 'safe Wilderness hub is enabled');
+    assert.deepEqual(expanded.groups.find(group => group.id === 'wilderness').locationIds,
+        ['12344', '12600', '12857'], 'both halves of Ferox and its low-risk eastern woodland are enabled');
     assert.ok(expanded.ids.includes('12080'), 'near-Port-Sarim ocean is enabled');
     assert.ok(!expanded.ids.includes('12349'), 'deep Wilderness Mage Arena stays excluded');
     assert.ok(!expanded.ids.includes('12844'), 'desert damage region stays excluded');

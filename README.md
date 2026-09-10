@@ -52,7 +52,7 @@ disappear. Repeat until it dies.
 Three optional start groups are available before the first roll:
 
 - **Varlamore:** adds the released continent and assumes you completed Children of the Sun before rolling. Starts stay on the connected overworld surface, outside Tempestus and quest-only interiors.
-- **Wilderness:** adds a small set of shallow, low-risk tiles. PvP risk still applies.
+- **Wilderness:** adds Ferox Enclave and nearby low-risk southern Wilderness tiles. PvP risk still applies.
 - **Ocean starts (experimental):** adds an equal-chance group of beginner waters near Port Sarim to the first roll, assumes you completed Pandemonium, and starts Sailing at level 5 from its 400 XP reward. Land remains a possible result while other groups are enabled. This option does not disable later sea access through normal map connections. Ocean starts are still largely untested.
 
 Each enabled group has the same chance to be selected, then every tile within that
