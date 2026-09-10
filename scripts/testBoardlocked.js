@@ -1269,6 +1269,53 @@ test('live acceptance worker output offers axe Enablers and blocks concrete gath
     assert.ok(!tasks.some(task => task.accessResult?.forestry && task.eligible));
 });
 
+test('reusable containers cannot obtain themselves through fill-empty or cook-eat cycles', () => {
+    const fixture = sourceFixture();
+    fixture.data = {
+        challenges: {
+            Cooking: {
+                Cook: { Items: ['Bowl'], Objects: ['Fire'], Level: 1 },
+                Bake: { Items: ['Pie dish'], Objects: ['Fire'], Level: 1 }
+            },
+            Nonskill: {
+                'Fill bowl': { Items: ['Bowl'], Objects: ['Water source'], Output: 'Bowl of water' },
+                'Empty bowl': { Items: ['Bowl of water*'], Output: 'Bowl' },
+                'Make pie': { Items: ['Pie dish'], Objects: ['Fire'], Output: 'Pie' },
+                'Eat pie': { Items: ['Pie*'], Output: 'Pie dish' }
+            },
+            Extra: {}, Quest: {}, Diary: {}
+        },
+        codeItems: { tools: { Bowl: true, 'Pie dish': true } }, equipment: {}
+    };
+    fixture.base = {
+        objects: { Fire: { '1000': true }, 'Water source': { '1000': true } }, monsters: {}, npcs: {}, shops: {},
+        items: {
+            Bowl: { 'Empty bowl': 'primary-Nonskill' }, 'Bowl of water': { 'Fill bowl': 'primary-Nonskill' },
+            'Pie dish': { 'Eat pie': 'primary-Nonskill' }, Pie: { 'Make pie': 'primary-Nonskill' }
+        }
+    };
+    fixture.valids = { Cooking: { Cook: 1, Bake: 1 } };
+    fixture.ids = { Cook: 'cook', Bake: 'bake', 'Fill bowl': 'fill', 'Empty bowl': 'empty', 'Make pie': 'make-pie', 'Eat pie': 'eat-pie' };
+    const result = R.buildTasks(fixture);
+    const cook = result.tasks.find(task => task.taskId === 'cook');
+    assert.equal(cook.available, false);
+    assert.match(cook.accessResult.reason, /Persistent enabler not acquired: Bowl/);
+    assert.equal(result.tasks.some(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Bowl'), false,
+        'filling and emptying a bowl is not an acquisition source for the first bowl');
+    assert.equal(result.tasks.some(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Pie dish'), false,
+        'making and eating a pie is not an acquisition source for the first pie dish');
+
+    fixture.base.shops.Store = { '1000': true };
+    fixture.base.items.Bowl.Store = 'shop';
+    fixture.base.items['Pie dish'].Store = 'shop';
+    const direct = R.buildTasks(fixture).tasks.filter(task => task.taskClass === 'enabler');
+    for (const item of ['Bowl', 'Pie dish']) {
+        const enabler = direct.find(task => task.enablerItemKey === item);
+        assert.ok(enabler?.origins.some(origin => origin.sourceType === 'shops' && origin.sourceName === 'Store'),
+            item + ' remains obtainable through a real shop source');
+    }
+});
+
 test('bronze axe acquisition satisfies the base family, activates future Woodcutting, and leaves the visit snapshot fixed', () => {
     const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
     const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);

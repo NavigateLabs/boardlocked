@@ -1763,7 +1763,11 @@
                 const producerSkill = knownNames.get(source), producerMeta = data.challenges[producerSkill]?.[source];
                 if (!producerMeta || !taskOrigins(source, producerSkill, next).length) continue;
                 const producerClass = taskMetadata(source, producerSkill, producerMeta, ids).taskClass;
-                const requirements = taskEnablerRequirements(data, producerSkill, producerMeta, enablerModel, producerClass);
+                // Resource acquisition often passes through Nonskill transforms
+                // such as filling/emptying a container or eating a pie. Those
+                // transforms must retain their reusable-item requirements or a
+                // container can incorrectly prove its own availability.
+                const requirements = taskEnablerRequirements(data, producerSkill, producerMeta, enablerModel, producerClass, true);
                 for (const resource of (producerMeta.Items || []).filter(rawItem => rawItem.includes('*'))) {
                     requirements.push(...mandatoryResourceRequirements(resource, next));
                 }
