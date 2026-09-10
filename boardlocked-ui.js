@@ -1133,7 +1133,7 @@
             <div class="bl-start-grid">
             <label class="bl-start-option"><input id="bl-start-varlamore" type="checkbox"><span><strong>Varlamore starts</strong><small>Assumes Children of the Sun is complete before rolling.</small></span></label>
             <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds Ferox and nearby southern Wilderness starts. PvP still applies.</small></span></label>
-            <label class="bl-start-option"><input id="bl-start-ocean" type="checkbox"><span><strong>Include ocean starts <em>experimental</em></strong><small>Adds one equal-chance ocean group to the first roll only. Later sea access is unaffected. Assumes Pandemonium complete and starts Sailing at 5.</small></span></label>
+            <label class="bl-start-option"><input id="bl-start-ocean" type="checkbox"><span><strong>Ocean starts <em>experimental</em></strong><small>Adds ocean tiles. Assumes Pandemonium is complete.</small></span></label>
             </div><p id="bl-start-summary" class="bl-muted"></p><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button></section>
             <details id="bl-run-setup"><summary>Continue or import a run</summary>
             <div class="bl-toolbar"><label class="bl-file">Import backup<input id="bl-import" type="file" accept=".json,application/json"></label></div>
