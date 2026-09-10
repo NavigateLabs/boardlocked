@@ -26,7 +26,7 @@ cannonballs remain separate goals. A new resource starts a new family.
 
 You have access to everything in previously unlocked chunks, so you can re-enter areas you have previously been to. However you must focus on your goal. I.e. if you need to get woodcutting to lvl 60, that should be the goal you focus on in your unlocked chunks and you shouldn't go train thieving.
 
-The tasks are more than likely begin very simple (get an axe, cut a tree), but not to worry, after a couple tiles you'll find yourself with harder tasks! >:D
+The tasks are more than likely begin very simple (get an axe, cut a tree), but not to worry, after a couple tiles you'll find yourself with harder tasks!
 
 ## Start a new account
 
