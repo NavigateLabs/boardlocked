@@ -37,18 +37,24 @@ test('curated start pool excludes gated and hazardous regions unless explicitly 
     const base = R.deriveStartingPool(chunkData, annotations, fresh().initialization);
     const expanded = R.deriveStartingPool(chunkData, annotations,
         { druidicRitual: true, varlamore: true, wilderness: true, ocean: true });
-    assert.equal(base.ids.length, 179);
+    assert.equal(base.ids.length, 178);
     const allConfigured = Object.values(annotations.initialization.startingTiles).flat();
     assert.equal(new Set(allConfigured).size, allConfigured.length, 'start groups must not overlap or contain duplicates');
     assert.ok(allConfigured.every(id => chunkData.chunks[id] && chunkData.walkableChunks.map(String).includes(id)));
     const noQuest = new Set(chunkData.rollingChunks.noquest.map(String));
     assert.ok(annotations.initialization.startingTiles.standard.every(id => noQuest.has(id)), 'standard starts stay quest-free');
+    for (const gatedInterior of ['4922', '5935', '6191', '6198', '6454', '10293', '11319', '11571']) {
+        assert.ok(!allConfigured.includes(gatedInterior), gatedInterior + ' gated guild area must not be a random start');
+    }
+    assert.ok(base.ids.every(id => !R.isWaterLocation(chunkData, id)), 'ocean chunks stay out of land-only starts');
     for (const id of allConfigured) {
         const regions = expanded.arrivalSectionGroupsByLocation[id] || [[]];
         for (const arrivals of regions) {
             const access = arrivals.length ? { [id]: Object.fromEntries(arrivals.map(section => [section, true])) } : {};
             const boundary = R.deriveConnectedFrontier(chunkData, { [id]: id }, chunkData.walkableChunks, {});
-            const graph = R.buildTravelGraph(chunkData, { [id]: id }, access, boundary);
+            const oceanEnabled = expanded.groupByLocation[id] === 'ocean';
+            const graph = R.buildTravelGraph(chunkData, { [id]: id }, access, boundary,
+                (from, to) => R.travelMediumAllowed(chunkData, from, to, oceanEnabled));
             assert.ok(graph[id]?.length, id + ' must have an exit from every possible starting region');
             for (const section of arrivals) assert.ok(graph.sectionGraph[id + '-' + section]?.length,
                 id + '-' + section + ' must have an exit');
@@ -136,6 +142,38 @@ test('ocean starts explicitly arrive on water while enabled land starts stay on 
     assert.equal(land.metadata.startGroup, 'standard');
     assert.equal(land.metadata.arrivalMedium, 'land');
     assert.ok(land.metadata.entrySections.every(section => !section.startsWith('W')));
+});
+
+test('ocean-off travel rejects every water edge while preserving established sea runs', () => {
+    assert.equal(R.travelMediumAllowed(chunkData, '12082-1', '12081-1', false), true);
+    assert.equal(R.travelMediumAllowed(chunkData, '12081-W1', '12080', false), false);
+    assert.equal(R.travelMediumAllowed(chunkData, '12081-W1', '12080', true), true);
+    assert.equal(R.oceanTravelEnabled(chunkData, fresh(), { '12082': '12082' }, { '12082': { '1': true } }), false);
+    assert.equal(R.oceanTravelEnabled(chunkData, { ...fresh(), initialization: { ...fresh().initialization, ocean: true } }, {}, {}), true);
+    assert.equal(R.oceanTravelEnabled(chunkData, fresh(), { '12080': '12080' }, {}), true,
+        'an imported whole-ocean chunk keeps its existing route');
+    assert.equal(R.oceanTravelEnabled(chunkData, fresh(), { '12081': '12081' }, { '12081': { W1: true } }), true,
+        'an imported open water section keeps its existing route');
+
+    const unlocked = { '12081': '12081' }, frontier = ['12080', '12082'];
+    const sections = { '12081': { '1': true, W1: true } };
+    const landOnly = R.buildTravelGraph(chunkData, unlocked, sections, frontier,
+        (from, to) => R.travelMediumAllowed(chunkData, from, to, false));
+    assert.ok(landOnly.sectionGraph['12081-1'].includes('12082-1'));
+    assert.ok(!landOnly.sectionGraph['12081-W1'].includes('12080'));
+    const oceanOn = R.buildTravelGraph(chunkData, unlocked, sections, frontier,
+        (from, to) => R.travelMediumAllowed(chunkData, from, to, true));
+    assert.ok(oceanOn.sectionGraph['12081-W1'].includes('12080'));
+
+    const everyChunk = Object.fromEntries(chunkData.walkableChunks.map(id => [String(id), String(id)]));
+    const everySection = Object.fromEntries(Object.entries(chunkData.sections).map(([id, sectionMap]) => [id,
+        Object.fromEntries(Object.keys(sectionMap).filter(section => section !== '0').map(section => [section, true]))]));
+    const audited = R.buildTravelGraph(chunkData, everyChunk, everySection, [],
+        (from, to) => R.travelMediumAllowed(chunkData, from, to, false));
+    for (const [from, targets] of Object.entries(audited.sectionGraph)) for (const to of targets) {
+        assert.equal(R.isWaterLocation(chunkData, from) || R.isWaterLocation(chunkData, to), false,
+            'ocean-off graph leaked a water edge: ' + from + ' to ' + to);
+    }
 });
 
 test('split starting chunks choose one connected land region rather than opening both sides', () => {

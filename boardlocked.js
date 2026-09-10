@@ -200,6 +200,26 @@
         return preferred ? [preferred] : [];
     }
 
+    function isWaterLocation(data = {}, locationId) {
+        const parsed = parseLocation(locationId);
+        if (!parsed) return false;
+        if (parsed.sectionId) return parsed.sectionId.startsWith('W');
+        return data.chunks?.[parsed.chunkId]?.Nickname === 'Ocean Chunk';
+    }
+
+    function travelMediumAllowed(data = {}, from, to, oceanEnabled = false) {
+        return oceanEnabled || (!isWaterLocation(data, from) && !isWaterLocation(data, to));
+    }
+
+    function oceanTravelEnabled(data = {}, state = {}, unlocked = {}, accessibleSections = {}) {
+        if (state.initialization?.ocean) return true;
+        const visits = [...(state.visitHistory || []), state.currentVisit].filter(Boolean);
+        if (visits.some(visit => visit.startGroup === 'ocean' || visit.arrivalMedium === 'water' || visit.arrivalMedium === 'mixed')) return true;
+        if (Object.entries(accessibleSections || {}).some(([, sectionMap]) =>
+            Object.entries(sectionMap || {}).some(([sectionId, open]) => open === true && sectionId.startsWith('W')))) return true;
+        return Object.keys(unlocked || {}).some(locationId => isWaterLocation(data, locationId));
+    }
+
     function deriveStartingSectionGroups(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}) {
         const id = String(locationId), sectionMap = data.sections?.[id] || {};
         const viable = deriveStartingSections(data, id, medium, allowedChunkIds, blacklisted);
@@ -1397,7 +1417,8 @@
         collapseRedundantEquipmentTasks, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
-        deriveStartingSections, deriveStartingSectionGroups, migrateStartingSections, deriveStartingPool, chooseStartingCandidate, canRoll,
+        deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMediumAllowed, oceanTravelEnabled,
+        migrateStartingSections, deriveStartingPool, chooseStartingCandidate, canRoll,
         startVisit, snapshotVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });

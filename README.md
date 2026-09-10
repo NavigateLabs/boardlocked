@@ -46,7 +46,7 @@ Three optional start groups are available before the first roll:
 
 - **Varlamore:** adds selected starts and assumes you completed Children of the Sun before rolling.
 - **Wilderness:** adds a small set of shallow, low-risk tiles. PvP risk still applies.
-- **Ocean (experimental):** adds an equal-chance group of beginner waters near Port Sarim, assumes you completed Pandemonium, and starts Sailing at level 5 from its 400 XP reward. Land remains a possible result while other groups are enabled. This route is still largely untested.
+- **Ocean (experimental):** enables sea travel, adds an equal-chance group of beginner waters near Port Sarim, assumes you completed Pandemonium, and starts Sailing at level 5 from its 400 XP reward. Land remains a possible result while other groups are enabled. On a new run with this option off, water sections and ocean tiles cannot enter the roll pool. This route is still largely untested.
 
 Each enabled group has the same chance to be selected, then every tile within that
 group has the same chance. If a tile is split into disconnected areas, one matching

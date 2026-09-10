@@ -241,6 +241,8 @@
         return startingPool.ids;
     }
     function travelConnectionAllowed(from, to) {
+        if (!R.travelMediumAllowed(chunkInfo, from, to,
+            R.oceanTravelEnabled(chunkInfo, state, tempChunks.unlocked || {}, manualSections))) return false;
         const limits = chunkInfo.sectionsLimits || {};
         for (const key of [from + ' to ' + to, to + ' to ' + from]) {
             const tasks = limits[key]?.Tasks;
@@ -249,6 +251,8 @@
         return true;
     }
     function completedConnectionAllowed(from, to) {
+        if (!R.travelMediumAllowed(chunkInfo, from, to,
+            R.oceanTravelEnabled(chunkInfo, state, tempChunks.unlocked || {}, manualSections))) return false;
         const done = R.completionIds(legacy(), tasksMap), limits = chunkInfo.sectionsLimits || {};
         for (const key of [from + ' to ' + to, to + ' to ' + from]) {
             const requirements = limits[key]?.Tasks;
@@ -1011,7 +1015,7 @@
             <div class="bl-start-grid">
             <label class="bl-start-option"><input id="bl-start-varlamore" type="checkbox"><span><strong>Varlamore starts</strong><small>Assumes Children of the Sun is complete before rolling.</small></span></label>
             <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Curated shallow and low-risk tiles; PvP still applies.</small></span></label>
-            <label class="bl-start-option"><input id="bl-start-ocean" type="checkbox"><span><strong>Add ocean starts <em>experimental</em></strong><small>Adds one equal-chance ocean group; a land result is still possible. Assumes Pandemonium complete and starts Sailing at 5.</small></span></label>
+            <label class="bl-start-option"><input id="bl-start-ocean" type="checkbox"><span><strong>Enable ocean routes <em>experimental</em></strong><small>Allows sea travel and adds one equal-chance ocean start group; a land result is still possible. Assumes Pandemonium complete and starts Sailing at 5.</small></span></label>
             </div><p id="bl-start-summary" class="bl-muted"></p><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button></section>
             <details id="bl-run-setup"><summary>Continue or import a run</summary>
             <div class="bl-toolbar"><label class="bl-file">Import backup<input id="bl-import" type="file" accept=".json,application/json"></label></div>
