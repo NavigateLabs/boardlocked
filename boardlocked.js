@@ -5,7 +5,8 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 7;
+    const VERSION = 8;
+    const STARTING_SECTION_POLICY = 'all-viable-sections-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
         'Cooking', 'Woodcutting', 'Fletching', 'Fishing', 'Firemaking', 'Crafting', 'Smithing',
         'Mining', 'Herblore', 'Agility', 'Thieving', 'Slayer', 'Farming', 'Runecraft', 'Hunter',
@@ -40,12 +41,13 @@
     const progressionWindow = skill => PROGRESSION_WINDOWS[skill] || 10;
 
     function normalizeState(input) {
-        if (input && ![1, 2, 3, 4, 5, 6, VERSION].includes(input.version)) throw new Error('Unsupported Boardlocked state version: ' + input.version);
+        if (input && ![1, 2, 3, 4, 5, 6, 7, VERSION].includes(input.version)) throw new Error('Unsupported Boardlocked state version: ' + input.version);
         const state = { version: VERSION, enabled: false, actualLevels: {}, currentVisit: null, travelAnchor: null,
             travelAnchorSections: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
             rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input,
+            startingSectionPolicy: input ? null : STARTING_SECTION_POLICY,
             initialization: { druidicRitual: !input, varlamore: false, wilderness: false, ocean: false },
             initializationApplied: {}, initializationTaskIds: {}, initializationLevelFloors: {} };
         if (input) {
@@ -54,6 +56,7 @@
                 if (input[key] !== undefined) state[key] = copy(input[key]);
             }
             state.enabled = input.enabled;
+            state.startingSectionPolicy = input.startingSectionPolicy === STARTING_SECTION_POLICY ? STARTING_SECTION_POLICY : null;
             state.progressionInitialized = input.version >= 4 && input.progressionInitialized === true;
             state.rulePresetInitialized = input.version >= 2 && input.rulePresetInitialized === true;
             state.rulePresetRevision = Number.isInteger(input.rulePresetRevision) && input.rulePresetRevision >= 0 ? input.rulePresetRevision : 0;
@@ -182,6 +185,48 @@
         return { ...copy(payload), boardlockedState: normalizeState(payload.boardlockedState) };
     }
 
+    function deriveStartingSections(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}) {
+        const id = String(locationId), sectionMap = data.sections?.[id] || {};
+        const water = medium === 'water';
+        const matching = Object.keys(sectionMap).filter(section => section !== '0' && section.startsWith('W') === water);
+        if (!matching.length) return [];
+        const allowed = new Set((allowedChunkIds.length ? allowedChunkIds : Object.keys(data.sections || {})).map(String));
+        const viable = matching.filter(section => (sectionMap[section] || []).some(rawTarget => {
+            const target = parseLocation(rawTarget);
+            return target && target.chunkId !== id && allowed.has(target.chunkId) && !own(blacklisted, target.chunkId);
+        }));
+        if (viable.length) return viable;
+        const preferred = water ? (matching.includes('W1') ? 'W1' : matching[0]) : (matching.includes('1') ? '1' : matching[0]);
+        return preferred ? [preferred] : [];
+    }
+
+    function migrateStartingSections(data = {}, inputState, inputSections = {}, allowedChunkIds = [], blacklisted = {}) {
+        const state = copy(inputState), sections = copy(inputSections || {});
+        if (state.startingSectionPolicy === STARTING_SECTION_POLICY) return { state, sections, changed: false, opened: [] };
+        const startIndex = (state.adminHistory || []).findIndex(event =>
+            event.action === 'set_starting_sections' && parseLocation(event.locationId));
+        const opened = [];
+        if (startIndex >= 0) {
+            const start = state.adminHistory[startIndex], id = parseLocation(start.locationId).chunkId;
+            const oldSections = Array.isArray(start.sectionIds) ? start.sectionIds.map(String) : [];
+            const medium = start.medium === 'water' || (!start.medium && oldSections.length &&
+                oldSections.every(section => section.startsWith('W'))) ? 'water' : 'land';
+            const desired = deriveStartingSections(data, id, medium, allowedChunkIds, blacklisted)
+                .filter(section => sections[id]?.[section] !== false);
+            for (const section of desired) {
+                if (sections[id]?.[section] !== true) opened.push(section);
+                (sections[id] ||= {})[section] = true;
+            }
+            const anchorWasNotMovedExplicitly = !(state.adminHistory || []).slice(startIndex + 1)
+                .some(event => event.action === 'set_travel_anchor');
+            if (state.travelAnchor === id && anchorWasNotMovedExplicitly && desired.length) state.travelAnchorSections = [...desired];
+            state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'upgrade_starting_section_policy',
+                locationId: id, medium, sectionIds: [...desired], openedSectionIds: [...opened] });
+        }
+        state.startingSectionPolicy = STARTING_SECTION_POLICY;
+        return { state, sections, changed: true, opened };
+    }
+
     function deriveStartingPool(data = {}, annotations = {}, options = {}, blacklisted = {}) {
         const configured = annotations.initialization?.startingTiles || {};
         const walkable = new Set((data.walkableChunks || []).map(String));
@@ -195,12 +240,9 @@
             for (const rawId of configured[group] || []) {
                 const id = String(rawId);
                 if (!walkable.has(id) || own(blacklisted, id) || own(groupByLocation, id)) continue;
-                const sections = Object.keys(data.sections?.[id] || {}).filter(section => section !== '0');
                 const water = group === 'ocean';
-                const preferred = water ? (sections.includes('W1') ? 'W1' : sections.find(section => section.startsWith('W'))) :
-                    (sections.includes('1') ? '1' : sections.find(section => !section.startsWith('W')));
                 groupByLocation[id] = group;
-                arrivalSectionsByLocation[id] = preferred ? [preferred] : [];
+                arrivalSectionsByLocation[id] = deriveStartingSections(data, id, water ? 'water' : 'land', [...walkable], blacklisted);
                 ids.push(id); groupIds.push(id);
             }
             if (groupIds.length) groups.push({ id: group, medium: group === 'ocean' ? 'water' : 'land', locationIds: groupIds });
@@ -1304,14 +1346,14 @@
         return { tasks: [...tasks.values()], unassigned: diagnostics, accessDiagnostics,
             enablerCatalog, enablerAmbiguities: enablerModel.ambiguous };
     }
-    return { VERSION, SKILLS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
+    return { VERSION, STARTING_SECTION_POLICY, SKILLS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
         canonicalItemKey, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, equipmentObjectiveAlternatives, completedEquipmentItems,
         collapseRedundantEquipmentTasks, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
-        deriveStartingPool, chooseStartingCandidate, canRoll,
+        deriveStartingSections, migrateStartingSections, deriveStartingPool, chooseStartingCandidate, canRoll,
         startVisit, snapshotVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });

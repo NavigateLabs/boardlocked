@@ -174,6 +174,10 @@
             // profiles and imported histories never gain a quest retroactively.
             if (parsed?.version < 6 && !hasStarted()) state.initialization.druidicRitual = true;
             if (!state.enablersInitialized) state = R.recoverAcquiredEnablers(state, legacy(), chunkInfo, tasksMap, BoardlockedData);
+            const startSectionMigration = R.migrateStartingSections(chunkInfo, state, manualSections,
+                chunkInfo.walkableChunks || [], tempChunks.blacklisted || {});
+            state = startSectionMigration.state; manualSections = startSectionMigration.sections;
+            if (startSectionMigration.changed) forceUpdatePluginOutput = true;
             let anchorSectionsMigrated = false;
             if (state.travelAnchorSections == null) {
                 const inferred = R.inferLegacyAnchorSections(chunkInfo, state, manualSections);
@@ -188,7 +192,7 @@
             }
             if (state.enabled && !state.rulePresetInitialized) applyBoardlockedPreset(true);
             const initializationChanged = !hasStarted() && syncInitializationCompletions();
-            if (upgradeBoardlockedPreset() || initializationChanged || anchorSectionsMigrated || recoveredBrowserBackup || parsed?.version < R.VERSION ||
+            if (upgradeBoardlockedPreset() || initializationChanged || startSectionMigration.changed || anchorSectionsMigrated || recoveredBrowserBackup || parsed?.version < R.VERSION ||
                 (!localStorage.getItem(key) && localStorage.getItem(legacyStorageKey()))) save();
             if (recoveredBrowserBackup) message = 'Recovered the previous browser backup because the newest save could not be read. Download a backup now.';
         } catch (err) { state = boardlockedState(); loadFailure = true; fail(new Error('Saved state was not overwritten. ' + err.message)); }
@@ -872,6 +876,10 @@
                 // boundary from the real connection graph and persistent map.
                 rebuildImportedFrontier();
             }
+            const startSectionMigration = R.migrateStartingSections(chunkInfo, nextState, manualSections,
+                chunkInfo.walkableChunks || [], tempChunks.blacklisted || {});
+            nextState = startSectionMigration.state; manualSections = startSectionMigration.sections;
+            if (startSectionMigration.changed) forceUpdatePluginOutput = true;
             nextState.travelAnchor = R.inferTravelAnchor(nextState, tempChunks.unlocked || {}, chunkOrder);
             if (nextState.travelAnchorSections == null) {
                 const inferred = R.inferLegacyAnchorSections(chunkInfo, nextState, manualSections);
