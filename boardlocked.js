@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 28;
+    const VERSION = 29;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -1369,8 +1369,10 @@
             ...Object.fromEntries(additions.map(task => [task.taskId, snapshotTask(task)])) };
         return journal(state, { ...visit, candidateTaskIds, candidateTasks });
     }
-    function recalculateCurrentVisit(state, reason = 'Recalculated after run import', timestamp = new Date().toISOString()) {
-        if (!state.currentVisit || state.currentVisit.status === 'resolved') return state;
+    function recalculateCurrentVisit(state, reason = 'Recalculated after run import', timestamp = new Date().toISOString(), options = {}) {
+        const reopenNoTasks = options.reopenNoTasks === true && state.currentVisit?.status === 'resolved' &&
+            state.currentVisit.resolution === 'no_tasks';
+        if (!state.currentVisit || (state.currentVisit.status === 'resolved' && !reopenNoTasks)) return state;
         const previous = state.currentVisit;
         const visit = { ...previous, reachableTaskIds: [], candidateTaskIds: [], candidateTasks: {}, status: 'pending_calculation',
             resolution: null, resolvedTaskId: null };

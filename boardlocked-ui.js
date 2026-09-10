@@ -7,7 +7,7 @@
         next.enabled = true;
         return next;
     };
-    let state = boardlockedState(), loadedKey = '', localProfile = null, pendingStoredState = null;
+    let state = boardlockedState(), loadedKey = '', localProfile = null, pendingStoredState = null, pendingStoredVersion = null;
     let worker = null, generation = 0, busy = true, error = '', timer = null;
     let rawTasks = [], tasks = [], sections = {}, diagnostics = [], sourceCounts = {};
     let enablerCatalog = [], enablerAmbiguities = [], slayerMasterCatalog = [], slayerConfirmation = null;
@@ -235,7 +235,9 @@
             const raw = localStorage.getItem(key);
             if (!raw) continue;
             try {
-                const payload = R.normalizeBrowserSave(raw);
+                const parsed = JSON.parse(raw);
+                const payload = R.normalizeBrowserSave(parsed);
+                payload.sourceStateVersion = parsed.boardlockedState?.version;
                 recoveredBrowserBackup = backup;
                 return payload;
             } catch (err) {
@@ -279,22 +281,27 @@
         dataReady = false; busy = true; error = ''; message = ''; loadFailure = false;
         try {
             const saved = pendingStoredState || localStorage.getItem(key) || localStorage.getItem(legacyStorageKey());
-            pendingStoredState = null;
+            const storedVersion = pendingStoredVersion;
+            pendingStoredState = null; pendingStoredVersion = null;
             const parsed = saved ? JSON.parse(saved) : null;
+            const sourceVersion = Number.isInteger(storedVersion) ? storedVersion : parsed?.version;
             state = boardlockedState(parsed);
             // An unused pre-v6 profile is equivalent to a new account. Started
             // profiles and imported histories never gain a quest retroactively.
-            if (parsed?.version < 6 && !hasStarted()) state.initialization.druidicRitual = true;
+            if (sourceVersion < 6 && !hasStarted()) state.initialization.druidicRitual = true;
             if (!state.enablersInitialized) state = R.recoverAcquiredEnablers(state, legacy(), chunkInfo, tasksMap, BoardlockedData);
-            const arrivalMigration = parsed?.version < R.VERSION ? R.migrateCurrentArrival(chunkInfo, state,
+            const arrivalMigration = sourceVersion < R.VERSION ? R.migrateCurrentArrival(chunkInfo, state,
                 tempChunks.unlocked || {}, manualSections, completedConnectionAllowed,
                 BoardlockedData.travelConnections) : { state, changed: false, removedSections: [] };
             state = arrivalMigration.state;
             if (arrivalMigration.changed) for (const section of arrivalMigration.removedSections) {
                 if (manualSections[state.currentVisit.locationId]?.[section] === true) delete manualSections[state.currentVisit.locationId][section];
             }
-            const recalculatingUpdatedVisit = parsed?.version < R.VERSION && !!state.currentVisit && !R.canRoll(state);
-            if (recalculatingUpdatedVisit) state = R.recalculateCurrentVisit(state, 'Recalculated after Boardlocked rules update');
+            const latestNoTaskVisit = state.currentVisit?.status === 'resolved' && state.currentVisit.resolution === 'no_tasks';
+            const recalculatingUpdatedVisit = sourceVersion < R.VERSION && !!state.currentVisit &&
+                (!R.canRoll(state) || latestNoTaskVisit);
+            if (recalculatingUpdatedVisit) state = R.recalculateCurrentVisit(state,
+                'Recalculated after Boardlocked rules update', undefined, { reopenNoTasks: true });
             const startSectionMigration = R.migrateStartingSections(chunkInfo, state, manualSections,
                 chunkInfo.walkableChunks || [], tempChunks.blacklisted || {});
             state = startSectionMigration.state; manualSections = startSectionMigration.sections;
@@ -314,7 +321,7 @@
             if (state.enabled && !state.rulePresetInitialized) applyBoardlockedPreset(true);
             const initializationChanged = !hasStarted() && syncInitializationCompletions();
             const assumedSetupChanged = syncAssumedAccountSetup();
-            if (upgradeBoardlockedPreset() || initializationChanged || assumedSetupChanged || arrivalMigration.changed || startSectionMigration.changed || anchorSectionsMigrated || recoveredBrowserBackup || parsed?.version < R.VERSION ||
+            if (upgradeBoardlockedPreset() || initializationChanged || assumedSetupChanged || arrivalMigration.changed || startSectionMigration.changed || anchorSectionsMigrated || recoveredBrowserBackup || sourceVersion < R.VERSION ||
                 (!localStorage.getItem(key) && localStorage.getItem(legacyStorageKey()))) save();
             if (recoveredBrowserBackup) message = 'Recovered the previous browser backup because the newest save could not be read. Download a backup now.';
             else if (arrivalMigration.changed) message = 'Removed a land arrival that was not connected to the ocean by a port.';
@@ -435,7 +442,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl26');
+        worker = new Worker('./worker.js?v=6.9.66-bl27');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1153,8 +1160,8 @@
             const payload = JSON.parse(await file.text());
             const imported = R.normalizeRunExport(payload);
             let nextState = boardlockedState(imported.state);
-            if (!confirm(localProfile ? 'Replace this local run with the imported geography, rules, completion records and visit history? Any unresolved active visit will be recalculated using this version.' :
-                'Replace local Boardlocked levels, overrides and visits for this map? Any unresolved active visit will be recalculated using this version. Legacy map data stays in its existing save; use a local run to restore the full export.')) return;
+            if (!confirm(localProfile ? 'Replace this local run with the imported geography, rules, completion records and visit history? An unresolved visit or the latest free visit will be recalculated when its saved rules are older.' :
+                'Replace local Boardlocked levels, overrides and visits for this map? An unresolved visit or the latest free visit will be recalculated when its saved rules are older. Legacy map data stays in its existing save; use a local run to restore the full export.')) return;
             invalidate();
             if (localProfile && imported.legacy) {
                 restoreLegacy(imported.legacy);
@@ -1181,8 +1188,11 @@
             }
             if (!nextState.enablersInitialized) nextState = R.recoverAcquiredEnablers(nextState,
                 localProfile && imported.legacy ? legacy() : {}, chunkInfo, tasksMap, BoardlockedData);
-            const recalculatingVisit = !!nextState.currentVisit && !R.canRoll(nextState);
-            if (recalculatingVisit) nextState = R.recalculateCurrentVisit(nextState);
+            const latestNoTaskVisit = nextState.currentVisit?.status === 'resolved' && nextState.currentVisit.resolution === 'no_tasks';
+            const recalculatingVisit = !!nextState.currentVisit && (!R.canRoll(nextState) ||
+                (imported.version < R.VERSION && latestNoTaskVisit));
+            if (recalculatingVisit) nextState = R.recalculateCurrentVisit(nextState,
+                'Recalculated after run import', undefined, { reopenNoTasks: true });
             state = nextState;
             if (state.enabled && !state.rulePresetInitialized) applyBoardlockedPreset(true);
             upgradeBoardlockedPreset();
@@ -1207,7 +1217,7 @@
             signedIn = false; locked = false; inEntry = false; atHome = false;
             viewOnly = false; chunkTasksOn = true; initialLoaded = true;
             $('.loading').show();
-            const [dataResponse, mapResponse] = await Promise.all([fetch('./chunkpicker-chunkinfo-export.json'), fetch('./tasksMap.json')]);
+            const [dataResponse, mapResponse] = await Promise.all([fetch('./chunkpicker-chunkinfo-export.json?v=2'), fetch('./tasksMap.json')]);
             if (!dataResponse.ok || !mapResponse.ok) throw new Error('Failed to load local task data');
             chunkInfo = await dataResponse.json(); tasksMap = await mapResponse.json();
             tasksMapReverse = Object.fromEntries(Object.entries(tasksMap).map(([name, id]) => [id, name]));
@@ -1216,6 +1226,7 @@
             if (vault) {
                 restoreLegacy(vault.legacy, true);
                 pendingStoredState = JSON.stringify(vault.boardlockedState);
+                pendingStoredVersion = vault.sourceStateVersion;
                 if (recoveredBrowserBackup) localStorage.removeItem(localKey());
             } else {
                 const saved = localStorage.getItem(legacyLocalKey());

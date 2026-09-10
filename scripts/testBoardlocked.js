@@ -350,6 +350,21 @@ test('the UI uses transport routes when rebuilding imported map candidates', () 
         'possible starting tiles must not be painted as the active travel frontier');
     assert.match(source, /else syncDisplayedFrontier\(\[\]\)/);
 });
+test('browser upgrades preserve the stored rule version and refresh task assets', () => {
+    const root = path.join(__dirname, '..');
+    const ui = fs.readFileSync(path.join(root, 'boardlocked-ui.js'), 'utf8');
+    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
+    assert.match(ui, /payload\.sourceStateVersion = parsed\.boardlockedState\?\.version/,
+        'normalizing the browser vault must not erase the version used to decide migrations');
+    assert.match(ui, /latestNoTaskVisit[\s\S]*sourceVersion < R\.VERSION/,
+        'only an upgraded active free visit is eligible for reopening');
+    assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
+    assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl15/);
+    assert.match(html, /boardlocked\.js\?v=46/);
+    assert.match(html, /boardlocked-ui\.js\?v=59/);
+});
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
         '1000': { '1': ['2000-1'], W1: ['3000-W1'] },
@@ -557,6 +572,25 @@ test('an imported unresolved visit can be rebuilt in place from current tasks', 
 test('import recalculation leaves resolved history unchanged', () => {
     const resolved = R.resolveVisit(start(adapt([task('done')])), new Set(['done']));
     assert.deepEqual(R.recalculateCurrentVisit(resolved), resolved);
+});
+test('an upgraded run can reopen only its latest free visit', () => {
+    let state = R.resolveVisit(start(adapt([task('done')])), new Set(['done']));
+    state = R.startVisit(state, { kind: 'revisit', locationId: '2000' });
+    state = R.snapshotVisit(state, []);
+    assert.equal(state.currentVisit.resolution, 'no_tasks');
+    assert.deepEqual(R.recalculateCurrentVisit(state), state,
+        'ordinary recalculation must continue to preserve resolved free visits');
+    const completedHistory = R.copy(state.visitHistory[0]);
+    const reopened = R.recalculateCurrentVisit(state, 'newer rules', '2026-09-11T12:00:00.000Z',
+        { reopenNoTasks: true });
+    assert.equal(reopened.currentVisit.status, 'pending_calculation');
+    assert.equal(reopened.currentVisit.visitNumber, 2);
+    assert.equal(reopened.currentVisit.locationId, '2000');
+    assert.deepEqual(reopened.visitHistory[0], completedHistory,
+        'completed and older history must remain byte-for-byte equivalent');
+    const refreshed = R.snapshotVisit(reopened, adapt([task('new', ['2000'])]));
+    assert.equal(refreshed.currentVisit.status, 'task_required');
+    assert.deepEqual(refreshed.currentVisit.candidateTaskIds, ['new']);
 });
 test('unresolved visit survives export/reload and remains blocking', () => {
     const state = R.normalizeState(JSON.parse(JSON.stringify(start(adapt([task('a')])))));
@@ -1347,6 +1381,16 @@ test('Shipwreck Cove offers the small net before shrimp and defers the higher-le
     assert.equal(shrimps?.progressionBlocked, false);
     assert.equal(shrimps?.eligible, false);
     assert.match(shrimps?.eligibilityReason || '', /Small fishing net/);
+
+    let imported = R.startVisit(request.boardlocked.state,
+        { kind: 'frontier', locationId: '6195', metadata: { entrySections: ['1'] } });
+    imported = R.snapshotVisit(imported, []);
+    assert.equal(imported.currentVisit.resolution, 'no_tasks');
+    imported = R.recalculateCurrentVisit(imported, 'new fishing rules', undefined, { reopenNoTasks: true });
+    imported = R.snapshotVisit(imported, tasks);
+    assert.equal(imported.currentVisit.status, 'task_required');
+    assert.ok(imported.currentVisit.candidateTaskIds.includes(smallNet.taskId),
+        'an upgraded free Shipwreck Cove visit discovers the net task without changing location');
 
     request.boardlocked.state.acquiredEnablers['Small fishing net'] = { manual: true };
     result = runWorker(request).result;
