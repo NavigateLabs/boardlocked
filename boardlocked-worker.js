@@ -117,7 +117,29 @@ function blEquipmentUsable(itemName) {
     if (!blContext) return true;
     return Object.entries(chunkInfo.equipment?.[itemName]?.requirements || {}).every(([skill, minimum]) => {
         const current = skill === 'Combat' ? blAccess.actualCombatLevel : blContext.state.actualLevels[skill];
-        return current != null && current >= Number(minimum);
+        if (current == null) return false;
+        if (current >= Number(minimum)) return true;
+        // Ordinary equipment milestones may ask the player to train within the
+        // current progression window. Offer the exact obtainable item over the
+        // generic wear/wield task when that requirement is equally reachable.
+        if (skill === 'Combat' || !Boardlocked.SKILLS.includes(skill)) return false;
+        const highWater = blContext.state.progressionHighWater?.[skill] || 0;
+        return Math.min(99, highWater + Boardlocked.progressionWindow(skill)) >= Number(minimum);
+    });
+}
+
+function blEquipmentObtainable(itemName) {
+    if (!blContext) return true;
+    const hasFixedOrigin = (kind, source) => Object.keys(baseChunkData[kind]?.[source] || {}).some(location =>
+        !!Boardlocked.parseLocation(location) && blLocationAllowed(location));
+    return Object.entries(baseChunkData.items?.[itemName] || baseChunkData.items?.[itemName + '*'] || {}).some(([source, type]) => {
+        if (source === 'Manually Added Equipment') return true;
+        if (String(type).includes('spawn')) return blLocationAllowed(source);
+        if (type === 'shop') return hasFixedOrigin('shops', source);
+        if (String(type).includes('drop')) return hasFixedOrigin('monsters', source);
+        if (['objects', 'npcs', 'monsters', 'shops'].some(kind => hasFixedOrigin(kind, source))) return true;
+        const category = String(type).includes('-') ? String(type).split('-').slice(1).join('-') : null;
+        return !!category && globalValids?.[category]?.[source] !== undefined && globalValids[category][source] !== false;
     });
 }
 
@@ -177,7 +199,8 @@ function blAddWeaponUpgradeTasks(atomicValids, highestOverallCompleted = {}, wea
         const baseline = Number.isFinite(ownedScore) ? ownedScore : Number(scores.Unarmed) || 0;
         for (const [item, rawScore] of Object.entries(scores)) {
             const score = Number(rawScore);
-            if (item === 'Unarmed' || !Number.isFinite(score) || score <= baseline || !baseChunkData.items[item] || !blEquipmentUsable(item)) continue;
+            if (item === 'Unarmed' || !Number.isFinite(score) || score <= baseline || !baseChunkData.items[item] ||
+                !blEquipmentUsable(item) || !blEquipmentObtainable(item)) continue;
             const taskName = 'Obtain' + articleFor(item) + '~|' + formatEquip(item) + '|~';
             const finalBest = highestOverall[key] === item;
             const reason = style + (finalBest ? ' BiS ' : ' upgrade ') + (slot === '2h' ? 'weapon' : slot);

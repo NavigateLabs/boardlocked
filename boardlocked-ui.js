@@ -293,7 +293,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl8');
+        worker = new Worker('./worker.js?v=6.9.66-bl9');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -312,7 +312,8 @@
             worker?.terminate(); worker = null;
         };
         worker.postMessage({ ...request, requestId, manualSections: strictSections,
-            boardlocked: { state: { actualLevels: state.actualLevels, originOverrides: state.originOverrides,
+            boardlocked: { state: { actualLevels: state.actualLevels, progressionHighWater: state.progressionHighWater,
+                    originOverrides: state.originOverrides,
                     accessOverrides: state.accessOverrides, acquiredEnablers: state.acquiredEnablers },
                 checkedAllTasks, tasksMap, unlocked: tempChunks.unlocked || {} } });
         render();

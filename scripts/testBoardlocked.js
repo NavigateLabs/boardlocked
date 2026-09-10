@@ -940,10 +940,10 @@ test('Boardlocked Chunker preset has the strict broad-progression defaults', () 
     assert.equal(preset['Rare Drop Amount'], '0');
 });
 
-test('strict BiS uses actual equipment levels and exposes core weapon and defensive categories', () => {
+test('strict BiS respects actual levels plus the current progression window and exposes core defensive categories', () => {
     const request = usePreset(makeRequest(['5944', '6200']), 'Boardlocked Chunker');
     const low = runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
-    assert.ok(low.some(task => task.equipmentName === 'Iron dagger' && /Melee BiS weapon/.test(task.bisReason)));
+    assert.ok(low.some(task => task.equipmentName === 'Iron dagger' && /Melee (?:BiS|upgrade) weapon/.test(task.bisReason)));
     assert.ok(low.some(task => task.equipmentName === 'Bronze med helm' && /Melee Tank/.test(task.bisReason)));
     assert.ok(!low.some(task => task.equipmentName === 'Rune scimitar'));
     assert.ok(!low.some(task => task.equipmentName === 'Rune kiteshield'));
@@ -952,6 +952,23 @@ test('strict BiS uses actual equipment levels and exposes core weapon and defens
     const high = runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
     assert.ok(high.some(task => task.equipmentName === 'Rune scimitar'));
     assert.ok(high.some(task => task.equipmentName === 'Rune kiteshield'));
+});
+
+test('fresh Hill Giant start replaces the generic steel milestone with its exact obtainable upgrade', () => {
+    const request = usePreset(makeRequest(['5688']), 'Boardlocked Chunker');
+    const result = runWorker(request).result;
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
+        result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
+    const steel = tasks.find(task => task.equipmentName === 'Steel longsword');
+    assert.ok(steel?.eligible); assert.match(steel.bisReason, /Melee BiS weapon/);
+    for (const item of ['Iron dagger', 'Iron full helm', 'Iron kiteshield']) {
+        assert.ok(tasks.some(task => task.equipmentName === item && task.eligible), item + ' remains a distinct obtainable upgrade');
+    }
+    const generic = tasks.find(task => task.name === 'Wield a ~|steel weapon|~');
+    assert.equal(generic.eligible, false); assert.equal(generic.redundant, true);
+    assert.ok(generic.coveredByTaskIds.includes(steel.taskId));
+    assert.ok(!tasks.some(task => task.equipmentName === 'Rune scimitar'), 'fresh progression does not jump to level-40 gear');
 });
 
 test('strict collection tasks use actual quest points', () => {

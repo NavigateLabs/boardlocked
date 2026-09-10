@@ -1,5 +1,5 @@
 importScripts('https://cdn.jsdelivr.net/npm/lodash@4.17.20/lodash.min.js');
-importScripts('./boardlocked-data.js?v=3', './boardlocked.js?v=11', './boardlocked-worker.js?v=8');
+importScripts('./boardlocked-data.js?v=3', './boardlocked.js?v=11', './boardlocked-worker.js?v=9');
 let nonValids = {};
 let globalValids;
 let eGlobal;
@@ -5375,7 +5375,7 @@ let calcBIS = function(completedOnly) {
             }
             let validWearable = true;
             !!chunkInfo['equipment'][equip].requirements && Object.keys(chunkInfo['equipment'][equip].requirements).filter(skill => (rules['Skiller'] && chunkInfo['equipment'][equip].requirements[skill] > 1) || (!primarySkill[skill] && chunkInfo['equipment'][equip].requirements[skill] > 1 && (!passiveSkill || !passiveSkill.hasOwnProperty(skill) || passiveSkill[skill] < chunkInfo['equipment'][equip].requirements[skill])) || (skill === 'Slayer' && !!slayerLocked && chunkInfo['equipment'][equip].requirements[skill] > slayerLocked['level']) || (!!maxSkill && maxSkill.hasOwnProperty(skill) && maxSkill[skill] < chunkInfo['equipment'][equip].requirements[skill])).length > 0 && (validWearable = false);
-            if (blContext && !blEquipmentUsable(equip)) validWearable = false;
+            if (blContext && (!blEquipmentUsable(equip) || !blEquipmentObtainable(equip))) validWearable = false;
             chunkInfo['taskUnlocks']['Items'].hasOwnProperty(equip) && chunkInfo['taskUnlocks']['Items'][equip].filter(task => !globalValids || !globalValids[Object.values(task)[0]] || !globalValids[Object.values(task)[0]].hasOwnProperty(Object.keys(task)[0])).length > 0 && (validWearable = false);
             rules['Consumable Primary BiS'] && chunkInfo['equipment'][equip].is_consumable && Object.keys(baseChunkData['items'][equip]).filter(source => !baseChunkData['items'][equip][source].includes('secondary-')).length === 0 && (validWearable = false);
             let bestAmmo = null;
