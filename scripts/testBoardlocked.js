@@ -594,6 +594,57 @@ test('prerequisite provider B does not receive action task from A', () => {
     const pool = R.derivePool([], geo, currentTasks);
     assert.deepEqual(pool.live, ['1000']); assert.ok(pool.dormant.includes('2000'));
 });
+test('a reusable tool in an older chunk activates that chunk before its action chunk', () => {
+    const data = {
+        challenges: {
+            Fishing: {
+                'Catch shrimps': {
+                    Items: ['Small fishing net'], Objects: ['Small-net fishing spot'],
+                    Output: 'Raw shrimps', Level: 1, Primary: true
+                }
+            },
+            Extra: {}, Quest: {}, Diary: {}
+        },
+        codeItems: { tools: { 'Small fishing net': true } },
+        equipment: {}
+    };
+    const ids = { 'Catch shrimps': 'catch-shrimps' };
+    const unlocked = { '1000': '1000', '2000': '2000' };
+    const base = {
+        objects: { 'Small-net fishing spot': { '2000': true } },
+        items: { 'Small fishing net': { '1000': 'primary-spawn' } },
+        monsters: {}, npcs: {}, shops: {}
+    };
+    const state = fresh();
+    const fixture = {
+        data, ids, base, state, unlocked,
+        valids: { Fishing: { 'Catch shrimps': 1 } },
+        rules: { 'Show Skill Tasks': true }
+    };
+    const catalog = R.buildTaskCatalog(data, ids);
+    let tasks = R.adaptTasks(R.buildTasks(fixture).tasks, {}, state, unlocked, {}, {}, catalog, ids);
+    const net = tasks.find(task => task.enablerItemKey === 'Small fishing net');
+    const shrimps = tasks.find(task => task.taskId === 'catch-shrimps');
+    assert.equal(net?.eligible, true);
+    assert.deepEqual(net.activeOrigins.map(source => source.chunkId), ['1000'],
+        'the Obtain task belongs to the old chunk containing the net');
+    assert.equal(shrimps?.eligible, false);
+    assert.deepEqual(shrimps.activeOrigins.map(source => source.chunkId), ['2000'],
+        'the blocked Fishing task remains attached to the fishing-spot chunk');
+
+    const graph = { '1000': ['2000'], '2000': ['1000'] };
+    let pool = R.derivePool([], unlocked, tasks, null, graph, '2000');
+    assert.deepEqual(pool.candidates.map(candidate => [candidate.kind, candidate.locationId, candidate.metadata.taskIds]),
+        [['revisit', '1000', [net.taskId]]], 'the old tool chunk becomes the next revisit encounter');
+
+    state.acquiredEnablers['Small fishing net'] = { evidenceTaskId: net.taskId };
+    tasks = R.adaptTasks(R.buildTasks({ ...fixture, state }).tasks, {}, state, unlocked, {}, {}, catalog, ids);
+    assert.equal(tasks.find(task => task.taskId === 'catch-shrimps')?.eligible, true);
+    assert.ok(!tasks.some(task => task.enablerItemKey === 'Small fishing net' && task.eligible));
+    pool = R.derivePool([], unlocked, tasks, null, graph, '1000');
+    assert.deepEqual(pool.candidates.map(candidate => [candidate.kind, candidate.locationId]), [['revisit', '2000']],
+        'after obtaining the tool, the original action chunk becomes the revisit encounter');
+});
 test('completion makes the last-task chunk dormant; uncompletion wakes it', () => {
     const list = [task('a')];
     assert.ok(R.derivePool([], geo, adapt(list, { checkedChallenges: { Woodcutting: { a: true } } })).dormant.includes('1000'));
