@@ -51,7 +51,8 @@ Three optional start groups are available before the first roll:
 Each enabled group has the same chance to be selected, then every tile within that
 group has the same chance. If a tile is split into disconnected areas, one matching
 land or water area is then chosen at random; extra areas do not make that tile more
-likely to win. The result clearly says `LAND`, `WATER`, or `MIXED`.
+likely to win. The map highlights the exact chosen area in gold and lists the exits
+available from it. The result also says `LAND`, `WATER`, or `MIXED`.
 Later rolls retain the exact connected sections: land never grants water access,
 water never grants land access, and both open only when both have real connections.
 

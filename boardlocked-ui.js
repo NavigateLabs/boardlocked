@@ -11,7 +11,7 @@
     let worker = null, generation = 0, busy = true, error = '', timer = null;
     let rawTasks = [], tasks = [], sections = {}, diagnostics = [], sourceCounts = {};
     let enablerCatalog = [], enablerAmbiguities = [];
-    let pool = R.derivePool([], {}, [], null), signature = '', previousUnlocked = null;
+    let pool = R.derivePool([], {}, [], null), travelGraph = null, signature = '', previousUnlocked = null;
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
     let panel = null, message = '', dataReady = false;
     let loadFailure = false, recoveredBrowserBackup = false, browserVaultError = null;
@@ -32,6 +32,73 @@
     const hasStarted = () => !!state.travelAnchor || !!state.currentVisit || state.visitHistory.length > 0 ||
         Object.keys(tempChunks.unlocked || {}).length > 0;
     const isInitializationTask = id => Object.values(state.initializationTaskIds || {}).some(ids => ids.includes(id));
+    const sectionOverlayCache = new Map();
+
+    function currentAreaSections() {
+        const visitLocation = R.parseLocation(state.currentVisit?.locationId)?.chunkId;
+        if (visitLocation === state.travelAnchor && Array.isArray(state.currentVisit?.arrivalSections)) {
+            return [...state.currentVisit.arrivalSections];
+        }
+        return Array.isArray(state.travelAnchorSections) ? [...state.travelAnchorSections] : [];
+    }
+
+    function sectionOverlay(locationId, sectionId) {
+        const key = locationId + '-' + sectionId;
+        if (sectionOverlayCache.has(key)) return sectionOverlayCache.get(key);
+        const entry = { canvas: null, centroid: null, weight: 0, failed: false };
+        sectionOverlayCache.set(key, entry);
+        const image = new Image();
+        image.crossOrigin = 'anonymous';
+        image.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = image.naturalWidth || 192; canvas.height = image.naturalHeight || 192;
+                const context = canvas.getContext('2d');
+                context.drawImage(image, 0, 0);
+                const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+                let sumX = 0, sumY = 0, weight = 0;
+                for (let i = 0; i < pixels.data.length; i += 4) {
+                    const mask = Math.max(pixels.data[i], pixels.data[i + 1], pixels.data[i + 2]) / 255;
+                    const pixelWeight = pixels.data[i + 3] / 255 * mask;
+                    if (pixelWeight) {
+                        const pixel = i / 4;
+                        sumX += (pixel % canvas.width + .5) * pixelWeight;
+                        sumY += (Math.floor(pixel / canvas.width) + .5) * pixelWeight;
+                        weight += pixelWeight;
+                    }
+                    pixels.data[i] = 255; pixels.data[i + 1] = 209; pixels.data[i + 2] = 102;
+                    pixels.data[i + 3] = Math.round(pixels.data[i + 3] * mask);
+                }
+                context.putImageData(pixels, 0, 0);
+                entry.canvas = canvas; entry.weight = weight;
+                if (weight) entry.centroid = { x: sumX / weight / canvas.width, y: sumY / weight / canvas.height };
+                if (typeof drawCanvas === 'function') requestAnimationFrame(() => drawCanvas());
+            } catch (_) { entry.failed = true; }
+        };
+        image.onerror = () => { entry.failed = true; };
+        image.src = './resources/section_overlays/' + key + '.png';
+        return entry;
+    }
+
+    function directionLabel(fromId, toId) {
+        const from = convertToXY(fromId), to = convertToXY(toId);
+        const dx = to.x - from.x, dy = to.y - from.y;
+        if (Math.abs(dx) > 1 || Math.abs(dy) > 1 || (!dx && !dy)) return '';
+        return (dy < 0 ? 'up' : dy > 0 ? 'down' : '') + (dx < 0 ? (dy ? '-left' : 'left') : dx > 0 ? (dy ? '-right' : 'right') : '');
+    }
+
+    function currentAreaRoutes(locationId, areaSections) {
+        if (!travelGraph?.sectionGraph) return [];
+        const routeChunks = new Set();
+        for (const sectionId of areaSections) {
+            const node = locationId + '-' + sectionId;
+            for (const target of travelGraph.sectionGraph[node] || []) {
+                const parsed = R.parseLocation(target);
+                if (parsed && parsed.chunkId !== locationId) routeChunks.add(parsed.chunkId);
+            }
+        }
+        return [...routeChunks].map(id => ({ id, direction: directionLabel(locationId, id), name: label(id) }));
+    }
 
     function removeCompletionId(id) {
         for (const store of [checkedAllTasks, checkedChallenges, completedChallenges]) {
@@ -268,8 +335,8 @@
         state = R.resolveVisit(state, completed);
         const unlocked = tempChunks.unlocked || {}, boundary = frontier();
         state.travelAnchor = R.inferTravelAnchor(state, unlocked, chunkOrder);
-        const graph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed);
-        pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, graph, state.travelAnchor, state.travelAnchorSections);
+        travelGraph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed);
+        pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, travelGraph, state.travelAnchor, state.travelAnchorSections);
         const woke = pool.live.filter(id => oldDormant.has(id) && id !== state.currentVisit?.locationId);
         if (dataReady && woke.length && !/^(Run imported|Added unlocked chunks)/.test(message)) {
             message = woke.join(', ') + ' has new available tasks and returned to the travel graph as an encounter.';
@@ -725,7 +792,18 @@
             state.travelAnchor ? 'Current tile · ' + state.travelAnchor + ' — ' + label(state.travelAnchor) : 'No current tile';
         const arrivalLabel = visit?.arrivalMedium && visit.arrivalMedium !== 'whole' ? ' · ' + visit.arrivalMedium.toUpperCase() +
             (visit.arrivalSections?.length ? ' ' + visit.arrivalSections.join(' + ') : '') : '';
-        document.getElementById('bl-visit-status').textContent = visit ? visit.kind.toUpperCase() + arrivalLabel + ' · ' + ({ pending_calculation: 'Awaiting task/section calculation', task_required: 'Complete any 1 task', resolved: ({ no_tasks: 'No tasks — free roll', task_completed: 'Complete', admin_void: 'Administratively voided' })[visit.resolution] })[visit.status] : 'Roll a starting tile to begin.';
+        document.getElementById('bl-visit-status').textContent = visit ? visit.kind.toUpperCase() + arrivalLabel + ' · ' + ({ pending_calculation: 'Awaiting task/section calculation', task_required: 'Complete any 1 task', resolved: ({ no_tasks: 'No tasks — free roll', task_completed: 'Complete', admin_void: 'Administratively voided' })[visit.resolution] })[visit.status] : state.travelAnchor ? 'Current travel position.' : 'Roll a starting tile to begin.';
+        const areaHint = document.getElementById('bl-area-hint'), areaSections = currentAreaSections();
+        areaHint.hidden = !state.travelAnchor || !areaSections.length;
+        if (!areaHint.hidden) {
+            const routes = currentAreaRoutes(state.travelAnchor, areaSections);
+            const areaWord = areaSections.length === 1 ? 'area ' : 'areas ';
+            const instruction = visit?.visitNumber === 1 ? 'Start inside' : 'You entered through';
+            const routeText = routes.length ? ' Map exits: ' + routes.map(route =>
+                (route.direction ? route.direction + ' → ' : '') + route.id + (route.name ? ' — ' + route.name : '')).join('; ') + '.' :
+                ' No neighboring map exit is currently open from this area.';
+            areaHint.textContent = instruction + ' the gold-highlighted ' + areaWord + areaSections.join(' + ') + '.' + routeText;
+        }
         const candidates = document.getElementById('bl-candidates'); candidates.replaceChildren();
         const completedIds = R.completionIds(legacy(), tasksMap);
         if (visit) {
@@ -980,6 +1058,28 @@
             // its separate current-position meaning.
             context.fillStyle = free ? 'rgba(58, 155, 220, .24)' : current ? 'rgba(255, 209, 102, .18)' : 'rgba(39, 216, 172, .13)';
             context.fillRect(x + 3, y + 3, sizeX - 6, sizeY - 6);
+            const areaSections = current ? currentAreaSections() : [];
+            let areaFocus = null;
+            if (areaSections.length) {
+                context.save();
+                context.globalAlpha = .58;
+                context.filter = 'drop-shadow(0 0 ' + Math.max(1, sizeX * .025) + 'px rgba(255, 238, 175, .95))';
+                let focusX = 0, focusY = 0, focusWeight = 0;
+                for (const sectionId of areaSections) {
+                    const overlay = sectionOverlay(id, sectionId);
+                    if (!overlay?.canvas) continue;
+                    context.drawImage(overlay.canvas, x + 3, y + 3, sizeX - 6, sizeY - 6);
+                    if (overlay.centroid) {
+                        const weight = overlay.weight || 1;
+                        focusX += overlay.centroid.x * weight; focusY += overlay.centroid.y * weight; focusWeight += weight;
+                    }
+                }
+                context.restore();
+                if (focusWeight) areaFocus = {
+                    x: x + 3 + focusX / focusWeight * (sizeX - 6),
+                    y: y + 3 + focusY / focusWeight * (sizeY - 6)
+                };
+            }
             context.strokeStyle = current ? '#ffd166' : free ? freeOnPath ? '#62c7ff' : '#3a9bdc' : '#27d8ac';
             context.lineWidth = current ? 4 : freeOnPath ? 3 : 2;
             context.setLineDash(current ? [] : free ? [3, 3] : [5, 3]);
@@ -989,10 +1089,21 @@
                 context.setLineDash([]);
                 context.font = 'bold ' + Math.max(9, Math.min(15, sizeX * .16)) + 'px Arial, sans-serif';
                 context.textAlign = 'center'; context.textBaseline = 'middle';
-                const width = context.measureText(marker).width + 10, centerX = x + sizeX / 2, centerY = y + sizeY / 2;
+                const width = context.measureText(marker).width + 10;
+                const centerX = Math.max(x + width / 2 + 6, Math.min(x + sizeX - width / 2 - 6, areaFocus?.x ?? x + sizeX / 2));
+                const badgeRoom = current && areaSections.length && sizeX >= 70 && sizeY >= 60 ? 34 : 11;
+                const centerY = Math.max(y + 13, Math.min(y + sizeY - badgeRoom, areaFocus?.y ?? y + sizeY / 2));
                 context.fillStyle = 'rgba(0, 30, 35, .72)';
                 context.fillRect(centerX - width / 2, centerY - 10, width, 20);
                 context.fillStyle = '#fff'; context.fillText(marker, centerX, centerY + .5);
+                if (current && areaSections.length && sizeX >= 70 && sizeY >= 60) {
+                    const areaMarker = (areaSections.length === 1 ? 'AREA ' : 'AREAS ') + areaSections.join('+');
+                    context.font = 'bold ' + Math.max(8, Math.min(12, sizeX * .12)) + 'px Arial, sans-serif';
+                    const areaWidth = context.measureText(areaMarker).width + 9;
+                    context.fillStyle = 'rgba(255, 209, 102, .92)';
+                    context.fillRect(centerX - areaWidth / 2, centerY + 12, areaWidth, 17);
+                    context.fillStyle = '#17241f'; context.fillText(areaMarker, centerX, centerY + 20.5);
+                }
             }
         }
         context.restore();
@@ -1025,10 +1136,10 @@
             <label>Unlocked chunk or chunk-section ID <input id="bl-admin-location" inputmode="text" placeholder="9270-1 or 9270-W1"></label><div class="bl-toolbar"><button id="bl-set-anchor" type="button">Set current tile / section</button><button id="bl-admin-visit" type="button">Resume unfinished visit here</button></div>
             </details>
             <div id="bl-mode-content"><p class="bl-muted">Travel starts at the current tile. Free tiles are crossed automatically when building the pool; the first new tile or unfinished-task tile in each direction gets one ticket.</p>
-            <div class="bl-map-legend" aria-label="Map legend"><span><i class="bl-key-current"></i>Current</span><span><i class="bl-key-free"></i>Free</span><span><i class="bl-key-encounter"></i>Reachable encounter</span><span><i class="bl-key-boundary"></i>Rollable new tile</span></div>
+            <div class="bl-map-legend" aria-label="Map legend"><span><i class="bl-key-current"></i>Current</span><span><i class="bl-key-area"></i>Your area</span><span><i class="bl-key-free"></i>Free</span><span><i class="bl-key-encounter"></i>Reachable encounter</span><span><i class="bl-key-boundary"></i>Rollable new tile</span></div>
             <button id="bl-roll" class="bl-primary" type="button">Roll next location</button>
             <button id="bl-sections" type="button" hidden>Choose accessible sections</button>
-            <section><h3>Current visit</h3><strong id="bl-visit-title"></strong><p id="bl-visit-status"></p><div id="bl-candidates"></div>
+            <section><h3>Current visit</h3><strong id="bl-visit-title"></strong><p id="bl-visit-status"></p><p id="bl-area-hint" class="bl-area-hint" hidden></p><div id="bl-candidates"></div>
             <button id="bl-void" type="button">Void / recalculate current visit</button></section>
             <section><h3>Roll pool</h3><p id="bl-pool-summary"></p><details><summary>Locations and task counts</summary><div id="bl-locations"></div></details></section>
             <details><summary id="bl-enabler-summary">Acquired Enablers (0)</summary><p>Persistent tools are recorded only after a specific item acquisition or a manual recovery entry. Changing this list recalculates every unlocked chunk.</p>

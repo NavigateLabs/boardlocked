@@ -54,9 +54,11 @@
 #bl-panel .bl-map-legend span { display: inline-flex; align-items: center; gap: 5px; }
 #bl-panel .bl-map-legend i { display: inline-block; width: 13px; height: 13px; box-sizing: border-box; border: 2px solid; }
 #bl-panel .bl-key-current { border-color: #d99b00 !important; background: #ffd16655; }
+#bl-panel .bl-key-area { border-color: #d99b00 !important; background: #ffd166aa; box-shadow: inset 0 0 0 2px #fff5b8; }
 #bl-panel .bl-key-free { border-color: #3a9bdc !important; border-style: dashed !important; background: #3a9bdc44; }
 #bl-panel .bl-key-encounter { border-color: #159b79 !important; border-style: dashed !important; background: #27d8ac33; }
 #bl-panel .bl-key-boundary { border-color: #184f18 !important; background: #64ff6480; }
+#bl-panel .bl-area-hint { padding: 8px 9px; background: #ffd16633; border: 1px solid #c69318; border-radius: 4px; font-size: 12px; }
 #bl-message:not(:empty) { padding: 9px; background: #d8ecd9; color: #153c33; border-radius: 4px; }
 #bl-message.bl-error { background: #ffe0d9; color: #8d2113; }
 #bl-unassigned button { display: block; width: 100%; text-align: left; margin-top: 5px; overflow-wrap: anywhere; }
