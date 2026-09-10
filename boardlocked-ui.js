@@ -1298,17 +1298,21 @@
             context.restore();
             return;
         }
-        const ids = new Set([...pool.reachableLive, ...pool.dormant]);
+        const candidateByLocation = new Map(pool.candidates.map((candidate, index) =>
+            [candidate.locationId, { ...candidate, number: index + 1 }]));
+        const ids = new Set([...Object.keys(tempChunks.unlocked || {}), ...candidateByLocation.keys()]);
         if (state.travelAnchor) ids.add(state.travelAnchor);
         for (const id of ids) {
             const point = convertToXY(id), sizeX = totalZoom * imgW / rowSize, sizeY = totalZoom * imgH / (fullSize / rowSize);
             const x = dragTotalX + point.x * sizeX, y = dragTotalY + point.y * sizeY;
             const current = id === state.travelAnchor;
+            const candidate = candidateByLocation.get(id), rollable = !!candidate;
             const free = pool.dormant.includes(id), freeOnPath = pool.reachableFree.includes(id);
-            // Keep a free current tile visibly blue; the gold border carries
-            // its separate current-position meaning.
-            context.fillStyle = free ? 'rgba(58, 155, 220, .24)' : current ? 'rgba(255, 209, 102, .18)' : 'rgba(39, 216, 172, .13)';
-            context.fillRect(x + 3, y + 3, sizeX - 6, sizeY - 6);
+            const waiting = !current && !rollable && pool.live.includes(id);
+            if (current || rollable || (free && freeOnPath)) {
+                context.fillStyle = current ? 'rgba(255, 209, 102, .11)' : rollable ? 'rgba(35, 155, 105, .07)' : 'rgba(58, 155, 220, .06)';
+                context.fillRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
+            }
             const areaSections = current ? currentAreaSections() : [];
             let areaFocus = null;
             if (areaSections.length) {
@@ -1331,21 +1335,22 @@
                     y: y + 3 + focusY / focusWeight * (sizeY - 6)
                 };
             }
-            context.strokeStyle = current ? '#ffd166' : free ? freeOnPath ? '#62c7ff' : '#3a9bdc' : '#27d8ac';
-            context.lineWidth = current ? 4 : freeOnPath ? 3 : 2;
-            context.setLineDash(current ? [] : free ? [3, 3] : [5, 3]);
-            context.strokeRect(x + 3, y + 3, sizeX - 6, sizeY - 6);
+            context.strokeStyle = current ? '#d99b00' : rollable ? '#17805d' : free ? '#3a9bdc' : 'rgba(90, 96, 96, .85)';
+            context.lineWidth = current ? 4 : rollable ? 3 : freeOnPath ? 2.5 : 2;
+            context.setLineDash(current || rollable ? [] : free ? [4, 4] : [2, 4]);
+            context.strokeRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
             if (sizeX >= 44 && sizeY >= 36) {
-                const currentHasTasks = current && (pool.byLocation[id] || []).length > 0;
-                const marker = current && free ? 'FREE · YOU' : currentHasTasks ? 'TASK · YOU' : current ? 'YOU' : free ? 'FREE' : 'TASK';
+                const marker = current ? 'YOU' : rollable ? candidate.number + ' · ' + (candidate.kind === 'revisit' ? 'TASK' : 'NEW') :
+                    free ? 'FREE' : waiting ? 'WAITING' : 'UNLOCKED';
                 context.setLineDash([]);
-                context.font = 'bold ' + Math.max(9, Math.min(15, sizeX * .16)) + 'px Arial, sans-serif';
+                context.font = 'bold ' + Math.max(8, Math.min(13, sizeX * .14)) + 'px Arial, sans-serif';
                 context.textAlign = 'center'; context.textBaseline = 'middle';
                 const width = context.measureText(marker).width + 10;
                 const centerX = Math.max(x + width / 2 + 6, Math.min(x + sizeX - width / 2 - 6, areaFocus?.x ?? x + sizeX / 2));
                 const badgeRoom = current && areaSections.length && sizeX >= 70 && sizeY >= 60 ? 34 : 11;
                 const centerY = Math.max(y + 13, Math.min(y + sizeY - badgeRoom, areaFocus?.y ?? y + sizeY / 2));
-                context.fillStyle = 'rgba(0, 30, 35, .72)';
+                context.fillStyle = current ? 'rgba(91, 66, 5, .82)' : rollable ? 'rgba(13, 104, 77, .86)' :
+                    free ? 'rgba(31, 105, 145, .78)' : 'rgba(65, 70, 70, .76)';
                 context.fillRect(centerX - width / 2, centerY - 10, width, 20);
                 context.fillStyle = '#fff'; context.fillText(marker, centerX, centerY + .5);
                 if (current && areaSections.length && sizeX >= 70 && sizeY >= 60) {
@@ -1381,7 +1386,7 @@
             <button id="bl-sections" type="button" hidden>Choose accessible sections</button>
             <section><h3>Current visit</h3><strong id="bl-visit-title"></strong><p id="bl-visit-status"></p><p id="bl-area-hint" class="bl-area-hint" hidden></p><div id="bl-candidates"></div>
             <button id="bl-void" type="button">Void / recalculate current visit</button></section>
-            <div class="bl-map-legend" aria-label="Map legend"><span><i class="bl-key-current"></i>Current</span><span><i class="bl-key-area"></i>Your area</span><span><i class="bl-key-free"></i>Free</span><span><i class="bl-key-encounter"></i>Reachable task</span><span><i class="bl-key-boundary"></i>New tile</span></div>
+            <div class="bl-map-legend" aria-label="Map legend"><span><i class="bl-key-current"></i>Current</span><span><i class="bl-key-area"></i>Your area</span><span><i class="bl-key-rollable"></i>Rollable</span><span><i class="bl-key-free"></i>Free</span><span><i class="bl-key-waiting"></i>Waiting task</span></div>
             <details class="bl-run-guide"><summary>How Boardlocked works</summary><p>Unlocked tiles stay available for training, supplies, and travel. Complete one task from the current visit before rolling again.</p><p>Rolls follow open routes and may cross free tiles. A transport destination must be rolled before you enter it.</p></details>
             <details class="bl-roll-pool"><summary id="bl-pool-heading">Roll pool</summary><p id="bl-pool-summary"></p><details><summary>Locations and task counts</summary><div id="bl-locations"></div></details></details>
             <details><summary id="bl-enabler-summary">Acquired tools (0)</summary><p>Reusable tools such as axes stay unlocked after you get them. If an old save is missing one, add it here.</p>
@@ -1458,7 +1463,6 @@
     window.boardlockedController = { enabled, notice, calculate, invalidate, onLegacyChange, roll, allowRelock, drawOverlay, bootstrapLocal,
         handleStartingTileClick,
         isFrontierCandidate: id => pool.candidates.some(candidate => candidate.kind === 'frontier' && candidate.locationId === String(id)),
-        frontierNumber: id => pool.candidates.filter(candidate => candidate.kind === 'frontier').findIndex(candidate => candidate.locationId === String(id)) + 1,
         open: () => {
             setPanelOpen(true);
             document.getElementById('bl-origin-overrides').value = JSON.stringify(state.originOverrides, null, 2);

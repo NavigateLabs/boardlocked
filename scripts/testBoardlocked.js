@@ -2203,6 +2203,19 @@ test('manual starting-tile selection is staged behind an explicit confirmation',
     assert.match(ui, /if \(!pickingStartingTile \|\| hasStarted\(\)\) return false;/,
         'map clicks are intercepted only while choosing the first tile');
 });
+test('active map uses one numbered style for every roll candidate and labels waiting tasks', () => {
+    const root = path.join(__dirname, '..');
+    const ui = fs.readFileSync(path.join(root, 'boardlocked-ui.js'), 'utf8');
+    const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
+    assert.match(ui, /new Map\(pool\.candidates\.map\(\(candidate, index\)/,
+        'frontier and revisit candidates share one numbered pool');
+    assert.match(ui, /candidate\.number \+ ' · ' \+ \(candidate\.kind === 'revisit' \? 'TASK' : 'NEW'\)/);
+    assert.match(ui, /waiting \? 'WAITING' : 'UNLOCKED'/);
+    assert.match(ui, /bl-key-rollable/);
+    assert.match(ui, /bl-key-waiting/);
+    assert.match(index, /Boardlocked draws one consistent overlay for new and revisit/,
+        'the legacy bright-green candidate paint is bypassed in Boardlocked');
+});
 test('production mode logic contains no hard-coded seed or equipment exceptions', () => {
     const root = path.join(__dirname, '..');
     for (const file of ['boardlocked.js', 'boardlocked-worker.js', 'boardlocked-ui.js']) {

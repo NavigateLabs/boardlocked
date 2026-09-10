@@ -1968,8 +1968,13 @@ let drawCanvas = function(ctxIn = ctx) {
                 }
                 ctxIn.strokeStyle = 'gray';
                 (!highVisibilityMode || totalZoom > 0.3) && ctxIn.strokeRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
-            } else if (!!tempChunks['selected'] && tempChunks['selected'][chunkId] &&
-                (!window.boardlockedController?.enabled() || window.boardlockedController.isFrontierCandidate(chunkId))) {
+            } else if (!!tempChunks['selected'] && tempChunks['selected'][chunkId] && window.boardlockedController?.enabled() &&
+                window.boardlockedController.isFrontierCandidate(chunkId)) {
+                // Boardlocked draws one consistent overlay for new and revisit
+                // roll candidates. Keep the base map visible underneath it.
+                ctxIn.strokeStyle = 'gray';
+                (!highVisibilityMode || totalZoom > 0.3) && ctxIn.strokeRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
+            } else if (!!tempChunks['selected'] && tempChunks['selected'][chunkId]) {
                 if (highVisibilityMode) {
                     ctxIn.fillStyle = 'rgba(100, 255, 100, 0.25)';
                 } else if (hoveredChunk === chunkId) {
@@ -1981,8 +1986,7 @@ let drawCanvas = function(ctxIn = ctx) {
                 (!highVisibilityMode || totalZoom > 0.3) && ctxIn.strokeRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
                 !isPainted && ctxIn.fillRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
                 let heightOff;
-                const selectedPosition = window.boardlockedController?.enabled() ?
-                    window.boardlockedController.frontierNumber(chunkId) : tempSelectedChunks.indexOf(chunkId) + 1;
+                const selectedPosition = tempSelectedChunks.indexOf(chunkId) + 1;
                 if (selectedPosition > 999) {
                     ctxIn.font = (totalZoom * (imgW / rowSize) * (1 / 2)) + 'px Calibri, Roboto Condensed, sans-serif';
                     heightOff = 0.65;
