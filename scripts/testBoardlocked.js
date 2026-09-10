@@ -927,6 +927,34 @@ test('metadata classification lets only ordinary XP and direct item-use actions 
     }
 });
 
+test('legacy cross-skill mirrors cannot move a recipe outside its progression window', () => {
+    const name = "Make a ~|forester's ration|~";
+    const meta = structuredClone(chunkData.challenges.Cooking[name]);
+    meta.Tasks = { [name + '--Woodcutting']: 'Woodcutting' };
+    const classified = R.taskMetadata(name, 'Cooking', meta, require('../tasksMap.json'));
+    assert.equal(classified.taskClass, 'skill_progression');
+    assert.equal(classified.advancesSkillProgression, true);
+
+    const request = makeRequest(['5427', '5942']);
+    request.boardlocked.state.actualLevels.Woodcutting = 99;
+    request.boardlocked.state.acquiredEnablers['Forestry kit'] = { manual: true };
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    const result = runWorker(request).result;
+    const ration = result.tasks.find(task => task.name === name);
+    assert.ok(ration?.available); assert.equal(ration.taskClass, 'skill_progression');
+
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const chicken = catalog.find(task => task.skill === 'Cooking' && /cooked chicken/.test(task.name));
+    const legacy = { checkedAllTasks: { Cooking: { [chicken.name]: true } } };
+    const state = R.initializeProgression(request.boardlocked.state, catalog, legacy, request.boardlocked.tasksMap);
+    const adapted = R.adaptTasks(result.tasks, legacy, state, request.chunks, result.sections,
+        request.manualSections, catalog, request.boardlocked.tasksMap).find(task => task.taskId === ration.taskId);
+    assert.equal(state.progressionHighWater.Cooking, 1);
+    assert.equal(adapted.progressionCeiling, 16);
+    assert.equal(adapted.progressionBlocked, true);
+    assert.equal(adapted.eligible, false);
+});
+
 test('concrete live acceptance actions retain exact levels without actual-level bypass', () => {
     const request = makeRequest(['6197', '5942']);
     const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);

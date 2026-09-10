@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 17;
+    const VERSION = 18;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -476,6 +476,9 @@
     }
     function taskMetadata(name, skill, meta, ids = {}) {
         const categories = meta.Category || [];
+        const taskRequirements = Object.entries(meta.Tasks || {});
+        const onlyMirroredSkillRequirements = taskRequirements.length > 0 && taskRequirements.every(([taskName, taskSkill]) =>
+            taskName === name + '--' + taskSkill && own(meta.Skills, taskSkill));
         let taskClass = 'other', classificationReason = 'Independent or metadata-only objective';
         if (skill === 'Unlocks / Tools') {
             taskClass = 'enabler'; classificationReason = 'Persistent reusable item acquisition';
@@ -491,10 +494,11 @@
             taskClass = 'activity'; classificationReason = 'Independent activity/rule category: ' + categories.join(', ');
         } else if (SKILLS.includes(skill) && Number.isFinite(meta.Level) && !meta.NoXp && (meta.Primary === true ||
             (meta.Primary === false && meta.Items?.length && !meta.Chunks?.length && !meta.Output && !meta.Monsters?.length &&
-                !meta.NPCs?.length && !meta.Tasks && !meta['Not Equip']))) {
+                !meta.NPCs?.length && (!taskRequirements.length || onlyMirroredSkillRequirements) && !meta['Not Equip']))) {
             taskClass = 'skill_progression';
             classificationReason = meta.Primary === true ? 'Primary XP action with a skill level and no special category' :
-                'Direct item/tool-use action with a skill level and no reward, geography, prerequisite, or special category';
+                onlyMirroredSkillRequirements ? 'Direct skill action with a mirrored cross-skill requirement' :
+                    'Direct item/tool-use action with a skill level and no reward, geography, prerequisite, or special category';
         }
         const advancesSkillProgression = taskClass === 'skill_progression' && Number.isFinite(meta.Level);
         const bisReason = taskClass === 'bis' ? stripMarkup(meta.BisReason ||
