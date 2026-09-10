@@ -2973,6 +2973,13 @@ let handleMouseUp = function(e) {
             e.preventDefault();
             e.stopPropagation();
             if (window.boardlockedController?.enabled()) {
+                let chunkId = convertToChunkNum(Math.floor((currentX - dragTotalX) / (totalZoom * (imgW / rowSize))), Math.floor((currentY - dragTotalY) / (totalZoom * (imgH / (fullSize / rowSize)))));
+                let coords = convertToXY(chunkId);
+                if (coords.x >= 0 && coords.x < rowSize && coords.y >= 0 && coords.y < (fullSize / rowSize) &&
+                    window.boardlockedController.handleStartingTileClick?.(chunkId)) {
+                    drawCanvas();
+                    return;
+                }
                 window.boardlockedController.notice('Boardlocked unlocks tiles through Roll next location. Right-click a tile to inspect it.');
                 drawCanvas();
                 return;

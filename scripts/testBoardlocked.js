@@ -2182,6 +2182,23 @@ test('mode off: pick/roll2/unpick implementations retain original bodies after o
         assert.equal(withoutDispatch(fn(current)), withoutDispatch(fn(original)));
     }
 });
+test('manual starting-tile selection is staged behind an explicit confirmation', () => {
+    const root = path.join(__dirname, '..');
+    const ui = fs.readFileSync(path.join(root, 'boardlocked-ui.js'), 'utf8');
+    const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
+    assert.match(ui, /<button id="bl-start-pick"[^>]*>Pick starting tile<\/button>/);
+    assert.match(ui, /<button id="bl-start-confirm"[^>]*>Confirm start<\/button>/);
+    assert.match(ui, /Click a highlighted tile on the map\./);
+    assert.match(ui, /function handleStartingTileClick\(locationId\)/);
+    assert.match(index, /handleStartingTileClick\?\.\(chunkId\)/);
+    const selectBody = ui.slice(ui.indexOf('function handleStartingTileClick'), ui.indexOf('function confirmStartingTile'));
+    assert.doesNotMatch(selectBody, /\bbegin\(|tempChunks\.unlocked|\bsave\(/,
+        'selecting a preview must not unlock or persist the tile');
+    const confirmBody = ui.slice(ui.indexOf('function confirmStartingTile'), ui.indexOf('function begin(candidate)'));
+    assert.match(confirmBody, /\bbegin\(candidate\)/, 'confirmation commits through the normal visit flow');
+    assert.match(ui, /if \(!pickingStartingTile \|\| hasStarted\(\)\) return false;/,
+        'map clicks are intercepted only while choosing the first tile');
+});
 test('production mode logic contains no hard-coded seed or equipment exceptions', () => {
     const root = path.join(__dirname, '..');
     for (const file of ['boardlocked.js', 'boardlocked-worker.js', 'boardlocked-ui.js']) {

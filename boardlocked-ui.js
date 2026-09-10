@@ -13,6 +13,7 @@
     let enablerCatalog = [], enablerAmbiguities = [], slayerMasterCatalog = [], slayerConfirmation = null;
     let pool = R.derivePool([], {}, [], null), travelGraph = null, signature = '', previousUnlocked = null;
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
+    let pickingStartingTile = false, selectedStartingCandidate = null;
     let panel = null, message = '', dataReady = false;
     let loadFailure = false, recoveredBrowserBackup = false, browserVaultError = null;
     let catalog = [], catalogData = null, setupLocations = [];
@@ -206,6 +207,12 @@
     }
     function setPanelOpen(open) {
         if (!panel) return;
+        if (!open && pickingStartingTile) {
+            pickingStartingTile = false;
+            selectedStartingCandidate = null;
+            document.body.classList.remove('bl-start-picking');
+            if (typeof drawCanvas === 'function') drawCanvas();
+        }
         panel.hidden = !open;
         document.getElementById('boardlocked-panel-button')?.setAttribute('aria-expanded', String(open));
     }
@@ -394,6 +401,8 @@
         travelGraph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed,
             BoardlockedData.travelConnections);
         pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, travelGraph, state.travelAnchor, state.travelAnchorSections);
+        if (selectedStartingCandidate && !pool.candidates.some(candidate => candidate.kind === 'frontier' &&
+            candidate.locationId === selectedStartingCandidate.locationId)) selectedStartingCandidate = null;
         if (hasStarted()) syncDisplayedFrontier(pool.candidates.filter(candidate => candidate.kind === 'frontier')
             .map(candidate => candidate.locationId));
         else syncDisplayedFrontier([]);
@@ -494,6 +503,62 @@
         if (!R.canRoll(state)) return notice('Complete one of the current visit tasks, or use Void / recalculate current visit.');
         const candidate = !hasStarted() ? R.chooseStartingCandidate(pool.candidates, startingPool) : R.chooseCandidate(pool.candidates);
         if (!candidate) return notice('There is nowhere to roll from this tile. Check its open routes, tasks, and blacklisted tiles.');
+        pickingStartingTile = false;
+        selectedStartingCandidate = null;
+        begin(candidate);
+    }
+    function startPickingTile() {
+        if (!canEdit()) return notice('Unlock this map or enter Sandbox Mode to pick a starting tile.');
+        if (hasStarted()) return notice('A starting tile has already been chosen.');
+        if (busy || error || !dataReady) return notice('Still checking starting tiles. Try again in a moment.');
+        rebuild();
+        if (!pool.candidates.some(candidate => candidate.kind === 'frontier')) return notice('There are no starting tiles available.');
+        pickingStartingTile = true;
+        selectedStartingCandidate = null;
+        message = '';
+        render(); drawCanvas();
+    }
+    function cancelPickingTile() {
+        pickingStartingTile = false;
+        selectedStartingCandidate = null;
+        message = '';
+        render(); drawCanvas();
+    }
+    function handleStartingTileClick(locationId) {
+        if (!pickingStartingTile || hasStarted()) return false;
+        if (busy || error || !dataReady) {
+            notice('Still checking starting tiles. Try again in a moment.');
+            return true;
+        }
+        rebuild();
+        const id = String(locationId);
+        const candidate = pool.candidates.find(entry => entry.kind === 'frontier' && entry.locationId === id);
+        if (!candidate || !startingPool.ids.includes(id)) {
+            notice('Choose one of the highlighted starting tiles.');
+            return true;
+        }
+        selectedStartingCandidate = R.chooseStartingCandidate([candidate], startingPool);
+        message = '';
+        render(); drawCanvas();
+        return true;
+    }
+    function confirmStartingTile() {
+        if (!pickingStartingTile || hasStarted() || !selectedStartingCandidate) return;
+        if (!canEdit()) return notice('Unlock this map or enter Sandbox Mode to start.');
+        if (busy || error || !dataReady) return notice('Still checking starting tiles. Try again in a moment.');
+        const selected = selectedStartingCandidate;
+        rebuild();
+        const current = pool.candidates.find(candidate => candidate.kind === 'frontier' &&
+            candidate.locationId === selected.locationId);
+        if (!current || !startingPool.ids.includes(current.locationId)) {
+            selectedStartingCandidate = null;
+            notice('That tile is no longer available. Choose another highlighted tile.');
+            drawCanvas();
+            return;
+        }
+        const candidate = { ...current, metadata: { ...(current.metadata || {}), ...(selected.metadata || {}) } };
+        pickingStartingTile = false;
+        selectedStartingCandidate = null;
         begin(candidate);
     }
     function begin(candidate) {
@@ -690,6 +755,7 @@
     }
     function setInitializationOption(key, checked) {
         if (!canEdit() || hasStarted() || !R.own(state.initialization, key)) return;
+        selectedStartingCandidate = null;
         state.initialization[key] = checked;
         const questChanged = syncInitializationCompletions(true);
         const setupChanged = syncAssumedAccountSetup(true);
@@ -889,6 +955,8 @@
         document.getElementById('bl-reset').disabled = !canEdit();
         document.getElementById('bl-preset-status').textContent = 'Rules: ' + activeRulePreset();
         const started = hasStarted();
+        if (started) { pickingStartingTile = false; selectedStartingCandidate = null; }
+        document.body.classList.toggle('bl-start-picking', pickingStartingTile && !started);
         const startSetup = document.getElementById('bl-start-setup');
         startSetup.hidden = started;
         for (const key of Object.keys(state.initialization)) {
@@ -917,6 +985,15 @@
         const startRollButton = document.getElementById('bl-start-roll');
         startRollButton.disabled = rollButton.disabled;
         startRollButton.textContent = rollButton.textContent;
+        document.getElementById('bl-start-actions').hidden = pickingStartingTile;
+        document.getElementById('bl-start-picker').hidden = !pickingStartingTile;
+        const startPickButton = document.getElementById('bl-start-pick');
+        startPickButton.disabled = rollButton.disabled;
+        const startConfirmButton = document.getElementById('bl-start-confirm');
+        startConfirmButton.disabled = !selectedStartingCandidate || rollButton.disabled;
+        const startChoice = document.getElementById('bl-start-choice');
+        startChoice.textContent = selectedStartingCandidate ? 'Selected: ' + selectedStartingCandidate.locationId +
+            (label(selectedStartingCandidate.locationId) ? ' — ' + label(selectedStartingCandidate.locationId) : '') : 'No tile selected yet.';
         $('.pick').prop('disabled', rollButton.disabled).text(rollButton.textContent);
         const visit = state.currentVisit;
         document.getElementById('bl-visit-title').textContent = visit ? '#' + visit.visitNumber + ' · ' + visit.locationId + ' — ' + visit.chunkName :
@@ -1168,6 +1245,41 @@
     function drawOverlay(context) {
         if (!state.enabled || !context || !dataReady) return;
         context.save();
+        if (!hasStarted()) {
+            if (!pickingStartingTile) { context.restore(); return; }
+            const candidateIds = pool.candidates.filter(candidate => candidate.kind === 'frontier').map(candidate => candidate.locationId);
+            for (const id of candidateIds) {
+                const point = convertToXY(id), sizeX = totalZoom * imgW / rowSize, sizeY = totalZoom * imgH / (fullSize / rowSize);
+                const x = dragTotalX + point.x * sizeX, y = dragTotalY + point.y * sizeY;
+                const selected = id === selectedStartingCandidate?.locationId;
+                context.fillStyle = selected ? 'rgba(255, 209, 102, .48)' : 'rgba(67, 210, 111, .32)';
+                context.fillRect(x + 3, y + 3, sizeX - 6, sizeY - 6);
+                if (selected) {
+                    context.save();
+                    context.globalAlpha = .68;
+                    for (const sectionId of selectedStartingCandidate.metadata?.entrySections || []) {
+                        const overlay = sectionOverlay(id, sectionId);
+                        if (overlay?.canvas) context.drawImage(overlay.canvas, x + 3, y + 3, sizeX - 6, sizeY - 6);
+                    }
+                    context.restore();
+                }
+                context.strokeStyle = selected ? '#d99b00' : '#196f45';
+                context.lineWidth = selected ? 5 : 2;
+                context.setLineDash([]);
+                context.strokeRect(x + 3, y + 3, sizeX - 6, sizeY - 6);
+                if (selected && sizeX >= 44 && sizeY >= 36) {
+                    const marker = 'START';
+                    context.font = 'bold ' + Math.max(9, Math.min(15, sizeX * .16)) + 'px Arial, sans-serif';
+                    context.textAlign = 'center'; context.textBaseline = 'middle';
+                    const width = context.measureText(marker).width + 10, centerX = x + sizeX / 2, centerY = y + sizeY / 2;
+                    context.fillStyle = 'rgba(0, 30, 35, .76)';
+                    context.fillRect(centerX - width / 2, centerY - 10, width, 20);
+                    context.fillStyle = '#fff'; context.fillText(marker, centerX, centerY + .5);
+                }
+            }
+            context.restore();
+            return;
+        }
         const ids = new Set([...pool.reachableLive, ...pool.dormant]);
         if (state.travelAnchor) ids.add(state.travelAnchor);
         for (const id of ids) {
@@ -1246,8 +1358,10 @@
             <details class="bl-start-instructions"><summary>Instructions</summary><ol class="bl-start-route"><li>Pick up the iron dagger near Lumbridge.</li><li>Kill a level-3 rat in Lumbridge Swamp for raw rat meat.</li><li>Buy raw chicken and raw beef from Wydin’s Food Store in Port Sarim.</li><li>Talk to Veos and travel to Kourend, then talk to him again to travel to Land’s End.</li><li>Flinch the bear cub from the outside corner of the house, take its meat, and finish Druidic Ritual.</li></ol><figure><img src="./resources/boardlocked-bear-flinch.jpg" alt="Player standing on the outside corner of the house with the bear cub nearby" loading="lazy"><figcaption>Attack once, return to the outside corner, and wait for the bear’s health bar to disappear. Repeat until it dies.</figcaption></figure></details>
             <div class="bl-start-grid">
             <label class="bl-start-option"><input id="bl-start-varlamore" type="checkbox"><span><strong>Varlamore starts</strong><small>Assumes Children of the Sun is complete before rolling.</small></span></label>
-            <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds Wilderness tiles. PvP and normal Wilderness danger still apply.</small></span></label>
-            </div><p id="bl-start-summary" class="bl-muted"></p><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button></section>
+            <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds wilderness tiles.</small></span></label>
+            </div><p id="bl-start-summary" class="bl-muted"></p>
+            <div id="bl-start-actions"><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button><button id="bl-start-pick" class="bl-start-pick" type="button">Pick starting tile</button></div>
+            <div id="bl-start-picker" class="bl-start-picker" hidden><p><strong>Click a highlighted tile on the map.</strong> You can change your pick before confirming.</p><p id="bl-start-choice" class="bl-start-choice" aria-live="polite"></p><div class="bl-start-picker-actions"><button id="bl-start-confirm" class="bl-primary" type="button">Confirm start</button><button id="bl-start-cancel" type="button">Cancel</button></div></div></section>
             <details id="bl-run-setup"><summary>Continue or import a run</summary>
             <div class="bl-toolbar"><label class="bl-file">Import backup<input id="bl-import" type="file" accept=".json,application/json"></label></div>
             <h3>Continue an existing run</h3><p>Add your unlocked chunk IDs in order, separated by commas. The map will mark each chunk as free or show the tasks you can complete there.</p>
@@ -1296,6 +1410,9 @@
         document.getElementById('bl-close').onclick = () => { setPanelOpen(false); focusPanelButton(); };
         document.getElementById('bl-roll').onclick = roll;
         document.getElementById('bl-start-roll').onclick = roll;
+        document.getElementById('bl-start-pick').onclick = startPickingTile;
+        document.getElementById('bl-start-confirm').onclick = confirmStartingTile;
+        document.getElementById('bl-start-cancel').onclick = cancelPickingTile;
         document.getElementById('bl-void').onclick = voidCurrent;
         document.getElementById('bl-export').onclick = exportRun;
         document.getElementById('bl-import').onchange = event => { importRun(event.target.files[0]); event.target.value = ''; };
@@ -1321,6 +1438,7 @@
         render();
     }
     window.boardlockedController = { enabled, notice, calculate, invalidate, onLegacyChange, roll, allowRelock, drawOverlay, bootstrapLocal,
+        handleStartingTileClick,
         isFrontierCandidate: id => pool.candidates.some(candidate => candidate.kind === 'frontier' && candidate.locationId === String(id)),
         frontierNumber: id => pool.candidates.filter(candidate => candidate.kind === 'frontier').findIndex(candidate => candidate.locationId === String(id)) + 1,
         open: () => {
@@ -1331,6 +1449,7 @@
             document.getElementById('bl-close')?.focus();
         },
         debug: () => ({ state: R.copy(state), pool: R.copy(pool), tasks: R.copy(tasks), progressionHighWater: { ...state.progressionHighWater },
+            startingPicker: { active: pickingStartingTile, selected: R.copy(selectedStartingCandidate) },
             enablerCatalog: R.copy(enablerCatalog), enablerAmbiguities: R.copy(enablerAmbiguities),
             slayerMasterCatalog: R.copy(slayerMasterCatalog), slayerConfirmation: R.copy(slayerConfirmation),
             rulePreset: activeRulePreset(), diagnostics: R.copy(diagnostics), sourceCounts, busy, error, generation }),
