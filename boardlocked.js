@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 18;
+    const VERSION = 19;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -1566,6 +1566,7 @@
         }
         const forestry = annotations.forestry || {};
         const forestryCategories = new Set(forestry.taskCategories || []);
+        const forestryEventUniqueItems = new Set(forestry.eventUniqueItems || []);
         const isDirectForestry = meta => (meta?.Category || []).some(category => forestryCategories.has(category));
         const excludedForestryLocations = new Set((forestry.excludedOriginGroups || []).flatMap(group =>
             expand(group, codes.chunksPlus)).map(location => {
@@ -1734,6 +1735,7 @@
             }
             const acquisitionTarget = ['bis', 'collection'].includes(record.taskClass) && requirementMeta.Items?.length === 1 &&
                 !requirementMeta.Items[0].includes('*') ? canonicalItemKey(requirementMeta.Items[0]) : null;
+            const forestryEventUnique = forestBound && forestryEventUniqueItems.has(acquisitionTarget);
             if (acquisitionTarget) {
                 const acquisition = itemAcquisitionStatus(acquisitionTarget);
                 if (acquisition.paths.length) {
@@ -1747,6 +1749,7 @@
                     }
                 }
             }
+            if (forestryEventUnique) record.origins = kitOrigins;
             record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, requirementMeta);
             record.resourceMilestoneDependencies = record.taskClass === 'skill_progression' ?
                 taskResourceMilestoneDependencies(name, requirementMeta) : [];

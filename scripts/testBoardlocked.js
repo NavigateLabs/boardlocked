@@ -1621,6 +1621,38 @@ test('Forestry case C: participation stays hidden while its collection reward ke
         'the hidden participation record still proves how the reward is obtained');
 });
 
+test('Forestry event uniques stay together at the Friendly Forester instead of occupying every tree tile', () => {
+    assert.deepEqual(annotations.forestry.eventUniqueItems,
+        ['Fox whistle', 'Golden pheasant egg', 'Petal garland', 'Sturdy beehive parts']);
+    const request = makeRequest(['5427', '4912']);
+    request.boardlocked.state.actualLevels.Woodcutting = 99;
+    request.boardlocked.state.acquiredEnablers['Forestry kit'] = { manual: true };
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    const result = runWorker(request).result;
+    const namesByItem = new Map(Object.entries(request.chunkInfo.challenges.Extra).filter(([, meta]) =>
+        meta.Items?.length === 1 && annotations.forestry.eventUniqueItems.includes(meta.Items[0]))
+        .map(([name, meta]) => [meta.Items[0], name]));
+    const ids = new Set([...namesByItem.values()].map(name => R.taskId(name, 'Extra', request.boardlocked.tasksMap)));
+    const eventTasks = result.tasks.filter(task => ids.has(task.taskId));
+    assert.equal(eventTasks.length, 4);
+    assert.ok(eventTasks.every(task => task.available));
+    assert.ok(eventTasks.every(task => task.origins.length && task.origins.every(origin =>
+        origin.chunkId === '5427' && origin.sourceName === 'Friendly Forester')));
+    assert.ok(eventTasks.every(task => task.accessResult.treeSource.origins.some(origin => origin.chunkId === '4912')),
+        'the separate unlocked tree still satisfies the event requirement');
+
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const adapted = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections,
+        request.manualSections, catalog, request.boardlocked.tasksMap);
+    const treeVisit = R.snapshotVisit(R.startVisit(request.boardlocked.state, { kind: 'revisit', locationId: '4912' }), adapted);
+    assert.ok(treeVisit.currentVisit.candidateTaskIds.every(id => !ids.has(id)),
+        'the ordinary tree tile does not inherit the rare collection grind');
+    const foresterVisit = R.snapshotVisit(R.startVisit(request.boardlocked.state, { kind: 'revisit', locationId: '5427' }), adapted);
+    assert.ok([...ids].every(id => foresterVisit.currentVisit.candidateTaskIds.includes(id)));
+    const resolved = R.resolveVisit(foresterVisit, new Set([eventTasks[0].taskId]));
+    assert.equal(resolved.currentVisit.resolution, 'task_completed');
+});
+
 test('Forestry case D: a closed non-Guild tree section cannot satisfy the tree gate', () => {
     const request = makeRequest(['5427', '5942']); request.boardlocked.state.actualLevels.Woodcutting = 99;
     request.boardlocked.state.acquiredEnablers['Forestry kit'] = { manual: true };

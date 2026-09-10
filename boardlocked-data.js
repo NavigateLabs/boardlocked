@@ -173,6 +173,9 @@
             taskCategories: Object.freeze(['Forestry', 'ForestryXp']),
             kitItem: 'Forestry kit',
             kitNpc: 'Friendly Forester',
+            eventUniqueItems: Object.freeze([
+                'Fox whistle', 'Golden pheasant egg', 'Petal garland', 'Sturdy beehive parts'
+            ]),
             excludedOriginGroups: Object.freeze(['Woodcutting guild[+]'])
         })
     });
