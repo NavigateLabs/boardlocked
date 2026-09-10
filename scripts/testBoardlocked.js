@@ -892,11 +892,11 @@ test('Cooking uses a 15-level rolling window for gradual chicken-to-pie-to-fish 
     assert.equal(tasks.find(task => task.taskId === salmon.taskId).eligible, true);
 });
 
-test('every skill has an explicit progression window chosen for its task density', () => {
+test('every skill has an explicit progression rule and Slayer delegates pacing to masters', () => {
     assert.deepEqual(R.PROGRESSION_WINDOWS, {
         Attack: 10, Strength: 10, Defence: 10, Hitpoints: 25, Ranged: 10, Prayer: 20, Magic: 15,
         Cooking: 15, Woodcutting: 15, Fletching: 10, Fishing: 10, Firemaking: 15, Crafting: 10,
-        Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 15, Slayer: 20,
+        Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 15, Slayer: 0,
         Farming: 20, Runecraft: 15, Hunter: 10, Construction: 10, Sailing: 20
     });
     assert.deepEqual(Object.keys(R.PROGRESSION_WINDOWS).sort(), R.SKILLS.slice().sort());
@@ -913,6 +913,83 @@ test('a sparse skill exposes its nearest next milestone without pretending its o
     const adapted = R.adaptTasks([high], {}, state, { '1000': '1000' }, {}, {}, catalog)[0];
     assert.equal(adapted.progressionBlocked, false); assert.equal(adapted.eligible, false);
     assert.equal(adapted.progressionCeiling, 30); assert.match(adapted.eligibilityReason, /geography/);
+});
+
+test('Slayer account setup and master tasks remain independent progression entry points', () => {
+    assert.deepEqual(annotations.initialization.assumedCompletedTasks, [{
+        skill: 'Slayer', name: 'Receive a Slayer assignment from ~|Turael|~ in Burthorpe'
+    }]);
+    assert.deepEqual(annotations.initialization.assumedPrimarySkills, ['Slayer']);
+    const name = 'Receive a Slayer assignment from ~|Vannaka|~ in Edgeville Dungeon';
+    const meta = chunkData.challenges.Slayer[name];
+    assert.equal(R.taskMetadata(name, 'Slayer', meta, require('../tasksMap.json')).taskClass, 'activity');
+    assert.equal(R.PROGRESSION_WINDOWS.Slayer, 0);
+    assert.equal(R.progressionCeiling(R.buildTaskCatalog(chunkData), 'Slayer', 1, 1), 99);
+});
+
+test('Slayer progression uses the full assignment pool of a usable master', () => {
+    const state = fresh(); state.actualLevels.Slayer = 1;
+    const legacy = { completedChallenges: { Quest: { '~|Priest in Peril|~ Complete the quest': true } } };
+    const model = R.slayerProgressionModel({ data: chunkData, state, legacy, ids: require('../tasksMap.json'),
+        base: { npcs: { Turael: { '11575-1': true } }, monsters: { Rat: { '5942': true }, 'Crawling Hand': { '13623': true } } },
+        unlocked: { '11575': true, '5942': true, '13623': true },
+        sections: { '11575': { '1': true }, '5942': { '1': true }, '13623': { '1': true } }, manualSections: {} });
+    assert.equal(model.trainingAvailable, true);
+    assert.equal(model.ceiling, 22);
+    assert.equal(model.nextMilestone, 5);
+    assert.equal(model.maximumSupportedLevel, 22);
+    assert.deepEqual(model.masters.map(master => master.master), ['Turael']);
+    assert.equal(model.supportsMonsterAtOrigin('Crawling Hand', { chunkId: '13623', sectionId: null }), true);
+    assert.equal(model.supportsMonsterAtOrigin('Abyssal demon', { chunkId: '13623', sectionId: null }), false);
+
+    const stranded = R.slayerProgressionModel({ data: chunkData, state, legacy, ids: require('../tasksMap.json'),
+        base: { npcs: { Turael: { '11575-1': true } }, monsters: { 'Crawling Hand': { '13623': true } } },
+        unlocked: { '11575': true, '13623': true }, sections: { '11575': { '1': true }, '13623': { '1': true } }, manualSections: {} });
+    assert.equal(stranded.trainingAvailable, false, 'a master with no currently doable assignment cannot train Slayer');
+    assert.equal(stranded.ceiling, 1);
+});
+
+test('Slayer masters require the player combat level and Konar keeps location restrictions', () => {
+    const lowLevel = fresh(); lowLevel.actualLevels.Slayer = 22;
+    let model = R.slayerProgressionModel({ data: chunkData, state: lowLevel, ids: require('../tasksMap.json'),
+        base: { npcs: { Vannaka: { '12698': true } }, monsters: { 'Hill Giant': { '5688': true } } },
+        unlocked: { '12698': true, '5688': true }, sections: {}, manualSections: {} });
+    assert.equal(model.trainingAvailable, false, 'an unlocked level-40 master is dormant below combat 40');
+
+    const state = fresh(); Object.assign(state.actualLevels,
+        { Slayer: 22, Attack: 50, Strength: 50, Defence: 50, Hitpoints: 50, Prayer: 30 });
+    model = R.slayerProgressionModel({ data: chunkData, state, ids: require('../tasksMap.json'),
+        base: { npcs: { Vannaka: { '12698': true } }, monsters: { 'Hill Giant': { '5688': true } } },
+        unlocked: { '12698': true, '5688': true }, sections: {}, manualSections: {} });
+    assert.equal(model.trainingAvailable, true);
+    assert.equal(model.ceiling, 55, 'the assignment table also respects its per-creature combat restrictions');
+    assert.equal(model.nextMilestone, 25);
+
+    Object.assign(state.actualLevels, { Slayer: 50, Attack: 75, Strength: 75, Defence: 75, Hitpoints: 75, Prayer: 50 });
+    model = R.slayerProgressionModel({ data: chunkData, state,
+        legacy: { completedChallenges: { Quest: { '~|Priest in Peril|~ Complete the quest': true } } },
+        ids: require('../tasksMap.json'),
+        base: { npcs: { 'Konar quo Maten': { '5179': true } }, monsters: { Bloodveld: { '13623': true, '5688': true } } },
+        unlocked: { '5179': true, '13623': true, '5688': true }, sections: {}, manualSections: {} });
+    assert.equal(model.trainingAvailable, true);
+    assert.equal(model.supportsMonsterAtOrigin('Bloodveld', { chunkId: '13623', sectionId: null }), true);
+    assert.equal(model.supportsMonsterAtOrigin('Bloodveld', { chunkId: '5688', sectionId: null }), false,
+        'Konar support applies only to the location named by her assignment');
+});
+
+test('a Slayer training visit accepts incidental drops only from the supporting master pool', () => {
+    const current = { taskId: 'high-target', name: 'High target', displayName: 'High target', skill: 'Slayer',
+        taskClass: 'skill_progression', eligible: true, activeOrigins: [origin('9000')],
+        slayerProgression: { requiresTraining: true, supportingMasters: ['Vannaka'] } };
+    const poolDrop = { taskId: 'pool-drop', name: 'Pool drop', displayName: 'Pool drop', skill: 'Collection Log',
+        taskClass: 'collection', eligible: true, activeOrigins: [origin('1000')], slayerTrainingAlternative: true,
+        slayerTrainingMasters: ['Vannaka'] };
+    const otherDrop = { ...poolDrop, taskId: 'other-drop', name: 'Other drop', displayName: 'Other drop',
+        slayerTrainingMasters: ['Turael'] };
+    const state = R.snapshotVisit(R.startVisit(fresh(), { kind: 'frontier', locationId: '9000' }),
+        [current, poolDrop, otherDrop]);
+    assert.deepEqual(state.currentVisit.candidateTaskIds.sort(), ['high-target', 'pool-drop']);
+    assert.equal(state.currentVisit.candidateTasks['pool-drop'].slayerTrainingAlternative, true);
 });
 
 test('actual levels open only the nearest catch-up milestone in each accessible area', () => {
@@ -1836,6 +1913,42 @@ test('real worker: higher Guild source becomes available at actual 60 while a le
     assert.ok(vm.runInContext('baseChunkData.items["Rune axe"]', context));
     const redwood = result.tasks.find(t => t.level === 90 && /redwood/.test(t.name));
     assert.ok(redwood); assert.ok(redwood.origins.some(o => o.chunkId === '6198'));
+});
+test('real worker: Turael exposes his currently assignable pool without exposing Slayer Tower endgame', () => {
+    const request = usePreset(makeRequest(['11575', '5942', '13623']), 'Boardlocked Chunker');
+    request.manualPrimary.Slayer = true;
+    request.completedChallenges.Slayer = {
+        'Receive a Slayer assignment from ~|Turael|~ in Burthorpe': true
+    };
+    request.completedChallenges.Quest = { '~|Priest in Peril|~ Complete the quest': true };
+    request.boardlocked.state.actualLevels.Slayer = 1;
+    const result = runWorker(request).result;
+    const crawlingHand = result.tasks.find(task => task.name === 'Slay a ~|Crawling Hand|~');
+    const banshee = result.tasks.find(task => task.name === 'Slay a ~|banshee|~');
+    const abyssalDemon = result.tasks.find(task => task.name === 'Slay an ~|abyssal demon|~');
+    const crawlingHandLog = result.tasks.find(task => /Obtain a ~\|crawling hand\|~/.test(task.name));
+    assert.equal(crawlingHand.available, true);
+    assert.equal(crawlingHand.slayerProgression.ceiling, 22);
+    assert.equal(crawlingHandLog.available, true, 'collection drops share the same valid Slayer source');
+    assert.equal(crawlingHandLog.slayerTrainingAlternative, true);
+    assert.deepEqual(crawlingHandLog.slayerTrainingMasters, ['Turael']);
+    assert.equal(banshee.available, false, 'the current combat level cannot yet receive Turael\'s Banshee assignment');
+    assert.match(banshee.accessResult.reason, /not assignable by a currently usable master/);
+    assert.equal(abyssalDemon.available, false);
+    assert.ok(!R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections,
+        request.manualSections).some(task => task.eligible && task.name === abyssalDemon.name));
+});
+
+test('real worker: actual Slayer level cannot bypass the usable-master pool', () => {
+    const request = usePreset(makeRequest(['13623']), 'Boardlocked Chunker');
+    request.manualPrimary.Slayer = true;
+    request.boardlocked.state.actualLevels.Slayer = 85;
+    const result = runWorker(request).result;
+    const abyssalDemon = result.tasks.find(task => task.name === 'Slay an ~|abyssal demon|~');
+    assert.ok(abyssalDemon);
+    assert.equal(abyssalDemon.available, false);
+    assert.equal(abyssalDemon.slayerProgression.actualLevel, 85);
+    assert.match(abyssalDemon.accessResult.reason, /not assignable by a currently usable master/);
 });
 test('real worker: manually closed Guild section beats actual level 99', () => {
     const request = makeRequest(['6198', '5942', '6454', '6197']); request.boardlocked.state.actualLevels.Woodcutting = 99;

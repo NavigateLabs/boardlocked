@@ -31,7 +31,10 @@
     const label = id => chunkInfo.chunks?.[id]?.Nickname || chunkInfo.chunks?.[id]?.Name || '';
     const hasStarted = () => !!state.travelAnchor || !!state.currentVisit || state.visitHistory.length > 0 ||
         Object.keys(tempChunks.unlocked || {}).length > 0;
-    const isInitializationTask = id => Object.values(state.initializationTaskIds || {}).some(ids => ids.includes(id));
+    const assumedSetupTaskIds = () => (BoardlockedData.initialization?.assumedCompletedTasks || [])
+        .map(task => R.taskId(task.name, task.skill, typeof tasksMap === 'object' ? tasksMap : {}));
+    const isInitializationTask = id => Object.values(state.initializationTaskIds || {}).some(ids => ids.includes(id)) ||
+        assumedSetupTaskIds().includes(id);
     const sectionOverlayCache = new Map();
 
     function currentAreaSections() {
@@ -162,6 +165,22 @@
         return changed;
     }
 
+    function syncAssumedAccountSetup() {
+        let changed = false;
+        for (const task of BoardlockedData.initialization?.assumedCompletedTasks || []) {
+            if (completedChallenges?.[task.skill]?.[task.name]) continue;
+            (completedChallenges[task.skill] ||= {})[task.name] = true;
+            changed = true;
+        }
+        for (const skill of BoardlockedData.initialization?.assumedPrimarySkills || []) {
+            if (manualPrimary?.[skill] === true) continue;
+            manualPrimary[skill] = true;
+            changed = true;
+        }
+        if (changed) forceUpdatePluginOutput = true;
+        return changed;
+    }
+
     function notice(text) {
         message = text;
         render();
@@ -268,7 +287,8 @@
             }
             if (state.enabled && !state.rulePresetInitialized) applyBoardlockedPreset(true);
             const initializationChanged = !hasStarted() && syncInitializationCompletions();
-            if (upgradeBoardlockedPreset() || initializationChanged || arrivalMigration.changed || startSectionMigration.changed || anchorSectionsMigrated || recoveredBrowserBackup || parsed?.version < R.VERSION ||
+            const assumedSetupChanged = syncAssumedAccountSetup();
+            if (upgradeBoardlockedPreset() || initializationChanged || assumedSetupChanged || arrivalMigration.changed || startSectionMigration.changed || anchorSectionsMigrated || recoveredBrowserBackup || parsed?.version < R.VERSION ||
                 (!localStorage.getItem(key) && localStorage.getItem(legacyStorageKey()))) save();
             if (recoveredBrowserBackup) message = 'Recovered the previous browser backup because the newest save could not be read. Download a backup now.';
             else if (arrivalMigration.changed) message = 'Removed a land arrival that was not connected to the ocean by a port.';
@@ -388,7 +408,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl21');
+        worker = new Worker('./worker.js?v=6.9.66-bl23');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -691,8 +711,15 @@
     }
     function taskList(container, list, snapshot = false) {
         let lastCategory;
-        for (const task of list.slice().sort((a, b) => a.skill.localeCompare(b.skill) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName))) {
-            if (lastCategory !== task.skill) { container.append(element('h4', task.skill)); lastCategory = task.skill; }
+        const group = task => snapshot && task.slayerTrainingAlternative ? 'Slayer training' : task.skill;
+        for (const task of list.slice().sort((a, b) => group(a).localeCompare(group(b)) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName))) {
+            const category = group(task);
+            if (lastCategory !== category) {
+                container.append(element('h4', category));
+                if (category === 'Slayer training') container.append(element('small',
+                    'Any listed drop obtained while training assignments from your usable Slayer masters completes this visit.'));
+                lastCategory = category;
+            }
             const row = element('div', null, { className: 'bl-task' });
             const checkLabel = element('label');
             const checkbox = element('input', null, { type: 'checkbox', 'aria-label': 'Complete ' + task.displayName });
@@ -873,6 +900,10 @@
             if (frontierInput && document.activeElement !== frontierInput) frontierInput.value = state.progressionHighWater[skill];
             const windowText = document.getElementById('bl-window-' + skill);
             if (windowText) {
+                if (skill === 'Slayer') {
+                    windowText.textContent = 'No fixed band · usable masters and their assignment pools set the limit';
+                    continue;
+                }
                 const highWater = state.progressionHighWater[skill], windowSize = R.progressionWindow(skill);
                 const ceiling = R.progressionCeiling(catalog, skill, highWater), standard = Math.min(99, highWater + windowSize);
                 const hasLaterTask = catalog.some(task => task.skill === skill && task.advancesSkillProgression && task.level > highWater);
@@ -881,6 +912,9 @@
                     'Next: ' + (highWater + 1) + '–' + ceiling + ' (+' + windowSize + ')';
             }
         }
+        const combatLevel = document.getElementById('bl-combat-level');
+        if (combatLevel) combatLevel.textContent = 'Combat level: ' + R.actualCombatLevel(state.actualLevels) +
+            '. Slayer masters use this calculated level together with their Slayer and quest requirements.';
         const unassigned = tasks.filter(t => !t.origins.length);
         document.getElementById('bl-unassigned-count').textContent = 'Unassigned Boardlocked Tasks (' + unassigned.length + ')';
         const unassignedList = document.getElementById('bl-unassigned'); unassignedList.replaceChildren();
@@ -981,6 +1015,7 @@
                 // boundary from the real connection graph and persistent map.
                 rebuildImportedFrontier();
             }
+            syncAssumedAccountSetup();
             const startSectionMigration = R.migrateStartingSections(chunkInfo, nextState, manualSections,
                 chunkInfo.walkableChunks || [], tempChunks.blacklisted || {});
             nextState = startSectionMigration.state; manualSections = startSectionMigration.sections;
@@ -1146,6 +1181,7 @@
             <p id="bl-message" role="status" aria-live="polite"></p>
             <section id="bl-start-setup" class="bl-start-setup"><h3>Start a new account</h3>
             <label class="bl-start-option"><input id="bl-start-druidicRitual" type="checkbox"><span><strong>Druidic Ritual <em>recommended</em></strong><small>Complete it before your first roll; Herblore starts at 3.</small></span></label>
+            <p class="bl-muted">Slayer setup assumes you have spoken to Turael once, so any accessible master can start the skill.</p>
             <ol class="bl-start-route"><li>Pick up the iron dagger near Lumbridge.</li><li>Kill a level-3 rat in Lumbridge Swamp for raw rat meat. Avoid the level-6 rat.</li><li>Buy raw chicken and raw beef from Wydin’s Food Store in Port Sarim.</li><li>Ask Veos for Kourend, then take his boat to Land’s End.</li><li>Flinch the bear cub beside the ruined house, take its meat, and finish Druidic Ritual.</li></ol>
             <details class="bl-flinch-guide"><summary>Show bear-cub flinch spot</summary><figure><img src="./resources/boardlocked-bear-flinch.jpg" alt="Player standing against the outside corner of the ruined house with the bear cub nearby" loading="lazy"><figcaption>Attack once, return to this corner, and wait for the bear’s health bar to disappear. Repeat until it dies.</figcaption></figure></details>
             <div class="bl-start-grid">
@@ -1173,7 +1209,7 @@
             <details><summary id="bl-enabler-summary">Acquired tools (0)</summary><p>Reusable tools such as axes stay unlocked after you get them. If an old save is missing one, add it here.</p>
             <div class="bl-toolbar"><select id="bl-enabler-select" aria-label="Known persistent enabler to register"><option value="">Choose a known reusable item…</option></select><button id="bl-add-enabler" type="button">Mark acquired</button></div>
             <div id="bl-enabler-list"></div><details><summary>Unclear tool requirements</summary><p>These items are not treated as reusable because their task data is unclear.</p><div id="bl-enabler-ambiguities"></div></details></details>
-            <details><summary>Levels &amp; skill progression</summary><p>Train in any unlocked tile and update your actual levels here. Completed skill goals control the normal task band. If your real level gets ahead, the nearest unfinished task available in a tile can catch up.</p><div id="bl-levels"></div><h3>Highest completed task levels</h3><div id="bl-frontiers"></div><button id="bl-rebuild-frontiers" type="button">Rebuild from completed tasks</button><p id="bl-milestones"></p></details>
+            <details><summary>Levels &amp; skill progression</summary><p>Train in any unlocked tile and update your actual levels here. Completed skill goals control the normal task band. If your real level gets ahead, the nearest unfinished task available in a tile can catch up.</p><div id="bl-levels"></div><p id="bl-combat-level"></p><h3>Highest completed task levels</h3><div id="bl-frontiers"></div><button id="bl-rebuild-frontiers" type="button">Rebuild from completed tasks</button><p id="bl-milestones"></p></details>
             <details><summary id="bl-task-count">Other tasks &amp; progress</summary><p>Record past goals, quests, and permanent unlocks here. Routine training does not complete the current visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
             <details><summary>Diagnostics and overrides</summary>
             <details><summary id="bl-unassigned-count">Unassigned Boardlocked Tasks</summary><div id="bl-unassigned"></div></details>
@@ -1235,6 +1271,11 @@
             });
             line.append(input); document.getElementById('bl-levels').append(line);
             const frontierLine = element('label', skill);
+            if (skill === 'Slayer') {
+                frontierLine.append(element('small', 'No fixed band · usable masters and their assignment pools set the limit', { id: 'bl-window-' + skill }));
+                document.getElementById('bl-frontiers').append(frontierLine);
+                continue;
+            }
             const frontierInput = element('input', null, { id: 'bl-frontier-' + skill, type: 'number', min: '0', max: '99',
                 'aria-label': 'Highest completed ' + skill + ' task level' });
             frontierInput.value = state.progressionHighWater[skill];

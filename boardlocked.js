@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 20;
+    const VERSION = 22;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -35,7 +35,7 @@
     const PROGRESSION_WINDOWS = Object.freeze({
         Attack: 10, Strength: 10, Defence: 10, Hitpoints: 25, Ranged: 10, Prayer: 20, Magic: 15,
         Cooking: 15, Woodcutting: 15, Fletching: 10, Fishing: 10, Firemaking: 15, Crafting: 10,
-        Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 15, Slayer: 20,
+        Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 15, Slayer: 0,
         Farming: 20, Runecraft: 15, Hunter: 10, Construction: 10, Sailing: 20
     });
     const LEGACY_BAND_MINIMUMS = Object.freeze([1, 15, 30, 45, 60, 75, 90]);
@@ -490,6 +490,8 @@
             taskClass = 'bis'; classificationReason = 'Best-in-slot category metadata';
         } else if (categories.includes('Collection Log')) {
             taskClass = 'collection'; classificationReason = 'Collection Log category metadata';
+        } else if (skill === 'Slayer' && /^Receive a Slayer assignment from\b/.test(displayName(name))) {
+            taskClass = 'activity'; classificationReason = 'Each accessible Slayer master is an independent training entry point';
         } else if (categories.length) {
             taskClass = 'activity'; classificationReason = 'Independent activity/rule category: ' + categories.join(', ');
         } else if (SKILLS.includes(skill) && Number.isFinite(meta.Level) && !meta.NoXp && (meta.Primary === true ||
@@ -560,6 +562,9 @@
         return [...catalog.values()];
     }
     function progressionCeiling(catalog, skill, highWater, actualLevel = 1) {
+        // Slayer is paced by usable masters and real monster unlock levels in
+        // slayerProgressionModel(). It has no ordinary numeric forward band.
+        if (skill === 'Slayer') return 99;
         const standard = Math.min(99, highWater + progressionWindow(skill));
         const laterLevels = [...new Set(catalog.filter(task => task.skill === skill && task.advancesSkillProgression && task.level > highWater)
             .map(task => task.level))].sort((a, b) => a - b);
@@ -787,6 +792,8 @@
                 ...parseLocation(value), sourceType: 'manual', sourceName: 'Manual origin', reason: 'User origin override'
             })) : task.origins;
             const activeOrigins = origins.filter(origin => locationAvailable(origin, unlocked, sections, manualSections));
+            const activeSlayerTrainingOrigins = (task.slayerTrainingOrigins || [])
+                .filter(origin => locationAvailable(origin, unlocked, sections, manualSections));
             const impliedByItem = impliedEquipmentCompletion(task, completedItems, state);
             const completed = isComplete(task, legacy, state) || !!impliedByItem, backlogged = isBacklogged(task, legacy);
             const highWater = state.progressionHighWater?.[task.skill] ?? 0;
@@ -794,7 +801,9 @@
                 state.actualLevels?.[task.skill] || 1) : null;
             const superseded = !!task.advancesSkillProgression && task.level <= highWater;
             const progressionBlocked = !!task.advancesSkillProgression && task.level > ceiling;
-            return { ...task, origins, activeOrigins, completed, implicitlyCompleted: !!impliedByItem, completionEvidenceItem: impliedByItem,
+            return { ...task, origins, activeOrigins, activeSlayerTrainingOrigins,
+                slayerTrainingAlternative: !!task.slayerTrainingAlternative && activeSlayerTrainingOrigins.length > 0,
+                completed, implicitlyCompleted: !!impliedByItem, completionEvidenceItem: impliedByItem,
                 backlogged, superseded,
                 progressionBlocked, progressionHighWater: task.advancesSkillProgression ? highWater : null,
                 progressionCeiling: ceiling,
@@ -812,6 +821,101 @@
         const withCatchUp = openCatchUpMilestones(adapted, state);
         const ordered = orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(withCatchUp), legacy, state, ids);
         return chooseResourceRepresentativeTasks(ordered, state);
+    }
+
+    function actualCombatLevel(levels = {}) {
+        return Math.floor(((levels.Defence || 1) + (levels.Hitpoints || 10) + Math.floor((levels.Prayer || 1) / 2)) / 4 +
+            .325 * Math.max((levels.Attack || 1) + (levels.Strength || 1), Math.floor((levels.Ranged || 1) * 1.5),
+                Math.floor((levels.Magic || 1) * 1.5)));
+    }
+
+    // Slayer weights are probabilities within one master's assignment table.
+    // They are reported for diagnostics, but never compared between masters.
+    function slayerProgressionModel({ data, state, legacy = {}, base = {}, ids = {}, unlocked = {}, sections = {}, manualSections = {} }) {
+        const levels = state.actualLevels || {}, actualLevel = Number(levels.Slayer) || 1;
+        const combatLevel = actualCombatLevel(levels), codes = data.codeItems || {};
+        const complete = (name, skill) => {
+            const meta = data.challenges?.[skill]?.[name] || {};
+            return isComplete(taskMetadata(name, skill, meta, ids), legacy, state);
+        };
+        const requirementsComplete = (requirements, ownerName = null, ownerMeta = null) => Object.entries(requirements || {}).every(([raw, skill]) => {
+            // The legacy worker mirrors Skills into synthetic task links while
+            // calculating. They are level checks, not completed-goal gates.
+            if (ownerName && raw === ownerName + '--' + skill && own(ownerMeta?.Skills, skill)) return true;
+            const choices = expand(raw, codes.tasksPlus), count = raw.includes('[+]x') ? Number(raw.split('[+]x')[1]) : 1;
+            return choices.filter(name => complete(name.split('--')[0], skill)).length >= count;
+        });
+        const skillsMet = requirements => Object.entries(requirements || {}).every(([skill, minimum]) =>
+            (skill === 'Combat' ? combatLevel : Number(levels[skill]) || 1) >= Number(minimum));
+        const locationMatches = (left, right) => {
+            const a = parseLocation(left), b = parseLocation(right);
+            if (!a || !b) return String(left) === String(right);
+            return a.chunkId === b.chunkId && (!a.sectionId || !b.sectionId || a.sectionId === b.sectionId);
+        };
+        const groupLocations = raw => expand(raw, codes.chunksPlus);
+        const groupAvailable = raw => {
+            const choices = groupLocations(raw), count = raw.includes('[+]x') ? Number(raw.split('[+]x')[1]) : 1;
+            return choices.filter(location => {
+                const parsed = parseLocation(location);
+                return parsed ? locationAvailable(parsed, unlocked, sections, manualSections) : own(unlocked, location);
+            }).length >= count;
+        };
+        const masterChallenge = master => Object.entries(data.challenges?.Slayer || {}).find(([name, meta]) =>
+            /^Receive a Slayer assignment from\b/.test(displayName(name)) && (meta.NPCs || []).includes(master));
+        const masterRequirementsMet = master => {
+            const found = masterChallenge(master);
+            if (!found || !Object.keys(base.npcs?.[master] || {}).length) return false;
+            const [name, meta] = found;
+            return actualLevel >= Number(meta.Level || 1) && skillsMet(meta.Skills) && requirementsComplete(meta.Tasks, name, meta) &&
+                (meta.Chunks || []).every(groupAvailable);
+        };
+        const entryNonLevelRequirementsMet = entry => combatLevel >= Number(entry.CombatLevel || 3) &&
+            skillsMet(entry.Skills) && requirementsComplete(entry.Tasks);
+        const entryOrigins = (entry, monster) => {
+            const origins = Object.keys(base.monsters?.[monster] || {});
+            if (!entry.Chunks?.length) return origins;
+            const allowed = entry.Chunks.flatMap(groupLocations);
+            return origins.filter(origin => allowed.some(location => locationMatches(origin, location)));
+        };
+        const familyMonsters = family => Object.keys(codes.slayerTasks?.[family] || {});
+        const masters = [];
+        for (const [master, entries] of Object.entries(data.slayerMasterTasks || {})) {
+            if (!masterRequirementsMet(master)) continue;
+            const futureEntries = Object.entries(entries).filter(([, entry]) => entryNonLevelRequirementsMet(entry)).map(([name, entry]) => ({
+                name, family: name.split(' - ')[0], level: Number(entry.Level || 1), weight: Number(entry.Weight || 0), entry
+            }));
+            const currentEntries = futureEntries.filter(record => record.level <= actualLevel);
+            const doableEntries = currentEntries.filter(record => familyMonsters(record.family).some(monster =>
+                entryOrigins(record.entry, monster).length));
+            if (!doableEntries.length) continue;
+            const found = masterChallenge(master), priority = Number(found?.[1]?.Priority || 0);
+            masters.push({ master, priority, currentAssignableWeight: currentEntries.reduce((sum, record) => sum + record.weight, 0),
+                currentDoableWeight: doableEntries.reduce((sum, record) => sum + record.weight, 0),
+                currentDoableFamilies: [...new Set(doableEntries.map(record => record.family))],
+                maximumSupportedLevel: Math.max(actualLevel, ...futureEntries.map(record => record.level)), futureEntries });
+        }
+        const maximumSupportedLevel = Math.max(actualLevel, ...masters.map(master => master.maximumSupportedLevel));
+        // Keep the next table milestone as a diagnostic. Slayer does not use a
+        // numeric task band: exact membership in a usable master's pool is the
+        // gate for Slayer creatures and their drops.
+        const milestones = [...new Set(masters.flatMap(master => master.futureEntries.map(entry => entry.level))
+            .filter(level => Number.isFinite(level) && level > 1))].sort((a, b) => a - b);
+        const nextMilestone = milestones.find(level => level > actualLevel && level <= maximumSupportedLevel) || null;
+        const ceiling = maximumSupportedLevel;
+        const monsterFamilies = new Map();
+        for (const [family, monsters] of Object.entries(codes.slayerTasks || {})) for (const monster of Object.keys(monsters || {})) {
+            const families = monsterFamilies.get(monster) || [];
+            if (!families.includes(family)) families.push(family);
+            monsterFamilies.set(monster, families);
+        }
+        const monsterSupportAtOrigin = (monster, origin) => masters.flatMap(master => master.futureEntries.filter(record =>
+            (monsterFamilies.get(monster) || []).includes(record.family) && entryOrigins(record.entry, monster).some(location =>
+                locationMatches(location, origin.chunkId + (origin.sectionId ? '-' + origin.sectionId : '')))).map(record => ({
+                    master: master.master, family: record.family, level: record.level, weight: record.weight
+                })));
+        const supportsMonsterAtOrigin = (monster, origin) => monsterSupportAtOrigin(monster, origin).length > 0;
+        return { actualLevel, combatLevel, trainingAvailable: masters.length > 0, ceiling, nextMilestone,
+            maximumSupportedLevel, masters, monsterSupportAtOrigin, supportsMonsterAtOrigin };
     }
 
     function travelConnectionPairs(connections = []) {
@@ -1115,7 +1219,9 @@
         equipmentName: task.equipmentName || null, taskClass: task.taskClass || null,
         enablerItemKey: task.enablerItemKey || null, provesAcquiredItemKeys: task.provesAcquiredItemKeys || [],
         confirmsEquipped: !!task.confirmsEquipped, capabilities: task.capabilities || [],
-        bisReason: task.bisReason || null, bisSet: task.bisSet || null });
+        bisReason: task.bisReason || null, bisSet: task.bisSet || null,
+        slayerTrainingAlternative: !!task.slayerTrainingAlternative,
+        slayerTrainingMasters: task.slayerTrainingMasters || [] });
     function taskMatchesVisit(task, visit) {
         const arrivalSections = new Set(visit.arrivalSections || []);
         return task.activeOrigins?.some(origin => origin.chunkId === visit.locationId &&
@@ -1124,8 +1230,14 @@
     function snapshotVisit(state, tasks) {
         if (state.currentVisit?.status !== 'pending_calculation') return state;
         const reachableIds = new Set(state.currentVisit.reachableTaskIds || []);
-        const visit = { ...state.currentVisit, candidateTaskIds: [...new Set(tasks.filter(t => t.eligible &&
-            (reachableIds.size ? reachableIds.has(t.taskId) : taskMatchesVisit(t, state.currentVisit))).map(t => t.taskId))] };
+        const direct = tasks.filter(task => task.eligible &&
+            (reachableIds.size ? reachableIds.has(task.taskId) : taskMatchesVisit(task, state.currentVisit)));
+        const trainingMasters = new Set(direct.filter(task => task.slayerProgression?.requiresTraining)
+            .flatMap(task => task.slayerProgression.supportingMasters || []));
+        const trainingAlternatives = trainingMasters.size ? tasks.filter(task => task.eligible && task.slayerTrainingAlternative &&
+            (task.slayerTrainingMasters || []).some(master => trainingMasters.has(master))) : [];
+        const selected = [...new Map([...direct, ...trainingAlternatives].map(task => [task.taskId, task])).values()];
+        const visit = { ...state.currentVisit, candidateTaskIds: selected.map(task => task.taskId) };
         // Keep compact display/category metadata so an invalidated or subsequently
         // removed database entry is still intelligible and completable after reload.
         const snapshotIds = new Set(visit.candidateTaskIds);
@@ -1428,6 +1540,7 @@
         const codes = data.codeItems || {}, tasks = new Map(), sourceCache = new Map(), originCache = new Map();
         const diagnostics = [], accessDiagnostics = [], enablerModel = buildEnablerModel(data, annotations);
         const pendingCapabilities = new Map();
+        const slayerProgression = slayerProgressionModel({ data, state, legacy, base, ids, unlocked, sections, manualSections });
         const shipCombat = annotations.shipCombat || {};
         const shipCombatMonsters = new Set(expand(shipCombat.monsterGroup || '', codes.monstersPlus));
         if (shipCombat.deriveMonstersFromWaterSections) for (const chunk of Object.values(data.chunks || {})) {
@@ -1667,6 +1780,70 @@
         const forestryAxeCapability = enablerModel.byRequirement.get('Axe[+]');
         const milestoneComplete = producer => isComplete({ ...producer, taskClass: 'skill_progression' }, legacy, state) ||
             (producer.level && (state.progressionHighWater?.[producer.skill] || 0) >= producer.level);
+        function applySlayerProgression(record, requirementMeta, requirementSkill) {
+            const explicitRequirement = Math.max(
+                requirementSkill === 'Slayer' ? Number(requirementMeta.Level || 1) : 1,
+                Number(requirementMeta.Skills?.Slayer || 1), Number(requirementMeta.SkillsNeeded?.Slayer || 1),
+                Number(requirementMeta.SkillsNeededSub?.Slayer || 1)
+            );
+            const checked = (record.origins || []).map(origin => {
+                const monsterRequirement = origin.sourceType === 'monsters' ? Number(data.slayerMonsters?.[origin.sourceName] || 1) : 1;
+                const requirement = Math.max(explicitRequirement, monsterRequirement);
+                const support = origin.sourceType === 'monsters' ?
+                    slayerProgression.monsterSupportAtOrigin(origin.sourceName, origin) : [];
+                // Slayer-gated creatures and their drops must occur in a pool
+                // belonging to a master the player can actually use. Meeting
+                // the creature's level alone cannot bypass assignment access.
+                if (monsterRequirement > 1 && !support.length) return { origin, requirement, support, allowed: false,
+                    reason: 'This Slayer creature is not assignable by a currently usable master' };
+                if (requirement <= slayerProgression.actualLevel) return { origin, requirement, support, allowed: true,
+                    reason: 'Actual Slayer level and master assignment access met' };
+                if (!slayerProgression.trainingAvailable) return { origin, requirement, allowed: false,
+                    reason: 'No accessible Slayer master currently has a doable assignment in unlocked chunks' };
+                return { origin, requirement, support, allowed: true,
+                    reason: 'Reachable by training through a currently usable master that assigns this creature' };
+            });
+            const trainingChecks = checked.filter(result => result.support?.length);
+            const slayerTrainingOrigins = uniqueOrigins(trainingChecks.map(result => result.origin));
+            const slayerTrainingMasters = [...new Set(trainingChecks.flatMap(result => result.support.map(support => support.master)))];
+            const incidentalTrainingDrop = ['bis', 'collection'].includes(record.taskClass) && slayerTrainingOrigins.length > 0;
+            if (incidentalTrainingDrop) record = { ...record, slayerTrainingAlternative: true,
+                slayerTrainingOrigins, slayerTrainingMasters };
+            const requiresSlayer = explicitRequirement > 1 || checked.some(result => result.requirement > 1);
+            if (!requiresSlayer) return record;
+            const allowedOrigins = checked.filter(result => result.allowed).map(result => result.origin);
+            const blockedOrigins = checked.filter(result => !result.allowed);
+            const supportingMasters = [...new Set(checked.filter(result => result.allowed)
+                .flatMap(result => result.support || []).map(support => support.master))];
+            const summary = {
+                actualLevel: slayerProgression.actualLevel,
+                ceiling: slayerProgression.ceiling,
+                nextMilestone: slayerProgression.nextMilestone,
+                maximumSupportedLevel: slayerProgression.maximumSupportedLevel,
+                trainingAvailable: slayerProgression.trainingAvailable,
+                accessibleMasters: slayerProgression.masters.map(master => ({ master: master.master, priority: master.priority,
+                    currentAssignableWeight: master.currentAssignableWeight, currentDoableWeight: master.currentDoableWeight,
+                    currentDoableFamilies: master.currentDoableFamilies, maximumSupportedLevel: master.maximumSupportedLevel })),
+                explicitRequirement, supportingMasters,
+                requiresTraining: checked.some(result => result.allowed && result.requirement > slayerProgression.actualLevel),
+                blockedOrigins, blocked: !allowedOrigins.length
+            };
+            if (allowedOrigins.length) {
+                record.origins = uniqueOrigins(allowedOrigins);
+                record.slayerProgression = summary;
+                return record;
+            }
+            record.available = false;
+            const reason = blockedOrigins[0]?.reason || (explicitRequirement > slayerProgression.actualLevel ?
+                'Slayer ' + explicitRequirement + ' is beyond the current master-supported progression' : 'No eligible Slayer source');
+            const existing = record.accessResult?.allowed === false ? record.accessResult.reason + '; ' : '';
+            record.accessResult = { ...(record.accessResult || {}), allowed: false, reason: existing + reason,
+                slayerProgression: summary };
+            record.slayerProgression = summary;
+            accessDiagnostics.push({ taskId: record.taskId, name: record.displayName, allowed: false,
+                reason: record.accessResult.reason, slayerProgression: summary });
+            return record;
+        }
         function acquisitionPath(itemName, source, type) {
             let directOrigins = [];
             if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', itemName, 'Direct item spawn');
@@ -1839,6 +2016,7 @@
                         currentlyAccessible: treeValid, reason: 'Tree object is referenced by Forestry task metadata and is outside excluded origin groups' } };
                 if (!record.available) accessDiagnostics.push({ taskId: id, name: record.displayName, ...record.accessResult });
             } else if (!record.accessResult) record.accessResult = { allowed: true, reason: 'Passed strict source, rule and prerequisite calculation' };
+            record = applySlayerProgression(record, requirementMeta, requirementSkill);
             if (requiredEnablers.length) {
                 record.enablers.push(...requiredEnablers.map(requirement => ({ type: 'persistent_capability', ...requirement })));
                 const missing = requiredEnablers.filter(requirement => !requirement.satisfied);
@@ -1854,7 +2032,7 @@
                     accessDiagnostics.push({ taskId: id, name: record.displayName, allowed: false,
                         reason: record.accessResult.reason, persistentEnablers: requiredEnablers });
                 } else record.accessResult = { ...(record.accessResult || {}), persistentEnablers: requiredEnablers };
-                for (const requirement of missing) {
+                for (const requirement of record.slayerProgression?.blocked ? [] : missing) {
                     const baseStatus = enablerRequirementStatus({ ...requirement, requiresSpecificItem: false, itemKey: null }, state, data, requirementSkill);
                     if (requirement.requiresSpecificItem && baseStatus.satisfied) continue;
                     const entry = pendingCapabilities.get(requirement.capabilityId) || { requirement: { ...requirement,
@@ -1865,7 +2043,7 @@
                     pendingCapabilities.set(requirement.capabilityId, entry);
                 }
             }
-            if (forestBound && !own(state.acquiredEnablers, forestry.kitItem) && kitOrigins.length && treeSources.length) {
+            if (!record.slayerProgression?.blocked && forestBound && !own(state.acquiredEnablers, forestry.kitItem) && kitOrigins.length && treeSources.length) {
                 const capability = chooseItemCapability(enablerModel, forestry.kitItem, requirementSkill);
                 if (capability) {
                     const requirement = enablerRequirementStatus({ capabilityId: capability.capabilityId, capabilityLabel: capability.label,
@@ -1879,7 +2057,7 @@
                 }
             }
             if (!tasks.has(id)) tasks.set(id, record);
-            else tasks.get(id).origins = uniqueOrigins([...tasks.get(id).origins, ...origins]);
+            else tasks.get(id).origins = uniqueOrigins([...tasks.get(id).origins, ...record.origins]);
         }
         const articleFor = itemName => /^[aeiou]/i.test(itemName) ? 'an ' : 'a ';
         for (const { requirement, requiredBy, requests } of pendingCapabilities.values()) {
@@ -1947,6 +2125,7 @@
         equipmentObjectiveAlternatives, isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
+        actualCombatLevel, slayerProgressionModel,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,

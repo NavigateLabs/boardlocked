@@ -119,6 +119,9 @@ function blEquipmentUsable(itemName) {
         const current = skill === 'Combat' ? blAccess.actualCombatLevel : blContext.state.actualLevels[skill];
         if (current == null) return false;
         if (current >= Number(minimum)) return true;
+        // Slayer's master-supported milestone gate runs after the legacy BiS
+        // calculation, so retain the candidate here for that stricter check.
+        if (skill === 'Slayer') return true;
         // Ordinary equipment milestones may ask the player to train within the
         // current progression window. Offer the exact obtainable item over the
         // generic wear/wield task when that requirement is equally reachable.

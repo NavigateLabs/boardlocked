@@ -7,6 +7,16 @@
     'use strict';
     return Object.freeze({
         initialization: Object.freeze({
+            // Boardlocked account setup includes receiving the first tutorial
+            // assignment once. This unlocks the skill's other masters without
+            // making Burthorpe permanently accessible.
+            assumedCompletedTasks: Object.freeze([
+                Object.freeze({
+                    skill: 'Slayer',
+                    name: 'Receive a Slayer assignment from ~|Turael|~ in Burthorpe'
+                })
+            ]),
+            assumedPrimarySkills: Object.freeze(['Slayer']),
             questTasks: Object.freeze({
                 druidicRitual: '~|Druidic Ritual|~ Complete the quest',
                 varlamore: '~|Children of the Sun|~ Complete the quest',

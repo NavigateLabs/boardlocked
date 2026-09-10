@@ -28,6 +28,16 @@ You have access to everything in previously unlocked chunks, so you can re-enter
 
 The tasks are more than likely begin very simple (get an axe, cut a tree), but not to worry, after a couple tiles you'll find yourself with increasingly harder tasks.
 
+Slayer starts after one assumed tutorial assignment from Turael. Any Slayer
+master in an unlocked area can then provide assignments once you meet that
+master's combat, Slayer, quest, and location requirements. A master is usable
+while at least one task they can currently assign has a monster in your unlocked
+chunks. Slayer has no fixed task band: a Slayer creature and its drops appear
+only when a usable master can assign that creature in the accessible location.
+If a Slayer goal requires training, unfinished collection-log and BiS drops from
+assignable monsters in your unlocked chunks are listed as alternative Slayer
+training goals; getting any listed drop completes the visit.
+
 ## Start a new account
 
 Open a fresh run and choose your start options before the first roll. The map
