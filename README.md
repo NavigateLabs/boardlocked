@@ -49,7 +49,9 @@ Three optional start groups are available before the first roll:
 - **Ocean (experimental):** adds an equal-chance group of beginner waters near Port Sarim, assumes you completed Pandemonium, and starts Sailing at level 5 from its 400 XP reward. Land remains a possible result while other groups are enabled. This route is still largely untested.
 
 Each enabled group has the same chance to be selected, then every tile within that
-group has the same chance. The result clearly says `LAND`, `WATER`, or `MIXED`.
+group has the same chance. If a tile is split into disconnected areas, one matching
+land or water area is then chosen at random; extra areas do not make that tile more
+likely to win. The result clearly says `LAND`, `WATER`, or `MIXED`.
 Later rolls retain the exact connected sections: land never grants water access,
 water never grants land access, and both open only when both have real connections.
 

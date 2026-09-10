@@ -5,8 +5,8 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 8;
-    const STARTING_SECTION_POLICY = 'all-viable-sections-by-medium';
+    const VERSION = 9;
+    const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
         'Cooking', 'Woodcutting', 'Fletching', 'Fishing', 'Firemaking', 'Crafting', 'Smithing',
         'Mining', 'Herblore', 'Agility', 'Thieving', 'Slayer', 'Farming', 'Runecraft', 'Hunter',
@@ -41,7 +41,7 @@
     const progressionWindow = skill => PROGRESSION_WINDOWS[skill] || 10;
 
     function normalizeState(input) {
-        if (input && ![1, 2, 3, 4, 5, 6, 7, VERSION].includes(input.version)) throw new Error('Unsupported Boardlocked state version: ' + input.version);
+        if (input && ![1, 2, 3, 4, 5, 6, 7, 8, VERSION].includes(input.version)) throw new Error('Unsupported Boardlocked state version: ' + input.version);
         const state = { version: VERSION, enabled: false, actualLevels: {}, currentVisit: null, travelAnchor: null,
             travelAnchorSections: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
@@ -200,19 +200,56 @@
         return preferred ? [preferred] : [];
     }
 
+    function deriveStartingSectionGroups(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}) {
+        const id = String(locationId), sectionMap = data.sections?.[id] || {};
+        const viable = deriveStartingSections(data, id, medium, allowedChunkIds, blacklisted);
+        if (viable.length < 2) return [viable];
+        const allowed = new Set((allowedChunkIds.length ? allowedChunkIds : Object.keys(data.sections || {})).map(String));
+        const exits = Object.fromEntries(viable.map(section => [section, new Set((sectionMap[section] || []).map(rawTarget => {
+            const target = parseLocation(rawTarget);
+            return target && target.chunkId !== id && allowed.has(target.chunkId) && !own(blacklisted, target.chunkId) ?
+                target.chunkId + (target.sectionId ? '-' + target.sectionId : '') : null;
+        }).filter(Boolean))]));
+        const remaining = new Set(viable), groups = [];
+        while (remaining.size) {
+            const group = [], queue = [remaining.values().next().value];
+            remaining.delete(queue[0]);
+            while (queue.length) {
+                const section = queue.shift(); group.push(section);
+                for (const other of [...remaining]) {
+                    if (![...exits[section]].some(exit => exits[other].has(exit))) continue;
+                    remaining.delete(other); queue.push(other);
+                }
+            }
+            groups.push(group);
+        }
+        return groups;
+    }
+
     function migrateStartingSections(data = {}, inputState, inputSections = {}, allowedChunkIds = [], blacklisted = {}) {
         const state = copy(inputState), sections = copy(inputSections || {});
         if (state.startingSectionPolicy === STARTING_SECTION_POLICY) return { state, sections, changed: false, opened: [] };
         const startIndex = (state.adminHistory || []).findIndex(event =>
             event.action === 'set_starting_sections' && parseLocation(event.locationId));
-        const opened = [];
+        const opened = [], removed = [];
         if (startIndex >= 0) {
             const start = state.adminHistory[startIndex], id = parseLocation(start.locationId).chunkId;
             const oldSections = Array.isArray(start.sectionIds) ? start.sectionIds.map(String) : [];
             const medium = start.medium === 'water' || (!start.medium && oldSections.length &&
                 oldSections.every(section => section.startsWith('W'))) ? 'water' : 'land';
-            const desired = deriveStartingSections(data, id, medium, allowedChunkIds, blacklisted)
+            const sectionGroups = deriveStartingSectionGroups(data, id, medium, allowedChunkIds, blacklisted);
+            const chosenGroup = sectionGroups.find(group => oldSections.some(section => group.includes(section))) || sectionGroups[0] || [];
+            const desired = chosenGroup
                 .filter(section => sections[id]?.[section] !== false);
+            const previousUpgrade = (state.adminHistory || []).slice(startIndex + 1).find(event =>
+                event.action === 'upgrade_starting_section_policy' && parseLocation(event.locationId)?.chunkId === id);
+            const oldRegions = sectionGroups.filter(group => oldSections.some(section => group.includes(section)));
+            const automaticallyOpened = previousUpgrade?.openedSectionIds ||
+                (oldRegions.length > 1 ? oldSections.filter(section => !chosenGroup.includes(section)) : []);
+            for (const section of automaticallyOpened) {
+                if (desired.includes(String(section)) || sections[id]?.[section] !== true) continue;
+                delete sections[id][section]; removed.push(String(section));
+            }
             for (const section of desired) {
                 if (sections[id]?.[section] !== true) opened.push(section);
                 (sections[id] ||= {})[section] = true;
@@ -221,10 +258,10 @@
                 .some(event => event.action === 'set_travel_anchor');
             if (state.travelAnchor === id && anchorWasNotMovedExplicitly && desired.length) state.travelAnchorSections = [...desired];
             state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'upgrade_starting_section_policy',
-                locationId: id, medium, sectionIds: [...desired], openedSectionIds: [...opened] });
+                locationId: id, medium, sectionIds: [...desired], openedSectionIds: [...opened], removedSectionIds: [...removed] });
         }
         state.startingSectionPolicy = STARTING_SECTION_POLICY;
-        return { state, sections, changed: true, opened };
+        return { state, sections, changed: true, opened, removed };
     }
 
     function deriveStartingPool(data = {}, annotations = {}, options = {}, blacklisted = {}) {
@@ -233,7 +270,7 @@
         const groupOrder = ['standard', 'varlamore', 'wilderness', 'ocean'];
         const enabled = { standard: true, varlamore: options.varlamore === true,
             wilderness: options.wilderness === true, ocean: options.ocean === true };
-        const ids = [], groupByLocation = {}, arrivalSectionsByLocation = {}, groups = [];
+        const ids = [], groupByLocation = {}, arrivalSectionsByLocation = {}, arrivalSectionGroupsByLocation = {}, groups = [];
         for (const group of groupOrder) {
             if (!enabled[group]) continue;
             const groupIds = [];
@@ -242,17 +279,19 @@
                 if (!walkable.has(id) || own(blacklisted, id) || own(groupByLocation, id)) continue;
                 const water = group === 'ocean';
                 groupByLocation[id] = group;
-                arrivalSectionsByLocation[id] = deriveStartingSections(data, id, water ? 'water' : 'land', [...walkable], blacklisted);
+                const sectionGroups = deriveStartingSectionGroups(data, id, water ? 'water' : 'land', [...walkable], blacklisted);
+                arrivalSectionGroupsByLocation[id] = sectionGroups;
+                arrivalSectionsByLocation[id] = sectionGroups[0] || [];
                 ids.push(id); groupIds.push(id);
             }
             if (groupIds.length) groups.push({ id: group, medium: group === 'ocean' ? 'water' : 'land', locationIds: groupIds });
         }
-        return { ids, groups, groupByLocation, arrivalSectionsByLocation };
+        return { ids, groups, groupByLocation, arrivalSectionsByLocation, arrivalSectionGroupsByLocation };
     }
 
     // Initial groups receive equal odds, then every tile within the selected
-    // group receives equal odds. This keeps optional ocean tiles from changing
-    // the meaning of every other start merely because the ocean grid is larger.
+    // group receives equal odds. A disconnected region is chosen only after
+    // its tile wins, so tiles with more regions do not gain extra weight.
     function chooseStartingCandidate(candidates, startingPool, rng = Math.random) {
         if (!Array.isArray(candidates) || !candidates.length) return null;
         const available = (startingPool?.groups || []).map(group => ({ ...group,
@@ -263,8 +302,13 @@
         if (groupRoll < 0 || groupRoll >= 1 || tileRoll < 0 || tileRoll >= 1) throw new Error('Random source must return [0, 1)');
         const group = available[Math.floor(groupRoll * available.length)];
         const candidate = group.candidates[Math.floor(tileRoll * group.candidates.length)];
+        const sectionGroups = startingPool.arrivalSectionGroupsByLocation?.[candidate.locationId] ||
+            [startingPool.arrivalSectionsByLocation?.[candidate.locationId] || []];
+        const sectionRoll = sectionGroups.length > 1 ? rng() : 0;
+        if (sectionRoll < 0 || sectionRoll >= 1) throw new Error('Random source must return [0, 1)');
+        const sectionIndex = Math.floor(sectionRoll * sectionGroups.length);
         return { ...candidate, metadata: { ...(candidate.metadata || {}), startGroup: group.id,
-            arrivalMedium: group.medium, entrySections: [...(startingPool.arrivalSectionsByLocation?.[candidate.locationId] || [])] } };
+            startRegionIndex: sectionIndex, arrivalMedium: group.medium, entrySections: [...sectionGroups[sectionIndex]] } };
     }
 
     function sanitizeLegacySnapshot(input = {}, ruleKeys = [], settingKeys = []) {
@@ -1353,7 +1397,7 @@
         collapseRedundantEquipmentTasks, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
-        deriveStartingSections, migrateStartingSections, deriveStartingPool, chooseStartingCandidate, canRoll,
+        deriveStartingSections, deriveStartingSectionGroups, migrateStartingSections, deriveStartingPool, chooseStartingCandidate, canRoll,
         startVisit, snapshotVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });

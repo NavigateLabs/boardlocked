@@ -44,13 +44,15 @@ test('curated start pool excludes gated and hazardous regions unless explicitly 
     const noQuest = new Set(chunkData.rollingChunks.noquest.map(String));
     assert.ok(annotations.initialization.startingTiles.standard.every(id => noQuest.has(id)), 'standard starts stay quest-free');
     for (const id of allConfigured) {
-        const arrivals = expanded.arrivalSectionsByLocation[id] || [];
-        const access = arrivals.length ? { [id]: Object.fromEntries(arrivals.map(section => [section, true])) } : {};
-        const boundary = R.deriveConnectedFrontier(chunkData, { [id]: id }, chunkData.walkableChunks, {});
-        const graph = R.buildTravelGraph(chunkData, { [id]: id }, access, boundary);
-        assert.ok(graph[id]?.length, id + ' must have an exit from its arrival section');
-        for (const section of arrivals) assert.ok(graph.sectionGraph[id + '-' + section]?.length,
-            id + '-' + section + ' must have an exit');
+        const regions = expanded.arrivalSectionGroupsByLocation[id] || [[]];
+        for (const arrivals of regions) {
+            const access = arrivals.length ? { [id]: Object.fromEntries(arrivals.map(section => [section, true])) } : {};
+            const boundary = R.deriveConnectedFrontier(chunkData, { [id]: id }, chunkData.walkableChunks, {});
+            const graph = R.buildTravelGraph(chunkData, { [id]: id }, access, boundary);
+            assert.ok(graph[id]?.length, id + ' must have an exit from every possible starting region');
+            for (const section of arrivals) assert.ok(graph.sectionGraph[id + '-' + section]?.length,
+                id + '-' + section + ' must have an exit');
+        }
     }
     assert.ok(base.ids.includes('12850'), 'Lumbridge is a normal start');
     for (const excluded of ['13621', '12844', '8755', '12349', '12079']) assert.ok(!base.ids.includes(excluded));
@@ -79,7 +81,7 @@ test('starting roll gives enabled groups equal odds before choosing a tile', () 
     const starting = R.deriveStartingPool(chunkData, annotations,
         { varlamore: true, wilderness: true, ocean: true });
     const candidates = starting.ids.map(locationId => ({ kind: 'frontier', locationId }));
-    const rolls = [.26, .99];
+    const rolls = [.26, .99, .5];
     const chosen = R.chooseStartingCandidate(candidates, starting, () => rolls.shift());
     assert.equal(starting.groupByLocation[chosen.locationId], 'varlamore');
     assert.equal(chosen.locationId, starting.groups.find(group => group.id === 'varlamore').locationIds.at(-1));
@@ -88,7 +90,7 @@ test('starting roll gives enabled groups equal odds before choosing a tile', () 
 });
 
 test('every released export version migrates without dropping progress', () => {
-    for (let version = 1; version <= 8; version++) {
+    for (let version = 1; version <= 9; version++) {
         const saved = fresh(); saved.version = version;
         if (version < 6) {
             delete saved.initialization; delete saved.initializationApplied;
@@ -105,7 +107,7 @@ test('every released export version migrates without dropping progress', () => {
             version, legacy: { tempChunks: { unlocked: { '12850': '12850' } } } };
         payload[version <= 6 ? oldStateField : 'boardlockedState'] = saved;
         const migrated = R.normalizeRunExport(payload);
-        assert.equal(migrated.state.version, 8);
+        assert.equal(migrated.state.version, 9);
         assert.equal(migrated.state.actualLevels.Cooking, 42);
         assert.equal(migrated.state.visitHistory[0].resolvedTaskId, 't_saved');
         assert.equal(migrated.state.visitHistory[0].note, 'keep me');
@@ -117,7 +119,7 @@ test('browser save envelope validates state and legacy progress together', () =>
     const payload = { format: 'boardlocked-browser-save', version: 1, savedAt: '2026-01-01T00:00:00.000Z',
         boardlockedState: fresh(), legacy: { checkedAllTasks: { Cooking: { Chicken: true } } } };
     const restored = R.normalizeBrowserSave(JSON.stringify(payload));
-    assert.equal(restored.boardlockedState.version, 8);
+    assert.equal(restored.boardlockedState.version, 9);
     assert.equal(restored.legacy.checkedAllTasks.Cooking.Chicken, true);
     assert.throws(() => R.normalizeBrowserSave('{"bad":true}'), /Invalid Boardlocked browser save/);
 });
@@ -136,32 +138,56 @@ test('ocean starts explicitly arrive on water while enabled land starts stay on 
     assert.ok(land.metadata.entrySections.every(section => !section.startsWith('W')));
 });
 
-test('multi-section starts expose every viable section on the chosen travel medium', () => {
+test('split starting chunks choose one connected land region rather than opening both sides', () => {
     const starting = R.deriveStartingPool(chunkData, annotations, fresh().initialization);
-    assert.deepEqual(starting.arrivalSectionsByLocation['10294'], ['1', '2', '3', '4']);
-    const unlocked = { '10294': '10294' }, sections = { '10294': { '1': true, '2': true, '3': true, '4': true } };
+    assert.deepEqual(starting.arrivalSectionGroupsByLocation['10294'], [['1'], ['2', '3', '4']]);
+    const candidate = [{ kind: 'frontier', locationId: '10294' }];
+    const east = R.chooseStartingCandidate(candidate, starting, () => 0);
+    const rolls = [0, 0, .99];
+    const west = R.chooseStartingCandidate(candidate, starting, () => rolls.shift());
+    assert.deepEqual(east.metadata.entrySections, ['1']);
+    assert.deepEqual(west.metadata.entrySections, ['2', '3', '4']);
+    const unlocked = { '10294': '10294' };
     const frontier = R.deriveConnectedFrontier(chunkData, unlocked, chunkData.walkableChunks, {});
-    const graph = R.buildTravelGraph(chunkData, unlocked, sections, frontier);
-    const pool = R.derivePool(frontier, unlocked, [], null, graph, '10294', starting.arrivalSectionsByLocation['10294']);
-    assert.deepEqual(pool.candidates.map(candidate => candidate.locationId).sort(), ['10038', '10293', '10550']);
+    const exits = arrivalSections => {
+        const sections = { '10294': Object.fromEntries(arrivalSections.map(section => [section, true])) };
+        const graph = R.buildTravelGraph(chunkData, unlocked, sections, frontier);
+        return R.derivePool(frontier, unlocked, [], null, graph, '10294', arrivalSections)
+            .candidates.map(next => next.locationId).sort();
+    };
+    assert.deepEqual(exits(east.metadata.entrySections), ['10550']);
+    assert.deepEqual(exits(west.metadata.entrySections), ['10038', '10293']);
 });
 
-test('version 7 starts gain same-medium exits without changing their task snapshot or explicit closures', () => {
+test('version 8 all-section migration restores the originally selected region without changing progress', () => {
     const current = fresh();
-    const old = { ...current, version: 7, startingSectionPolicy: undefined, travelAnchor: '10294', travelAnchorSections: ['1'],
+    const old = { ...current, version: 8, startingSectionPolicy: 'all-viable-sections-by-medium',
+        travelAnchor: '10294', travelAnchorSections: ['1', '2', '3', '4'],
         currentVisit: { visitNumber: 1, timestamp: '2026-01-01T00:00:00.000Z', locationId: '10294', kind: 'new',
             arrivalSections: ['1'], arrivalMedium: 'land', candidateTaskIds: ['saved'], candidateTasks: { saved: { name: 'Saved' } },
             status: 'task_required', resolution: null, resolvedTaskId: null },
         visitHistory: [], adminHistory: [{ timestamp: '2026-01-01T00:00:00.000Z', action: 'set_starting_sections',
-            locationId: '10294', sectionIds: ['1'], medium: 'land' }] };
+            locationId: '10294', sectionIds: ['1'], medium: 'land' },
+        { timestamp: '2026-01-02T00:00:00.000Z', action: 'upgrade_starting_section_policy', locationId: '10294',
+            medium: 'land', sectionIds: ['1', '2', '3', '4'], openedSectionIds: ['2', '3', '4'] }] };
     const normalized = R.normalizeState(old);
-    const migrated = R.migrateStartingSections(chunkData, normalized, { '10294': { '1': true, '3': false } }, chunkData.walkableChunks);
+    const migrated = R.migrateStartingSections(chunkData, normalized,
+        { '10294': { '1': true, '2': true, '3': false, '4': true } }, chunkData.walkableChunks);
     assert.equal(migrated.changed, true);
-    assert.deepEqual(migrated.state.travelAnchorSections, ['1', '2', '4']);
+    assert.deepEqual(migrated.state.travelAnchorSections, ['1']);
     assert.deepEqual(migrated.state.currentVisit.arrivalSections, ['1'], 'the accepted-task snapshot remains immutable');
-    assert.deepEqual(migrated.sections['10294'], { '1': true, '2': true, '3': false, '4': true });
+    assert.deepEqual(migrated.sections['10294'], { '1': true, '3': false });
+    assert.deepEqual(migrated.removed, ['2', '4']);
     assert.equal(migrated.state.startingSectionPolicy, R.STARTING_SECTION_POLICY);
+    const inferred = R.inferConnectedSections(chunkData, { '10294': '10294', '10038': '10038' },
+        { ...migrated.sections, '10038': { '2': true } });
+    assert.equal(inferred['10294']['2'], true, 'a side reached by a later legitimate roll remains connected');
+    assert.equal(inferred['10294']['3'], false, 'an explicit closure remains closed');
     assert.equal(R.migrateStartingSections(chunkData, migrated.state, migrated.sections, chunkData.walkableChunks).changed, false);
+    const v8Fresh = R.normalizeState({ ...old, adminHistory: [{ ...old.adminHistory[0], sectionIds: ['1', '2', '3', '4'] }] });
+    const narrowed = R.migrateStartingSections(chunkData, v8Fresh,
+        { '10294': { '1': true, '2': true, '3': true, '4': true } }, chunkData.walkableChunks);
+    assert.deepEqual(narrowed.sections['10294'], { '1': true }, 'briefly released v8 starts are narrowed safely too');
 });
 
 test('pool includes every frontier and live revisit exactly once', () => {
@@ -933,10 +959,10 @@ test('acquired Enabler state and stable acquisition IDs round-trip without guess
     assert.equal(R.enablerItemFromTaskId(R.enablerTaskId('Iron axe')), 'Iron axe');
 });
 
-test('older states migrate to v8, exact completions replace automatic tiers, and explicit tier edits survive', () => {
+test('older states migrate to v9, exact completions replace automatic tiers, and explicit tier edits survive', () => {
     const migrated = R.normalizeState({ version: 1, enabled: true, visitHistory: [], actualLevels: { Cooking: 42 },
         derivedPool: ['stale'], origins: ['stale'] });
-    assert.equal(migrated.version, 8); assert.equal(migrated.actualLevels.Cooking, 42);
+    assert.equal(migrated.version, 9); assert.equal(migrated.actualLevels.Cooking, 42);
     assert.equal(migrated.progressionInitialized, false); assert.equal(migrated.derivedPool, undefined);
     const legacyFrontiers = Object.fromEntries(R.SKILLS.map(skill => [skill, skill === 'Cooking' ? 4 : 0]));
     const explicit = R.normalizeState({ version: 2, enabled: true, visitHistory: [], progressionFrontiers: legacyFrontiers,
