@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 26;
+    const VERSION = 27;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -1896,6 +1896,9 @@
 
                     const producerSkill = knownNames.get(source), producerMeta = data.challenges[producerSkill]?.[source];
                     if (!producerMeta) return [];
+                    const directlyUsesBlockedItem = (producerMeta.Items || []).some(raw =>
+                        expand(raw, codes.itemsPlus).some(choice => comparableItemKey(choice) === comparableItemKey(blockedItem)));
+                    if (directlyUsesBlockedItem) return [];
                     const producerClass = taskMetadata(source, producerSkill, producerMeta, ids).taskClass;
                     const requirements = taskEnablerRequirements(data, producerSkill, producerMeta, enablerModel, producerClass, true);
                     if (requirements.some(requirement => requirementUsesItem(requirement, blockedItem))) return [];
@@ -2028,7 +2031,8 @@
             const sourceSkill = knownNames.get(source), sourceMeta = data.challenges[sourceSkill]?.[source];
             let origins = sourceMeta ? taskOrigins(source, sourceSkill) : [];
             if (!sourceMeta || !origins.length) return null;
-            const sourceResources = (sourceMeta.Items || []).filter(item => item.includes('*'));
+            const markedSourceResources = (sourceMeta.Items || []).filter(item => item.includes('*'));
+            const sourceResources = markedSourceResources.length ? markedSourceResources : (sourceMeta.Items || []);
             const hasFixedAnchor = !!(sourceMeta.Chunks?.length || sourceMeta.NPCs?.length || sourceMeta.Monsters?.length ||
                 sourceMeta.Objects?.length || sourceMeta.Mix?.length);
             // Recovery actions such as eating a pie or emptying a container have

@@ -1324,6 +1324,54 @@ test('reusable containers cannot obtain themselves through fill-empty or cook-ea
     }
 });
 
+test('recovery sources reject cycles with starred containers and unstarred filled items', () => {
+    const data = {
+        challenges: {
+            Cooking: {
+                'Use bucket': { Items: ['Bucket'], Objects: ['Work surface'], Level: 1 },
+                'Use sack': { Items: ['Empty sack'], Objects: ['Work surface'], Level: 1 }
+            },
+            Nonskill: {
+                'Empty compost': { Items: ['Compost*'], Output: 'Bucket' },
+                'Fill compost': { Items: ['Bucket*'], Objects: ['Compost Bin'], Output: 'Compost' },
+                'Empty produce': { Items: ['Filled sack'], Output: 'Empty sack' },
+                'Fill sack': { Items: ['Empty sack', 'Cabbage*'], Output: 'Filled sack' }
+            },
+            Extra: {}, Quest: {}, Diary: {}
+        },
+        codeItems: { tools: { Bucket: true, 'Empty sack': true } }, equipment: {}
+    };
+    const fixture = {
+        data,
+        base: {
+            objects: { 'Work surface': { '3000': true }, 'Compost Bin': { '1000': true } },
+            shops: {}, monsters: {}, npcs: {},
+            items: {
+                Bucket: { 'Empty compost': 'primary-Nonskill' },
+                Compost: { 'Fill compost': 'primary-Nonskill' },
+                'Empty sack': { 'Empty produce': 'primary-Nonskill' },
+                'Filled sack': { 'Fill sack': 'primary-Nonskill' },
+                Cabbage: { '1000': 'primary-spawn' }
+            }
+        },
+        valids: { Cooking: { 'Use bucket': 1, 'Use sack': 1 } },
+        ids: { 'Use bucket': 'use-bucket', 'Use sack': 'use-sack', 'Empty compost': 'empty-compost',
+            'Fill compost': 'fill-compost', 'Empty produce': 'empty-produce', 'Fill sack': 'fill-sack' },
+        rules: { 'Show Skill Tasks': true }, state: fresh(), unlocked: geo
+    };
+    let enablers = R.buildTasks(fixture).tasks.filter(task => task.taskClass === 'enabler');
+    assert.ok(!enablers.some(task => ['Bucket', 'Empty sack'].includes(task.enablerItemKey)));
+
+    fixture.base.shops.CompostShop = { '2000': true };
+    fixture.base.items.Compost.CompostShop = 'shop';
+    fixture.base.items['Filled sack']['2000'] = 'primary-spawn';
+    enablers = R.buildTasks(fixture).tasks.filter(task => task.taskClass === 'enabler');
+    for (const itemKey of ['Bucket', 'Empty sack']) {
+        const enabler = enablers.find(task => task.enablerItemKey === itemKey);
+        assert.deepEqual(enabler.origins.map(source => source.chunkId), ['2000']);
+    }
+});
+
 test('Auburnvale East does not invent bowls or pie dishes from ordinary ovens', () => {
     const request = usePreset(makeRequest(['5684']), 'Boardlocked Chunker');
     request.manualSections = { '5684': { '1': true } };
