@@ -31,8 +31,7 @@ begin on land.
 
 Before starting talk to Turael once and go though the options to unlock slayer. If you accidentally get a assignment you should cancel it. It is also strongly reccomended to do Druidic Ritual to have access to herblore.
 
-Two optional start groups are available before the first roll. Every starting
-tile is on land:
+Two optional start groups are available before the first roll:
 
 - **Varlamore:** adds Varlamore land tiles and assumes you completed Children of the Sun before rolling.
 - **Wilderness:** adds Wilderness land tiles for masochists.
