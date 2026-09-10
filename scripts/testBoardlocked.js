@@ -541,14 +541,16 @@ test('tasks activated after snapshot do not join the current visit', () => {
 });
 test('an imported unresolved visit can be rebuilt in place from current tasks', () => {
     const imported = start(adapt([task('old')]));
+    imported.currentVisit.reachableTaskIds = ['old'];
     const recalculating = R.recalculateCurrentVisit(imported, 'newer rules', '2026-09-09T12:00:00.000Z');
     assert.equal(recalculating.currentVisit.status, 'pending_calculation');
+    assert.deepEqual(recalculating.currentVisit.reachableTaskIds, []);
     assert.deepEqual(recalculating.currentVisit.candidateTaskIds, []);
     assert.deepEqual(recalculating.currentVisit.candidateTasks, {});
     assert.equal(recalculating.currentVisit.visitNumber, imported.currentVisit.visitNumber);
     assert.equal(recalculating.currentVisit.locationId, imported.currentVisit.locationId);
     assert.equal(recalculating.visitHistory.at(-1).status, 'pending_calculation');
-    assert.deepEqual(R.snapshotVisit(recalculating, adapt([task('new')])).currentVisit.candidateTaskIds, ['new']);
+    assert.deepEqual(R.snapshotVisit(recalculating, adapt([task('old', ['2000']), task('new')])).currentVisit.candidateTaskIds, ['new']);
     assert.deepEqual(recalculating.adminHistory.at(-1), { timestamp: '2026-09-09T12:00:00.000Z',
         action: 'recalculate_imported_current_visit', visitNumber: 1, locationId: '1000', previousCandidateCount: 1, reason: 'newer rules' });
 });
@@ -1305,6 +1307,12 @@ test('reusable containers cannot obtain themselves through fill-empty or cook-ea
     assert.equal(result.tasks.some(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Pie dish'), false,
         'making and eating a pie is not an acquisition source for the first pie dish');
 
+    fixture.base.shops.PieShop = { '2000': true };
+    fixture.base.items.Pie.PieShop = 'shop';
+    const recoveredDish = R.buildTasks(fixture).tasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Pie dish');
+    assert.deepEqual(recoveredDish.origins.map(source => source.chunkId), ['2000'],
+        'a bought pie can return a dish only to the pie shop, not to ovens where baking already needs that dish');
+
     fixture.base.shops.Store = { '1000': true };
     fixture.base.items.Bowl.Store = 'shop';
     fixture.base.items['Pie dish'].Store = 'shop';
@@ -1313,6 +1321,19 @@ test('reusable containers cannot obtain themselves through fill-empty or cook-ea
         const enabler = direct.find(task => task.enablerItemKey === item);
         assert.ok(enabler?.origins.some(origin => origin.sourceType === 'shops' && origin.sourceName === 'Store'),
             item + ' remains obtainable through a real shop source');
+    }
+});
+
+test('Auburnvale East does not invent bowls or pie dishes from ordinary ovens', () => {
+    const request = usePreset(makeRequest(['5684']), 'Boardlocked Chunker');
+    request.manualSections = { '5684': { '1': true } };
+    const result = runWorker(request).result;
+    for (const itemKey of ['Bowl', 'Pie dish']) {
+        const catalogEntry = result.enablerCatalog.find(item => item.itemKey === itemKey);
+        assert.ok(catalogEntry, itemKey + ' remains represented in the enabler catalog');
+        assert.equal(catalogEntry.currentlyObtainable, false, itemKey + ' has no acquisition source in chunk 5684');
+        assert.deepEqual(catalogEntry.origins, []);
+        assert.ok(!result.tasks.some(task => task.taskClass === 'enabler' && task.enablerItemKey === itemKey));
     }
 });
 

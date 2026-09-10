@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 25;
+    const VERSION = 26;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -1352,7 +1352,7 @@
     function recalculateCurrentVisit(state, reason = 'Recalculated after run import', timestamp = new Date().toISOString()) {
         if (!state.currentVisit || state.currentVisit.status === 'resolved') return state;
         const previous = state.currentVisit;
-        const visit = { ...previous, candidateTaskIds: [], candidateTasks: {}, status: 'pending_calculation',
+        const visit = { ...previous, reachableTaskIds: [], candidateTaskIds: [], candidateTasks: {}, status: 'pending_calculation',
             resolution: null, resolvedTaskId: null };
         const next = journal(state, visit);
         return { ...next, adminHistory: [...next.adminHistory, { timestamp, action: 'recalculate_imported_current_visit',
@@ -1872,6 +1872,47 @@
         const forestryAxeCapability = enablerModel.byRequirement.get('Axe[+]');
         const milestoneComplete = producer => isComplete({ ...producer, taskClass: 'skill_progression' }, legacy, state) ||
             (producer.level && (state.progressionHighWater?.[producer.skill] || 0) >= producer.level);
+
+        const nonCircularOriginCache = new Map();
+        const requirementUsesItem = (requirement, itemName) => {
+            const wanted = comparableItemKey(itemName);
+            return (requirement.requiresSpecificItem && comparableItemKey(requirement.itemKey) === wanted) ||
+                (requirement.satisfyingItems || []).some(itemInfo => comparableItemKey(itemInfo.itemKey) === wanted);
+        };
+        function itemOriginsWithoutDependency(rawItem, blockedItem, visiting = new Set()) {
+            const cacheKey = comparableItemKey(rawItem) + '|without|' + comparableItemKey(blockedItem);
+            if (visiting.has(cacheKey)) return [];
+            if (nonCircularOriginCache.has(cacheKey)) return nonCircularOriginCache.get(cacheKey);
+            const next = new Set(visiting).add(cacheKey);
+            const origins = expand(rawItem, codes.itemsPlus).flatMap(expandedItem => {
+                const itemName = canonicalItemKey(expandedItem);
+                return Object.entries(base.items?.[itemName] || base.items?.[itemName + '*'] || {}).flatMap(([source, type]) => {
+                    let directOrigins = [];
+                    if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', itemName, 'Direct item spawn');
+                    else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
+                    else if (String(type).includes('drop')) directOrigins = acquisitionOrigins(itemName, source, fixed('monsters', source));
+                    else directOrigins = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
+                    if (directOrigins.length) return directOrigins;
+
+                    const producerSkill = knownNames.get(source), producerMeta = data.challenges[producerSkill]?.[source];
+                    if (!producerMeta) return [];
+                    const producerClass = taskMetadata(source, producerSkill, producerMeta, ids).taskClass;
+                    const requirements = taskEnablerRequirements(data, producerSkill, producerMeta, enablerModel, producerClass, true);
+                    if (requirements.some(requirement => requirementUsesItem(requirement, blockedItem))) return [];
+
+                    const resources = (producerMeta.Items || []).filter(item => item.includes('*'));
+                    const resourceOrigins = resources.map(resource => itemOriginsWithoutDependency(resource, blockedItem, next));
+                    if (resourceOrigins.some(list => !list.length)) return [];
+                    const hasFixedAnchor = !!(producerMeta.Chunks?.length || producerMeta.NPCs?.length || producerMeta.Monsters?.length ||
+                        producerMeta.Objects?.length || producerMeta.Mix?.length);
+                    if (!hasFixedAnchor && resourceOrigins.length === 1) return resourceOrigins[0];
+                    return taskOrigins(source, producerSkill, next);
+                });
+            });
+            const result = uniqueOrigins(origins);
+            nonCircularOriginCache.set(cacheKey, result);
+            return result;
+        }
         function applySlayerProgression(record, requirementMeta, requirementSkill) {
             const otherwiseAvailable = record.available !== false;
             const explicitRequirement = Math.max(
@@ -1985,8 +2026,18 @@
             if (directOrigins.length) return { source, sourceType: type, origins: uniqueOrigins(directOrigins), available: true,
                 resourceMilestones: [], persistentEnablers: [], forestry: null };
             const sourceSkill = knownNames.get(source), sourceMeta = data.challenges[sourceSkill]?.[source];
-            const origins = sourceMeta ? taskOrigins(source, sourceSkill) : [];
+            let origins = sourceMeta ? taskOrigins(source, sourceSkill) : [];
             if (!sourceMeta || !origins.length) return null;
+            const sourceResources = (sourceMeta.Items || []).filter(item => item.includes('*'));
+            const hasFixedAnchor = !!(sourceMeta.Chunks?.length || sourceMeta.NPCs?.length || sourceMeta.Monsters?.length ||
+                sourceMeta.Objects?.length || sourceMeta.Mix?.length);
+            // Recovery actions such as eating a pie or emptying a container have
+            // no location of their own. Attribute them only to acquisition paths
+            // for the consumed item that do not already require the recovered item.
+            if (!hasFixedAnchor && sourceResources.length === 1) {
+                origins = itemOriginsWithoutDependency(sourceResources[0], itemName);
+                if (!origins.length) return null;
+            }
             const resourceMilestones = taskResourceMilestoneDependencies(source, sourceMeta).map(dependency => ({
                 ...dependency, satisfied: dependency.producers.some(milestoneComplete)
             }));
