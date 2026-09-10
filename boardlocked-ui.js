@@ -258,7 +258,7 @@
         state = R.reconcileProgression(state, catalog, legacy(), tasksMap);
         progressionHighWater = { ...state.progressionHighWater };
         const oldDormant = new Set(pool.dormant);
-        tasks = R.adaptTasks(rawTasks, legacy(), state, tempChunks.unlocked || {}, sections, manualSections, catalog);
+        tasks = R.adaptTasks(rawTasks, legacy(), state, tempChunks.unlocked || {}, sections, manualSections, catalog, tasksMap);
         const completed = R.completionIds(legacy(), tasksMap);
         tasks.filter(t => t.completed).forEach(t => completed.add(t.taskId));
         state = R.resolveVisit(state, completed);
@@ -293,7 +293,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl7');
+        worker = new Worker('./worker.js?v=6.9.66-bl8');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -723,15 +723,19 @@
         document.getElementById('bl-visit-status').textContent = visit ? visit.kind.toUpperCase() + arrivalLabel + ' · ' + ({ pending_calculation: 'Awaiting task/section calculation', task_required: 'Complete any 1 task', resolved: ({ no_tasks: 'No tasks — free roll', task_completed: 'Complete', admin_void: 'Administratively voided' })[visit.resolution] })[visit.status] : 'Roll a starting tile to begin.';
         const candidates = document.getElementById('bl-candidates'); candidates.replaceChildren();
         const completedIds = R.completionIds(legacy(), tasksMap);
-        if (visit) taskList(candidates, visit.candidateTaskIds.map(id => {
-            const savedTask = visit.candidateTasks?.[id] || {};
-            return tasks.find(t => t.taskId === id) || {
-                taskId: id, name: tasksMapReverse[id] || id, displayName: R.displayName(tasksMapReverse[id] || id),
-                skill: rawTasks.find(t => t.taskId === id)?.skill || 'Unavailable', ...savedTask,
-                completed: completedIds.has(id) || (!!savedTask.enablerItemKey && R.own(state.acquiredEnablers, savedTask.enablerItemKey)), available: false,
-                eligibilityReason: 'No longer eligible; inspect rules/access/backlogs or void the visit', origins: []
-            };
-        }), true);
+        if (visit) {
+            const snapshotIds = new Set(visit.candidateTaskIds);
+            taskList(candidates, visit.candidateTaskIds.map(id => {
+                const savedTask = visit.candidateTasks?.[id] || {};
+                return tasks.find(t => t.taskId === id) || {
+                    taskId: id, name: tasksMapReverse[id] || id, displayName: R.displayName(tasksMapReverse[id] || id),
+                    skill: rawTasks.find(t => t.taskId === id)?.skill || 'Unavailable', ...savedTask,
+                    completed: completedIds.has(id) || (!!savedTask.enablerItemKey && R.own(state.acquiredEnablers, savedTask.enablerItemKey)), available: false,
+                    eligibilityReason: 'No longer eligible; inspect rules/access/backlogs or void the visit', origins: []
+                };
+            }).filter(task => !task.implicitlyCompleted && (!task.redundant ||
+                !(task.coveredByTaskIds || []).some(id => snapshotIds.has(id)))), true);
+        }
         document.getElementById('bl-void').disabled = !visit || R.canRoll(state) || !canEdit();
         const reachableEncounters = pool.candidates.filter(c => c.kind === 'revisit' || c.kind === 'stay');
         const poolBoundaryLabel = Object.keys(tempChunks.unlocked || {}).length ? 'Rollable new tiles' : 'Possible starting tiles';
@@ -804,7 +808,8 @@
         if (!container || !container.parentElement.open) return;
         const query = document.getElementById('bl-task-search').value.toLowerCase();
         const history = document.getElementById('bl-show-earlier').checked;
-        const filtered = tasks.filter(t => (history || (!t.superseded && !t.completed)) && (t.taskId + ' ' + t.displayName + ' ' + t.skill + ' ' + t.origins.map(o => o.chunkId).join(' ')).toLowerCase().includes(query));
+        const filtered = tasks.filter(t => (history || (!t.superseded && !t.completed && !t.redundant)) &&
+            (t.taskId + ' ' + t.displayName + ' ' + t.skill + ' ' + t.origins.map(o => o.chunkId).join(' ')).toLowerCase().includes(query));
         container.replaceChildren();
         taskList(container, filtered.slice(0, 150));
         if (filtered.length > 150) container.append(element('p', 'Showing 150 of ' + filtered.length + '. Search to narrow the list.'));

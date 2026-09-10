@@ -18,6 +18,7 @@
     const displayName = name => String(name).replace(/[~|*]/g, '');
     const stripMarkup = value => String(value || '').replace(/<[^>]*>/g, '').replace(/\u200b/g, '').trim();
     const canonicalItemKey = name => String(name || '').replaceAll('*', '');
+    const comparableItemKey = name => canonicalItemKey(name).replaceAll('#', '/').trim().toLowerCase();
     const enablerTaskId = itemKey => 'bl_enabler_item_' + encodeURIComponent(canonicalItemKey(itemKey));
     const enablerItemFromTaskId = id => {
         const prefixes = ['bl_enabler_item_', 'r' + 'l_enabler_item_'];
@@ -326,11 +327,19 @@
             skilling: advancesSkillProgression, bisReason,
             bisSet: meta.Set || null };
     }
+    function equipmentObjectiveAlternatives(data, name, meta = {}) {
+        if (!/^(?:wear|wield|equip)\b/i.test(displayName(name).trim()) || meta.Items?.length !== 1) return [];
+        const raw = String(meta.Items[0]);
+        const quantity = /\[\+\]x(\d+)/.exec(raw);
+        if (quantity && Number(quantity[1]) !== 1) return [];
+        return [...new Set(expand(raw, data.codeItems?.itemsPlus).map(canonicalItemKey).filter(Boolean))];
+    }
     function buildTaskCatalog(data, ids = {}) {
         const catalog = new Map();
         for (const skill of ['Quest', 'Diary', 'Extra', 'BiS', ...SKILLS, 'Combat']) {
             for (const [name, meta] of Object.entries(data.challenges?.[skill] || {})) {
                 const record = taskMetadata(name, skill, meta, ids);
+                record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, meta);
                 if (!meta.NeverShow && !catalog.has(record.taskId)) catalog.set(record.taskId, record);
             }
         }
@@ -345,11 +354,32 @@
         // becoming permanently stuck behind an empty numerical range.
         return laterLevels[0];
     }
-    function deriveProgressionHighWater(catalog, legacy, ids = {}) {
-        const done = completionIds(legacy, ids), result = {};
+    function completedEquipmentItems(legacy = {}, state = null, ids = {}) {
+        const result = new Map(), reverseIds = new Map(Object.entries(ids || {}).map(([name, id]) => [String(id), name]));
+        const add = item => { if (item) result.set(comparableItemKey(item), canonicalItemKey(item)); };
+        for (const [item, owned] of Object.entries(legacy.manualEquipment || {})) if (owned) add(item);
+        for (const item of Object.keys(state?.acquiredEnablers || {})) add(item);
+        for (const storeName of ['completedChallenges', 'checkedChallenges', 'checkedAllTasks']) {
+            for (const [skill, entries] of Object.entries(legacy[storeName] || {})) for (const [key, flag] of Object.entries(entries || {})) {
+                if (flag === false) continue;
+                const name = reverseIds.get(String(key)) || key;
+                if (skill !== 'BiS' && !/(?:^|\))\s*Obtain\b/i.test(displayName(name))) continue;
+                const match = /~\|([^|]+)\|~/.exec(name);
+                if (match) add(match[1]);
+            }
+        }
+        return result;
+    }
+    function impliedEquipmentCompletion(task, completedItems, state = null) {
+        if (task.advancesSkillProgression && Number.isFinite(task.level) &&
+            Number.isFinite(state?.actualLevels?.[task.skill]) && state.actualLevels[task.skill] < task.level) return null;
+        return (task.equipmentObjectiveAlternatives || []).find(item => completedItems.has(comparableItemKey(item))) || null;
+    }
+    function deriveProgressionHighWater(catalog, legacy, ids = {}, state = null) {
+        const done = completionIds(legacy, ids), completedItems = completedEquipmentItems(legacy, state, ids), result = {};
         for (const skill of SKILLS) {
             const cleared = catalog.filter(task => task.skill === skill && task.advancesSkillProgression &&
-                (done.has(task.taskId) || done.has(task.name))).map(task => task.level);
+                (done.has(task.taskId) || done.has(task.name) || impliedEquipmentCompletion(task, completedItems, state))).map(task => task.level);
             result[skill] = cleared.length ? Math.max(...cleared) : 0;
         }
         return result;
@@ -357,7 +387,7 @@
     function initializeProgression(state, catalog, legacy = {}, ids = {}, force = false) {
         const next = { ...state, progressionHighWater: { ...state.progressionHighWater } };
         if (force || !state.progressionInitialized) {
-            next.progressionHighWater = deriveProgressionHighWater(catalog, legacy, ids);
+            next.progressionHighWater = deriveProgressionHighWater(catalog, legacy, ids, state);
             if (!force && state.legacyProgressionFrontiers) {
                 // Only preserve a legacy frontier when the player explicitly
                 // edited it. Automatically advanced tiers are re-derived from
@@ -377,7 +407,7 @@
     }
     function reconcileProgression(state, catalog, legacy = {}, ids = {}) {
         const next = initializeProgression(state, catalog, legacy, ids);
-        const derived = deriveProgressionHighWater(catalog, legacy, ids);
+        const derived = deriveProgressionHighWater(catalog, legacy, ids, next);
         for (const skill of SKILLS) next.progressionHighWater[skill] = Math.max(next.progressionHighWater[skill] || 0, derived[skill]);
         return next;
     }
@@ -394,31 +424,65 @@
         }
         return levels;
     }
-    function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks) {
+    function acquisitionTaskItems(task) {
+        if (!['bis', 'collection', 'enabler'].includes(task.taskClass)) return [];
+        return [...new Set([task.equipmentName, task.enablerItemKey, ...(task.provesAcquiredItemKeys || [])].filter(Boolean))];
+    }
+    function sameAccessibleArea(left, right) {
+        return left.chunkId === right.chunkId && (!left.sectionId || !right.sectionId || left.sectionId === right.sectionId);
+    }
+    function collapseRedundantEquipmentTasks(tasks) {
+        const detailed = tasks.filter(task => task.eligible && acquisitionTaskItems(task).length);
         return tasks.map(task => {
+            if (!task.eligible || !(task.equipmentObjectiveAlternatives || []).length) return task;
+            const alternatives = new Set(task.equipmentObjectiveAlternatives.map(comparableItemKey));
+            const covering = detailed.filter(candidate => candidate.taskId !== task.taskId &&
+                acquisitionTaskItems(candidate).some(item => alternatives.has(comparableItemKey(item))));
+            if (!covering.length) return task;
+            const coveredOrigins = task.activeOrigins.filter(origin => covering.some(candidate =>
+                candidate.activeOrigins.some(detailOrigin => sameAccessibleArea(origin, detailOrigin))));
+            if (!coveredOrigins.length) return task;
+            const activeOrigins = task.activeOrigins.filter(origin => !coveredOrigins.includes(origin));
+            const coveredBy = covering.filter(candidate => coveredOrigins.some(origin =>
+                candidate.activeOrigins.some(detailOrigin => sameAccessibleArea(origin, detailOrigin))));
+            const labels = [...new Set(coveredBy.map(candidate => candidate.displayName))];
+            const reason = 'Covered by ' + (labels.length === 1 ? labels[0] : labels.length + ' specific obtainable-item tasks');
+            return { ...task, activeOrigins, eligible: activeOrigins.length > 0, redundant: activeOrigins.length === 0,
+                partiallyRedundant: activeOrigins.length > 0, coveredOrigins: uniqueOrigins(coveredOrigins),
+                coveredByTaskIds: coveredBy.map(candidate => candidate.taskId),
+                eligibilityReason: activeOrigins.length ? task.eligibilityReason : reason,
+                whyWouldBeIneligible: activeOrigins.length ? task.whyWouldBeIneligible : [...task.whyWouldBeIneligible, 'covered by a more specific obtainable-item task'] };
+        });
+    }
+    function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks, ids = {}) {
+        const completedItems = completedEquipmentItems(legacy, state, ids);
+        const adapted = tasks.map(task => {
             const origins = own(state.originOverrides, task.taskId) ? state.originOverrides[task.taskId].map(value => ({
                 ...parseLocation(value), sourceType: 'manual', sourceName: 'Manual origin', reason: 'User origin override'
             })) : task.origins;
             const activeOrigins = origins.filter(origin => locationAvailable(origin, unlocked, sections, manualSections));
-            const completed = isComplete(task, legacy, state), backlogged = isBacklogged(task, legacy);
+            const impliedByItem = impliedEquipmentCompletion(task, completedItems, state);
+            const completed = isComplete(task, legacy, state) || !!impliedByItem, backlogged = isBacklogged(task, legacy);
             const highWater = state.progressionHighWater?.[task.skill] ?? 0;
             const ceiling = task.advancesSkillProgression ? progressionCeiling(catalog, task.skill, highWater) : null;
             const superseded = !!task.advancesSkillProgression && task.level <= highWater;
             const progressionBlocked = !!task.advancesSkillProgression && task.level > ceiling;
-            return { ...task, origins, activeOrigins, completed, backlogged, superseded,
+            return { ...task, origins, activeOrigins, completed, implicitlyCompleted: !!impliedByItem, completionEvidenceItem: impliedByItem,
+                backlogged, superseded,
                 progressionBlocked, progressionHighWater: task.advancesSkillProgression ? highWater : null,
                 progressionCeiling: ceiling,
                 eligible: task.available !== false && !completed && !backlogged && !superseded && !progressionBlocked && activeOrigins.length > 0,
-                eligibilityReason: completed ? 'Completed' : superseded ? 'At or below the highest completed ' + task.skill + ' task (level ' + highWater + ')' :
+                eligibilityReason: impliedByItem ? 'Completed by obtaining ' + impliedByItem : completed ? 'Completed' : superseded ? 'At or below the highest completed ' + task.skill + ' task (level ' + highWater + ')' :
                     progressionBlocked ? 'Above the current ' + task.skill + ' progression window (next through level ' + ceiling + ')' : backlogged ? 'Backlogged' :
                     task.available === false ? task.accessResult?.reason || 'Access unavailable' : !origins.length ? 'Unassigned origin' :
                     !activeOrigins.length ? 'Origin geography or section is closed' : 'Eligible',
-                whyWouldBeIneligible: completed ? ['completed'] : [
+                whyWouldBeIneligible: completed ? [impliedByItem ? 'completed by a specific acquired equipment item' : 'completed'] : [
                     ...(superseded ? ['at or below highest completed skill-task level'] : []), ...(progressionBlocked ? ['above current progression window'] : []),
                     ...(backlogged ? ['backlogged'] : []), ...(task.available === false ? [task.accessResult?.reason || 'access unavailable'] : []),
                     ...(!origins.length ? ['no attributed origin'] : []), ...(origins.length && !activeOrigins.length ? ['origin geography or section closed'] : [])
                 ] };
         });
+        return collapseRedundantEquipmentTasks(adapted);
     }
 
     function buildTravelGraph(data, unlocked, accessibleSections = {}, frontier = [], connectionAllowed = () => true) {
@@ -1120,6 +1184,7 @@
             if (record.taskClass === 'bis' && record.bisReason && !record.displayName.startsWith('[')) {
                 record.displayName = '[' + record.bisReason + '] ' + record.displayName;
             }
+            record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, requirementMeta);
             const requiredEnablers = taskEnablerRequirements(data, requirementSkill, requirementMeta, enablerModel, record.taskClass)
                 .map(requirement => enablerRequirementStatus(requirement, state, data, requirementSkill));
             record.provesAcquiredItemKeys = specificAcquisitionItems(data, requirementSkill, requirementMeta, record.taskClass, enablerModel);
@@ -1242,7 +1307,8 @@
     return { VERSION, SKILLS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
         canonicalItemKey, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
-        uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, buildTaskCatalog,
+        uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, equipmentObjectiveAlternatives, completedEquipmentItems,
+        collapseRedundantEquipmentTasks, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingPool, chooseStartingCandidate, canRoll,

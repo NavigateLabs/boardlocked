@@ -696,14 +696,78 @@ test('live acceptance actions retain exact levels without actual-level bypass', 
     assert.equal(state.progressionHighWater.Attack, 0); assert.equal(state.progressionHighWater.Woodcutting, 0);
 });
 
+test('specific obtainable equipment collapses broader wear and wield tasks in the same accessible area', () => {
+    const data = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'chunkpicker-chunkinfo-export.json'), 'utf8'));
+    const ids = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'tasksMap.json'), 'utf8'));
+    const catalog = R.buildTaskCatalog(data, ids);
+    const broad = [
+        catalog.find(task => task.name === 'Wield an ~|iron weapon|~'),
+        catalog.find(task => task.name === 'Wear ~|bronze armour|~'),
+        catalog.find(task => task.name === 'Wear ~|wizard robes|~')
+    ];
+    assert.ok(broad.every(Boolean));
+    assert.ok(broad[0].equipmentObjectiveAlternatives.includes('Iron dagger'));
+    assert.ok(broad[1].equipmentObjectiveAlternatives.includes('Bronze med helm'));
+    assert.ok(broad[2].equipmentObjectiveAlternatives.includes('Blue wizard hat'), 'the upstream robe group explicitly includes the hat');
+    assert.ok(catalog.find(task => task.name === "Wear the ~|angler's outfit|~")
+        .equipmentObjectiveAlternatives.includes('Angler hat'), 'the same rule covers non-combat skilling outfits');
+    const located = broad.map(task => ({ ...task, origins: [origin('1000')], available: true }));
+    const specifics = ['Iron dagger', 'Bronze med helm', 'Blue wizard hat', 'Rune scimitar'].map((item, index) => ({
+        taskId: 'specific-' + index, name: 'Obtain ~|' + item.toLowerCase() + '|~', displayName: 'Obtain ' + item,
+        skill: 'BiS', taskClass: 'bis', equipmentName: item, origins: [origin('1000')], available: true
+    }));
+    const unrelated = task('cooking-choice', ['1000'], { skill: 'Cooking', level: 1, advancesSkillProgression: true });
+    const adapted = R.adaptTasks([...located, ...specifics, unrelated], {}, fresh(), geo, {}, {}, catalog, ids);
+    for (const objective of broad) {
+        const result = adapted.find(task => task.taskId === objective.taskId);
+        assert.equal(result.eligible, false); assert.equal(result.redundant, true);
+        assert.match(result.eligibilityReason, /Covered by/);
+    }
+    assert.ok(specifics.every(task => adapted.find(result => result.taskId === task.taskId).eligible),
+        'distinct item upgrades remain separate choices');
+    assert.equal(adapted.find(result => result.taskId === unrelated.taskId).eligible, true,
+        'ordinary Cooking and Crafting-style choices are outside equipment collapsing');
+});
+
+test('equipment collapsing is local to a tile and a completed specific item permanently satisfies the broad milestone', () => {
+    const data = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'chunkpicker-chunkinfo-export.json'), 'utf8'));
+    const ids = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'tasksMap.json'), 'utf8'));
+    const catalog = R.buildTaskCatalog(data, ids);
+    const broad = catalog.find(task => task.name === 'Wield an ~|iron weapon|~');
+    const located = { ...broad, origins: [origin('1000'), origin('2000')], available: true };
+    const dagger = { taskId: ids['Obtain an ~|iron dagger|~'], name: 'Obtain an ~|iron dagger|~', displayName: 'Obtain an iron dagger',
+        skill: 'BiS', taskClass: 'bis', equipmentName: 'Iron dagger', origins: [origin('1000')], available: true };
+    let state = R.initializeProgression(fresh(), catalog, {}, ids);
+    let result = R.adaptTasks([located, dagger], {}, state, geo, {}, {}, catalog, ids).find(task => task.taskId === broad.taskId);
+    assert.equal(result.eligible, true); assert.equal(result.partiallyRedundant, true);
+    assert.deepEqual(result.activeOrigins.map(origin => origin.chunkId), ['2000']);
+
+    const legacy = { completedChallenges: { BiS: { [dagger.taskId]: true } } };
+    state = R.initializeProgression(fresh(), catalog, legacy, ids);
+    assert.equal(state.progressionHighWater.Attack, 1, 'obtaining the dagger also clears the level-one wield milestone');
+    result = R.adaptTasks([located], legacy, state, geo, {}, {}, catalog, ids)[0];
+    assert.equal(result.completed, true); assert.equal(result.implicitlyCompleted, true);
+    assert.equal(result.completionEvidenceItem, 'Iron dagger');
+
+    const rune = catalog.find(task => task.name === 'Wield a ~|rune weapon|~');
+    const lowLevelState = fresh();
+    const ownedRune = { manualEquipment: { 'Rune scimitar': true } };
+    assert.equal(R.initializeProgression(lowLevelState, catalog, ownedRune, ids).progressionHighWater.Attack, 0,
+        'owning gear does not claim a wield milestone before its skill requirement');
+    lowLevelState.actualLevels.Attack = 40;
+    assert.equal(R.initializeProgression(lowLevelState, catalog, ownedRune, ids).progressionHighWater.Attack, rune.level);
+});
+
 test('live acceptance worker output replaces unavailable axe actions with specific Enabler acquisitions', () => {
     const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
     request.boardlocked.state.actualLevels.Attack = 99; request.boardlocked.state.actualLevels.Woodcutting = 99;
     const result = runWorker(request).result, catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
     const state = R.initializeProgression(request.boardlocked.state, catalog, {}, request.boardlocked.tasksMap);
-    const tasks = R.adaptTasks(result.tasks, {}, state, request.chunks, result.sections, request.manualSections, catalog);
+    const tasks = R.adaptTasks(result.tasks, {}, state, request.chunks, result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
     for (const pattern of [/bronze weapon/, /iron weapon/]) {
-        assert.ok(tasks.some(task => pattern.test(task.name) && task.eligible), pattern);
+        const broad = tasks.find(task => pattern.test(task.name)); assert.ok(broad, pattern);
+        assert.equal(broad.eligible, false); assert.equal(broad.redundant, true);
+        assert.match(broad.eligibilityReason, /Covered by/);
     }
     for (const pattern of [/bronze axe/, /iron axe/]) assert.ok(tasks.some(task => task.taskClass === 'enabler' && pattern.test(task.name) && task.eligible), pattern);
     for (const pattern of [/^Chop ~\|logs/, /^Chop with .*bronze axe/, /^Chop with .*iron axe/]) {
