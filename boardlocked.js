@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 10;
+    const VERSION = 11;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -208,6 +208,57 @@
         if (!parsed) return false;
         if (parsed.sectionId) return parsed.sectionId.startsWith('W');
         return data.chunks?.[parsed.chunkId]?.Nickname === 'Ocean Chunk';
+    }
+
+    function travelMedium(data = {}, locationId) {
+        return isWaterLocation(data, locationId) ? 'water' : 'land';
+    }
+
+    function isPortLanding(data = {}, locationId) {
+        const parsed = parseLocation(locationId);
+        if (!parsed) return false;
+        const chunk = data.chunks?.[parsed.chunkId] || {};
+        const contents = parsed.sectionId ? chunk.Sections?.[parsed.sectionId] || {} : chunk;
+        const objects = Object.keys(contents.Object || {}), npcs = Object.keys(contents.NPC || {});
+        return objects.some(name => /^(?:Gangplank(?: \(Sailing\))?|Mooring point|Sailors' Marker)/i.test(name)) ||
+            npcs.some(name => /^Port master$/i.test(name));
+    }
+
+    function mediumConnectionAllowed(data = {}, from, to) {
+        const fromMedium = travelMedium(data, from), toMedium = travelMedium(data, to);
+        if (fromMedium === toMedium) return true;
+        return isPortLanding(data, fromMedium === 'land' ? from : to);
+    }
+
+    function migrateCurrentArrival(data, state, unlocked, accessibleSections = {}, connectionAllowed = () => true) {
+        const visit = state.currentVisit;
+        if (!visit || visit.kind !== 'new' || visit.visitNumber <= 1 || !Array.isArray(visit.arrivalSections)) {
+            return { state, changed: false, removedSections: [] };
+        }
+        const media = new Set(visit.arrivalSections.map(section => section.startsWith('W') ? 'water' : 'land'));
+        if (media.size < 2) return { state, changed: false, removedSections: [] };
+        const previous = (state.visitHistory || []).filter(item => item.visitNumber < visit.visitNumber)
+            .sort((a, b) => b.visitNumber - a.visitNumber)[0];
+        const target = parseLocation(visit.locationId)?.chunkId, previousId = parseLocation(previous?.locationId)?.chunkId;
+        if (!target || !previousId || target === previousId) return { state, changed: false, removedSections: [] };
+        const before = { ...(unlocked || {}) };
+        delete before[target];
+        if (!own(before, previousId)) return { state, changed: false, removedSections: [] };
+        const graph = buildTravelGraph(data, before, accessibleSections, [target], connectionAllowed);
+        const pool = derivePool([target], before, [], null, graph, previousId,
+            Array.isArray(previous.arrivalSections) ? previous.arrivalSections : null);
+        const candidate = pool.candidates.find(item => item.kind === 'frontier' && item.locationId === target);
+        const valid = candidate?.metadata?.entrySections || [];
+        const kept = visit.arrivalSections.filter(section => valid.includes(section));
+        if (!kept.length || kept.length === visit.arrivalSections.length) return { state, changed: false, removedSections: [] };
+        const removedSections = visit.arrivalSections.filter(section => !kept.includes(section));
+        const arrivalMedium = kept.every(section => section.startsWith('W')) ? 'water' :
+            kept.some(section => section.startsWith('W')) ? 'mixed' : 'land';
+        const nextVisit = { ...visit, arrivalSections: kept, arrivalMedium };
+        const next = journal({ ...state, travelAnchorSections: state.travelAnchor === target ? kept : state.travelAnchorSections }, nextVisit);
+        next.adminHistory = [...next.adminHistory, { timestamp: new Date().toISOString(), action: 'remove_invalid_arrival_sections',
+            locationId: target, sectionIds: removedSections, reason: 'No port connects these land and water routes' }];
+        return { state: next, changed: true, removedSections };
     }
 
     function deriveStartingSectionGroups(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}) {
@@ -651,7 +702,7 @@
                     const target = parseLocation(rawTarget);
                     if (!target || !allowedChunks.has(target.chunkId)) continue;
                     const to = target.chunkId + (target.sectionId ? '-' + target.sectionId : '');
-                    if (!availableLocations.has(to) || !connectionAllowed(from, to)) continue;
+                    if (!availableLocations.has(to) || !mediumConnectionAllowed(data, from, to) || !connectionAllowed(from, to)) continue;
                     if (!sectionGraph[from].includes(to)) sectionGraph[from].push(to);
                     if (!sectionGraph[to].includes(from)) sectionGraph[to].push(from);
                     const key = [chunkId, target.chunkId].sort().join('|');
@@ -703,7 +754,8 @@
                         if (!target || !own(unlocked, target.chunkId)) continue;
                         const from = fromChunk + (fromSection === '0' ? '' : '-' + fromSection);
                         const to = target.chunkId + (target.sectionId ? '-' + target.sectionId : '');
-                        if (!connectionAllowed(from, to) || !target.sectionId || inferred[target.chunkId]?.[target.sectionId] === true ||
+                        if (!mediumConnectionAllowed(data, from, to) || !connectionAllowed(from, to) || !target.sectionId ||
+                            inferred[target.chunkId]?.[target.sectionId] === true ||
                             inferred[target.chunkId]?.[target.sectionId] === false) continue;
                         open(target.chunkId, target.sectionId); changed = true;
                     }
@@ -1505,7 +1557,8 @@
         collapseRedundantEquipmentTasks, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
-        deriveStartingSections, deriveStartingSectionGroups, isWaterLocation,
+        deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
+        migrateCurrentArrival,
         migrateStartingSections, deriveStartingPool, chooseStartingCandidate, canRoll,
         startVisit, snapshotVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };

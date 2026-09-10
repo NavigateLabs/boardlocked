@@ -306,6 +306,34 @@ test('section-aware travel never crosses from land into disconnected water', () 
     const waterPool = R.derivePool(frontier, unlocked, [], null, waterGraph, '1000', ['W1']);
     assert.deepEqual(waterPool.candidates.map(candidate => [candidate.locationId, candidate.metadata.entrySections]), [['3000', ['W1']]]);
 });
+test('ocean travel enters land only through a real port endpoint', () => {
+    const deepfinGraph = R.buildTravelGraph(chunkData, { '7723': '7723' }, { '7723': { W1: true } }, ['7722']);
+    const deepfinPool = R.derivePool(['7722'], { '7723': '7723' }, [], null, deepfinGraph, '7723', ['W1']);
+    assert.deepEqual(deepfinGraph.sectionGraph['7723-W1'], ['7722-W1']);
+    assert.deepEqual(deepfinPool.candidates[0].metadata.entrySections, ['W1'],
+        'the empty land fragment beside Deepfin must not be merged into an ocean arrival');
+    const request = usePreset(makeRequest(['7723', '7722']), 'Boardlocked Chunker');
+    request.manualSections = { '7723': { W1: true } };
+    const workerSections = runWorker(request).result.sections;
+    assert.deepEqual(workerSections['7722'], { W1: true }, 'the worker must not reopen the rejected land section');
+
+    const neitiznot = R.buildTravelGraph(chunkData, { '9530': '9530', '9274': '9274' }, { '9274': { '1': true } });
+    assert.ok(neitiznot.sectionGraph['9530'].includes('9274-1'), 'Neitiznot Port master permits docking');
+    const onyx = R.buildTravelGraph(chunkData, { '11812': '11812', '11811': '11811' }, { '11811': { '1': true } });
+    assert.ok(onyx.sectionGraph['11812'].includes('11811-1'), 'the Onyx Crest mooring point permits docking');
+});
+test('version migration removes an already-recorded mixed arrival caused by the Deepfin edge', () => {
+    let state = R.startVisit(fresh(), { kind: 'frontier', locationId: '7723', metadata: { entrySections: ['W1'] } });
+    state = R.snapshotVisit(state, []);
+    state = R.startVisit(state, { kind: 'frontier', locationId: '7722', metadata: { entrySections: ['1', 'W1'] } });
+    const migrated = R.migrateCurrentArrival(chunkData, state, { '7723': '7723', '7722': '7722' },
+        { '7723': { W1: true }, '7722': { '1': true, W1: true } });
+    assert.equal(migrated.changed, true);
+    assert.deepEqual(migrated.removedSections, ['1']);
+    assert.deepEqual(migrated.state.currentVisit.arrivalSections, ['W1']);
+    assert.equal(migrated.state.currentVisit.arrivalMedium, 'water');
+    assert.deepEqual(migrated.state.travelAnchorSections, ['W1']);
+});
 test('Eagles Peak land route never opens its parallel ocean sections or Sailing drops', () => {
     const unlocked = { '9270': '9270', '9271': '9271' };
     const manualSections = R.inferConnectedSections(chunkData, unlocked, { '9270': { '1': true } });

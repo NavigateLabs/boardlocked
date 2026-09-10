@@ -154,6 +154,7 @@ function blCanOpen(name) {
 
 function blSectionConnectionAllowed(from, to) {
     if (!blContext) return true;
+    if (!Boardlocked.mediumConnectionAllowed(chunkInfo, from, to)) return false;
     const candidates = [from + ' to ' + to, from + ' to ' + to.split('-')[0]];
     return candidates.every(key => {
         const gate = chunkInfo.sectionsLimits?.[key];

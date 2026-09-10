@@ -241,6 +241,12 @@
             // profiles and imported histories never gain a quest retroactively.
             if (parsed?.version < 6 && !hasStarted()) state.initialization.druidicRitual = true;
             if (!state.enablersInitialized) state = R.recoverAcquiredEnablers(state, legacy(), chunkInfo, tasksMap, BoardlockedData);
+            const arrivalMigration = parsed?.version < R.VERSION ? R.migrateCurrentArrival(chunkInfo, state,
+                tempChunks.unlocked || {}, manualSections, completedConnectionAllowed) : { state, changed: false, removedSections: [] };
+            state = arrivalMigration.state;
+            if (arrivalMigration.changed) for (const section of arrivalMigration.removedSections) {
+                if (manualSections[state.currentVisit.locationId]?.[section] === true) delete manualSections[state.currentVisit.locationId][section];
+            }
             const recalculatingUpdatedVisit = parsed?.version < R.VERSION && !!state.currentVisit && !R.canRoll(state);
             if (recalculatingUpdatedVisit) state = R.recalculateCurrentVisit(state, 'Recalculated after Boardlocked rules update');
             const startSectionMigration = R.migrateStartingSections(chunkInfo, state, manualSections,
@@ -261,9 +267,10 @@
             }
             if (state.enabled && !state.rulePresetInitialized) applyBoardlockedPreset(true);
             const initializationChanged = !hasStarted() && syncInitializationCompletions();
-            if (upgradeBoardlockedPreset() || initializationChanged || startSectionMigration.changed || anchorSectionsMigrated || recoveredBrowserBackup || parsed?.version < R.VERSION ||
+            if (upgradeBoardlockedPreset() || initializationChanged || arrivalMigration.changed || startSectionMigration.changed || anchorSectionsMigrated || recoveredBrowserBackup || parsed?.version < R.VERSION ||
                 (!localStorage.getItem(key) && localStorage.getItem(legacyStorageKey()))) save();
             if (recoveredBrowserBackup) message = 'Recovered the previous browser backup because the newest save could not be read. Download a backup now.';
+            else if (arrivalMigration.changed) message = 'Removed a land arrival that was not connected to the ocean by a port.';
             else if (recalculatingUpdatedVisit) message = 'The active visit is being recalculated for the updated task rules.';
         } catch (err) { state = boardlockedState(); loadFailure = true; fail(new Error('Saved state was not overwritten. ' + err.message)); }
         setPanelOpen(true);
@@ -367,7 +374,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl10');
+        worker = new Worker('./worker.js?v=6.9.66-bl11');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
