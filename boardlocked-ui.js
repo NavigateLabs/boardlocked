@@ -350,6 +350,7 @@
         travelGraph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed,
             BoardlockedData.travelConnections);
         pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, travelGraph, state.travelAnchor, state.travelAnchorSections);
+        syncDisplayedFrontier(pool.candidates.filter(candidate => candidate.kind === 'frontier').map(candidate => candidate.locationId));
         const woke = pool.live.filter(id => oldDormant.has(id) && id !== state.currentVisit?.locationId);
         if (dataReady && woke.length && !/^(Run imported|Added unlocked chunks)/.test(message)) {
             message = woke.join(', ') + ' now has available tasks and can be rolled again.';
@@ -609,10 +610,14 @@
             setData(); save(); schedule(); render(); centerCanvas('quick');
         } catch (err) { notice('Chunks were not added: ' + err.message); }
     }
+    function syncDisplayedFrontier(ids) {
+        tempSelectedChunks = [...new Set(ids.map(String))];
+        tempChunks.selected = Object.fromEntries(tempSelectedChunks.map((id, index) => [id, index + 1]));
+    }
     function rebuildImportedFrontier() {
         const walkable = rules.F2P ? chunkInfo.walkableChunksF2P : chunkInfo.walkableChunks || [];
-        tempSelectedChunks = R.deriveConnectedFrontier(chunkInfo, tempChunks.unlocked || {}, walkable, tempChunks.blacklisted || {});
-        tempChunks.selected = Object.fromEntries(tempSelectedChunks.map((id, index) => [id, index + 1]));
+        syncDisplayedFrontier(R.deriveConnectedFrontier(chunkInfo, tempChunks.unlocked || {}, walkable,
+            tempChunks.blacklisted || {}, BoardlockedData.travelConnections));
     }
     function resetRun() {
         if (!localProfile || !canEdit()) return;

@@ -315,6 +315,13 @@ test("Achilka's rowboat offers locked destinations without unlocking them", () =
     assert.equal(arrived['5424']['3'], true);
     assert.equal(arrived['5426']['1'], true);
 });
+test('the UI uses transport routes when rebuilding imported map candidates', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'boardlocked-ui.js'), 'utf8');
+    const importRebuild = source.match(/function rebuildImportedFrontier\(\)[\s\S]*?\n    }/)[0];
+    assert.match(importRebuild, /BoardlockedData\.travelConnections/);
+    assert.match(source, /syncDisplayedFrontier\(pool\.candidates\.filter\(candidate => candidate\.kind === 'frontier'\)/,
+        'the green map candidates must be synchronized with the final roll pool');
+});
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
         '1000': { '1': ['2000-1'], W1: ['3000-W1'] },
