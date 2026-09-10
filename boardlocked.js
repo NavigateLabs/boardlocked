@@ -230,7 +230,7 @@
         return isPortLanding(data, fromMedium === 'land' ? from : to);
     }
 
-    function migrateCurrentArrival(data, state, unlocked, accessibleSections = {}, connectionAllowed = () => true) {
+    function migrateCurrentArrival(data, state, unlocked, accessibleSections = {}, connectionAllowed = () => true, travelConnections = []) {
         const visit = state.currentVisit;
         if (!visit || visit.kind !== 'new' || visit.visitNumber <= 1 || !Array.isArray(visit.arrivalSections)) {
             return { state, changed: false, removedSections: [] };
@@ -244,7 +244,7 @@
         const before = { ...(unlocked || {}) };
         delete before[target];
         if (!own(before, previousId)) return { state, changed: false, removedSections: [] };
-        const graph = buildTravelGraph(data, before, accessibleSections, [target], connectionAllowed);
+        const graph = buildTravelGraph(data, before, accessibleSections, [target], connectionAllowed, travelConnections);
         const pool = derivePool([target], before, [], null, graph, previousId,
             Array.isArray(previous.arrivalSections) ? previous.arrivalSections : null);
         const candidate = pool.candidates.find(item => item.kind === 'frontier' && item.locationId === target);
@@ -344,7 +344,8 @@
                 const unlocked = Object.fromEntries(allowed.map(id => [id, id]));
                 const openSections = Object.fromEntries(allowed.map(id => [id, Object.fromEntries(
                     Object.keys(data.sections?.[id] || {}).filter(section => section !== '0').map(section => [section, true]))]));
-                const graph = buildTravelGraph(data, unlocked, openSections, []).sectionGraph;
+                const graph = buildTravelGraph(data, unlocked, openSections, [], () => true,
+                    annotations.travelConnections || []).sectionGraph;
                 connectedStartingLocations = new Set();
                 const queue = graph[policy.connectedTo] ? [policy.connectedTo] : [];
                 for (let next = 0; next < queue.length; next++) {
@@ -678,7 +679,21 @@
         return collapseRedundantEquipmentTasks(adapted);
     }
 
-    function buildTravelGraph(data, unlocked, accessibleSections = {}, frontier = [], connectionAllowed = () => true) {
+    function travelConnectionPairs(connections = []) {
+        const pairs = [];
+        for (const connection of connections || []) {
+            const endpoints = [...new Set((connection?.endpoints || []).map(value => {
+                const parsed = parseLocation(value);
+                return parsed ? parsed.chunkId + (parsed.sectionId ? '-' + parsed.sectionId : '') : null;
+            }).filter(Boolean))];
+            for (let left = 0; left < endpoints.length; left++) for (let right = left + 1; right < endpoints.length; right++) {
+                pairs.push({ from: endpoints[left], to: endpoints[right], connection });
+            }
+        }
+        return pairs;
+    }
+
+    function buildTravelGraph(data, unlocked, accessibleSections = {}, frontier = [], connectionAllowed = () => true, travelConnections = []) {
         const allowedChunks = new Set([...Object.keys(unlocked || {}), ...frontier.map(String)]);
         const unlockedChunks = new Set(Object.keys(unlocked || {}));
         const availableLocations = new Set();
@@ -698,6 +713,14 @@
         const nodesByChunk = {};
         for (const location of availableLocations) (nodesByChunk[parseLocation(location).chunkId] ||= []).push(location);
         const edges = new Set();
+        const connect = (from, to, connection = null, checkMedium = true) => {
+            const fromChunk = parseLocation(from)?.chunkId, toChunk = parseLocation(to)?.chunkId;
+            if (!fromChunk || !toChunk || !availableLocations.has(from) || !availableLocations.has(to) ||
+                (checkMedium && !mediumConnectionAllowed(data, from, to)) || !connectionAllowed(from, to, connection)) return;
+            if (!sectionGraph[from].includes(to)) sectionGraph[from].push(to);
+            if (!sectionGraph[to].includes(from)) sectionGraph[to].push(from);
+            if (fromChunk !== toChunk) edges.add([fromChunk, toChunk].sort().join('|'));
+        };
         for (const [chunkId, sectionMap] of Object.entries(data.sections || {})) {
             if (!allowedChunks.has(chunkId)) continue;
             for (const [sectionId, connections] of Object.entries(sectionMap || {})) {
@@ -707,14 +730,11 @@
                     const target = parseLocation(rawTarget);
                     if (!target || !allowedChunks.has(target.chunkId)) continue;
                     const to = target.chunkId + (target.sectionId ? '-' + target.sectionId : '');
-                    if (!availableLocations.has(to) || !mediumConnectionAllowed(data, from, to) || !connectionAllowed(from, to)) continue;
-                    if (!sectionGraph[from].includes(to)) sectionGraph[from].push(to);
-                    if (!sectionGraph[to].includes(from)) sectionGraph[to].push(from);
-                    const key = [chunkId, target.chunkId].sort().join('|');
-                    if (chunkId !== target.chunkId) edges.add(key);
+                    connect(from, to);
                 }
             }
         }
+        for (const { from, to, connection } of travelConnectionPairs(travelConnections)) connect(from, to, connection, false);
         for (const edge of edges) {
             const [a, b] = edge.split('|');
             graph[a].push(b); graph[b].push(a);
@@ -728,7 +748,7 @@
         return graph;
     }
 
-    function deriveConnectedFrontier(data, unlocked, allowedChunkIds = [], blacklisted = {}) {
+    function deriveConnectedFrontier(data, unlocked, allowedChunkIds = [], blacklisted = {}, travelConnections = []) {
         const allowed = new Set(allowedChunkIds.map(String)), found = new Set();
         for (const [fromChunk, sectionMap] of Object.entries(data.sections || {})) {
             for (const connections of Object.values(sectionMap || {})) for (const rawTarget of connections || []) {
@@ -738,10 +758,16 @@
                 if (allowed.has(lockedId) && !own(blacklisted, lockedId)) found.add(lockedId);
             }
         }
+        for (const { from, to } of travelConnectionPairs(travelConnections)) {
+            const fromChunk = parseLocation(from).chunkId, toChunk = parseLocation(to).chunkId;
+            if (own(unlocked, fromChunk) === own(unlocked, toChunk)) continue;
+            const lockedId = own(unlocked, fromChunk) ? toChunk : fromChunk;
+            if (allowed.has(lockedId) && !own(blacklisted, lockedId)) found.add(lockedId);
+        }
         return [...found].sort((a, b) => Number(b) - Number(a));
     }
 
-    function inferConnectedSections(data, unlocked, explicitSections = {}, connectionAllowed = () => true) {
+    function inferConnectedSections(data, unlocked, explicitSections = {}, connectionAllowed = () => true, travelConnections = []) {
         const inferred = copy(explicitSections || {});
         const open = (chunkId, sectionId) => {
             if (!sectionId || inferred[chunkId]?.[sectionId] === false) return;
@@ -765,6 +791,14 @@
                         open(target.chunkId, target.sectionId); changed = true;
                     }
                 }
+            }
+            for (const { from, to, connection } of travelConnectionPairs(travelConnections)) for (const [source, target] of [[from, to], [to, from]]) {
+                const sourceLocation = parseLocation(source), targetLocation = parseLocation(target);
+                if (!own(unlocked, sourceLocation.chunkId) || !own(unlocked, targetLocation.chunkId) ||
+                    (sourceLocation.sectionId && inferred[sourceLocation.chunkId]?.[sourceLocation.sectionId] !== true) ||
+                    !connectionAllowed(source, target, connection) || !targetLocation.sectionId ||
+                    inferred[targetLocation.chunkId]?.[targetLocation.sectionId] !== undefined) continue;
+                open(targetLocation.chunkId, targetLocation.sectionId); changed = true;
             }
         }
         return inferred;

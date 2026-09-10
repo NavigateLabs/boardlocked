@@ -294,6 +294,27 @@ test('travel graph respects accessible sections and can enter any section of a l
         { '1000': { '1': true, '2': true }, '2000': { '1': true } }, ['3000']);
     assert.deepEqual(opened['1000'], ['2000', '3000']);
 });
+test("Achilka's rowboat offers locked destinations without unlocking them", () => {
+    const unlocked = { '4912': '4912' };
+    const frontier = R.deriveConnectedFrontier(chunkData, unlocked, chunkData.walkableChunks, {}, annotations.travelConnections);
+    assert.ok(frontier.includes('5424'), 'the Kastori landing point is a transport-connected boundary');
+    assert.ok(frontier.includes('5426'), 'Gloomthorn Trail is a transport-connected boundary');
+
+    const graph = R.buildTravelGraph(chunkData, unlocked, {}, frontier, () => true, annotations.travelConnections);
+    const pool = R.derivePool(frontier, unlocked, [], null, graph, '4912');
+    const kastori = pool.candidates.find(candidate => candidate.locationId === '5424');
+    const gloomthorn = pool.candidates.find(candidate => candidate.locationId === '5426');
+    assert.deepEqual(kastori?.metadata.entrySections, ['3']);
+    assert.deepEqual(gloomthorn?.metadata.entrySections, ['1']);
+    assert.deepEqual(Object.keys(unlocked), ['4912'], 'offered transport destinations remain locked');
+
+    assert.deepEqual(R.inferConnectedSections(chunkData, unlocked, {}, () => true, annotations.travelConnections), {},
+        'a route does not open a section in a locked destination');
+    const arrived = R.inferConnectedSections(chunkData,
+        { ...unlocked, '5424': '5424', '5426': '5426' }, {}, () => true, annotations.travelConnections);
+    assert.equal(arrived['5424']['3'], true);
+    assert.equal(arrived['5426']['1'], true);
+});
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
         '1000': { '1': ['2000-1'], W1: ['3000-W1'] },

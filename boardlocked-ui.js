@@ -242,7 +242,8 @@
             if (parsed?.version < 6 && !hasStarted()) state.initialization.druidicRitual = true;
             if (!state.enablersInitialized) state = R.recoverAcquiredEnablers(state, legacy(), chunkInfo, tasksMap, BoardlockedData);
             const arrivalMigration = parsed?.version < R.VERSION ? R.migrateCurrentArrival(chunkInfo, state,
-                tempChunks.unlocked || {}, manualSections, completedConnectionAllowed) : { state, changed: false, removedSections: [] };
+                tempChunks.unlocked || {}, manualSections, completedConnectionAllowed,
+                BoardlockedData.travelConnections) : { state, changed: false, removedSections: [] };
             state = arrivalMigration.state;
             if (arrivalMigration.changed) for (const section of arrivalMigration.removedSections) {
                 if (manualSections[state.currentVisit.locationId]?.[section] === true) delete manualSections[state.currentVisit.locationId][section];
@@ -305,7 +306,8 @@
         const unlocked = tempChunks.unlocked || {};
         if (Object.keys(unlocked).length) {
             const walkable = rules.F2P ? chunkInfo.walkableChunksF2P : chunkInfo.walkableChunks || [];
-            return R.deriveConnectedFrontier(chunkInfo, unlocked, walkable, tempChunks.blacklisted || {});
+            return R.deriveConnectedFrontier(chunkInfo, unlocked, walkable, tempChunks.blacklisted || {},
+                BoardlockedData.travelConnections);
         }
         if (Object.keys(tempChunks.selected || {}).length) {
             return Object.keys(tempChunks.selected || {}).filter(id => {
@@ -345,7 +347,8 @@
         state = R.resolveVisit(state, completed);
         const unlocked = tempChunks.unlocked || {}, boundary = frontier();
         state.travelAnchor = R.inferTravelAnchor(state, unlocked, chunkOrder);
-        travelGraph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed);
+        travelGraph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed,
+            BoardlockedData.travelConnections);
         pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, travelGraph, state.travelAnchor, state.travelAnchorSections);
         const woke = pool.live.filter(id => oldDormant.has(id) && id !== state.currentVisit?.locationId);
         if (dataReady && woke.length && !/^(Run imported|Added unlocked chunks)/.test(message)) {
@@ -369,12 +372,12 @@
         // explicitly proven sections prevents an unlocked land route from
         // silently opening a parallel water route (or the reverse).
         const strictSections = R.inferConnectedSections(chunkInfo, tempChunks.unlocked || {},
-            request.manualSections || {}, completedConnectionAllowed);
+            request.manualSections || {}, completedConnectionAllowed, BoardlockedData.travelConnections);
         for (const [key, allowed] of Object.entries(state.accessOverrides)) if (key.startsWith('section:') && allowed === false) {
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl11');
+        worker = new Worker('./worker.js?v=6.9.66-bl12');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1146,7 +1149,7 @@
             <h3>Current tile / resume a visit</h3><p>After an import, your current tile comes from the unfinished visit or the last unlocked chunk. Change it here if that is wrong. Resume a visit only when you still owe a task there.</p>
             <label>Unlocked chunk or chunk-section ID <input id="bl-admin-location" inputmode="text" placeholder="9270-1 or 9270-W1"></label><div class="bl-toolbar"><button id="bl-set-anchor" type="button">Set current tile / section</button><button id="bl-admin-visit" type="button">Resume unfinished visit here</button></div>
             </details>
-            <div id="bl-mode-content"><p class="bl-muted">Each roll follows every open route from your current tile, crossing FREE tiles until it reaches a new tile or one with an unfinished task.</p><p class="bl-muted">Unlocked tiles stay usable for training and supplies. Only a Current visit task completes the roll.</p>
+            <div id="bl-mode-content"><p class="bl-muted">Each roll follows every open route from your current tile, crossing FREE tiles until it reaches a new tile or one with an unfinished task.</p><p class="bl-muted">Unlocked tiles stay usable for training and supplies. Only a Current visit task completes the roll.</p><p class="bl-muted">Transport can make a destination rollable. Enter it only after it has been rolled.</p>
             <div class="bl-map-legend" aria-label="Map legend"><span><i class="bl-key-current"></i>Current</span><span><i class="bl-key-area"></i>Your area</span><span><i class="bl-key-free"></i>Free</span><span><i class="bl-key-encounter"></i>Reachable encounter</span><span><i class="bl-key-boundary"></i>Rollable new tile</span></div>
             <button id="bl-roll" class="bl-primary" type="button">Roll next location</button>
             <button id="bl-sections" type="button" hidden>Choose accessible sections</button>

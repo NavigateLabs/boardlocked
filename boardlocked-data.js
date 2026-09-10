@@ -140,6 +140,13 @@
                 })
             })
         }),
+        travelConnections: Object.freeze([
+            Object.freeze({
+                id: 'achilka-rowboat',
+                label: "Achilka's rowboat",
+                endpoints: Object.freeze(['4912', '5424-3', '5426-1'])
+            })
+        ]),
         persistentEnablers: Object.freeze({
             // codeItems.tools is mostly reusable implements, but these entries are
             // consumed inputs. The upstream data has no persistence flag for them.

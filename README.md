@@ -17,6 +17,8 @@ Use the task icon in the top-right to reopen the panel.
 
 Simply, you move one tile then complete one task before you can move again. Movement is adjacent to the tile you're currently standing on, meaning the tiles north, south, east or west. Tiles with no completeable goals turn into free tiles, and whenever you're next to a free tile you will also roll the tiles adjacent to that one.
 
+Usable boats and other transport links can also make a destination rollable, but the destination remains locked until you roll it.
+
 The tasks are similar to those you would expect from chunklocked, I.e. get a new BiS, skilling activity, collection log, quests and such.
 
 You have access to everything in previously unlocked chunks, so you can re-enter areas you have previously been to. However you must focus on your goal. I.e. if you need to get woodcutting to lvl 60, that should be the goal you focus on in your rollable chunks and you shouldn't go train thieving.
