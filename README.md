@@ -18,12 +18,15 @@ Use the task icon in the top-right to reopen the panel.
 - Roll from the first reachable new tile or unfinished task tile in each direction.
 - Cross taskless `FREE` tiles automatically while building the roll pool.
 - Complete any one task offered for the current tile before rolling again.
+- Keep every unlocked tile available for training, gathering supplies, travel, and prerequisites.
+- Treat goals as visit requirements, not permission to use content. Routine training does not count as another goal unless that goal is currently active.
 - Recalculate routes when a completed task unlocks an item, level, or connection;
   a `FREE` tile becomes a task encounter as soon as it has an available task.
 - Never put the tile you are standing on into the roll pool. Extra tasks there can
   be completed incidentally or rolled after you leave and reach it again.
 - Keep skill tasks moving forward through a window tuned for each skill. Woodcutting
   uses +15, so a level-60 yew task needs a completed level-45-or-higher milestone.
+- Update actual levels and permanent unlocks after using content in earlier tiles.
 - Score obtainable weapons separately for damage, melee defence, magic defence, and the other displayed combat roles. The label says which role makes an item an upgrade or tied current BiS.
 - Prefer a specific obtainable item over a broader wear or wield task that it completes. Equipment BiS tasks explicitly require wielding or wearing the item, so finishing one also completes the matching metal or armour milestone.
 - Import old runs while recalculating goals against the current rules and task data.
