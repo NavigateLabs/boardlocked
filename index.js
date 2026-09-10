@@ -1970,10 +1970,14 @@ let drawCanvas = function(ctxIn = ctx) {
                 (!highVisibilityMode || totalZoom > 0.3) && ctxIn.strokeRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
             } else if (!!tempChunks['selected'] && tempChunks['selected'][chunkId] && window.boardlockedController?.enabled() &&
                 window.boardlockedController.isFrontierCandidate(chunkId)) {
-                // Boardlocked draws one consistent overlay for new and revisit
-                // roll candidates. Keep the base map visible underneath it.
-                ctxIn.strokeStyle = 'gray';
+                // Keep a rollable new tile visually locked. Boardlocked adds
+                // only a green outline after the base map has been drawn.
+                ctxIn.fillStyle = highVisibilityMode || hoveredChunk === chunkId ? colorBoxLight : colorBox;
+                if (isPainted) ctxIn.globalAlpha = .25;
+                ctxIn.strokeStyle = highVisibilityMode ? 'rgba(0, 0, 0, 0.5)' : 'black';
                 (!highVisibilityMode || totalZoom > 0.3) && ctxIn.strokeRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
+                ctxIn.fillRect(dragTotalX + (totalZoom * (i * imgW / rowSize)), dragTotalY + (totalZoom * (j * imgH / (fullSize / rowSize))), totalZoom * (imgW / rowSize), totalZoom * (imgH / (fullSize / rowSize)));
+                ctxIn.globalAlpha = 1;
             } else if (!!tempChunks['selected'] && tempChunks['selected'][chunkId]) {
                 if (highVisibilityMode) {
                     ctxIn.fillStyle = 'rgba(100, 255, 100, 0.25)';

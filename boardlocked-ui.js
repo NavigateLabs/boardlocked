@@ -1285,21 +1285,11 @@
                     context.moveTo(left + corner, bottom); context.lineTo(left, bottom); context.lineTo(left, bottom - corner);
                     context.stroke();
                 }
-                if (selected && sizeX >= 44 && sizeY >= 36) {
-                    const marker = 'START';
-                    context.font = 'bold ' + Math.max(9, Math.min(15, sizeX * .16)) + 'px Arial, sans-serif';
-                    context.textAlign = 'center'; context.textBaseline = 'middle';
-                    const width = context.measureText(marker).width + 10, centerX = x + sizeX / 2, centerY = y + sizeY / 2;
-                    context.fillStyle = 'rgba(0, 30, 35, .76)';
-                    context.fillRect(centerX - width / 2, centerY - 10, width, 20);
-                    context.fillStyle = '#fff'; context.fillText(marker, centerX, centerY + .5);
-                }
             }
             context.restore();
             return;
         }
-        const candidateByLocation = new Map(pool.candidates.map((candidate, index) =>
-            [candidate.locationId, { ...candidate, number: index + 1 }]));
+        const candidateByLocation = new Map(pool.candidates.map(candidate => [candidate.locationId, candidate]));
         const ids = new Set([...Object.keys(tempChunks.unlocked || {}), ...candidateByLocation.keys()]);
         if (state.travelAnchor) ids.add(state.travelAnchor);
         for (const id of ids) {
@@ -1308,60 +1298,26 @@
             const current = id === state.travelAnchor;
             const candidate = candidateByLocation.get(id), rollable = !!candidate;
             const free = pool.dormant.includes(id), freeOnPath = pool.reachableFree.includes(id);
-            const waiting = !current && !rollable && pool.live.includes(id);
-            if (current || rollable || (free && freeOnPath)) {
-                context.fillStyle = current ? 'rgba(255, 209, 102, .11)' : rollable ? 'rgba(35, 155, 105, .07)' : 'rgba(58, 155, 220, .06)';
+            if (current || (free && freeOnPath)) {
+                context.fillStyle = current ? 'rgba(255, 209, 102, .08)' : 'rgba(58, 155, 220, .04)';
                 context.fillRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
             }
             const areaSections = current ? currentAreaSections() : [];
-            let areaFocus = null;
             if (areaSections.length) {
                 context.save();
                 context.globalAlpha = .58;
                 context.filter = 'drop-shadow(0 0 ' + Math.max(1, sizeX * .025) + 'px rgba(255, 238, 175, .95))';
-                let focusX = 0, focusY = 0, focusWeight = 0;
                 for (const sectionId of areaSections) {
                     const overlay = sectionOverlay(id, sectionId);
                     if (!overlay?.canvas) continue;
                     context.drawImage(overlay.canvas, x + 3, y + 3, sizeX - 6, sizeY - 6);
-                    if (overlay.centroid) {
-                        const weight = overlay.weight || 1;
-                        focusX += overlay.centroid.x * weight; focusY += overlay.centroid.y * weight; focusWeight += weight;
-                    }
                 }
                 context.restore();
-                if (focusWeight) areaFocus = {
-                    x: x + 3 + focusX / focusWeight * (sizeX - 6),
-                    y: y + 3 + focusY / focusWeight * (sizeY - 6)
-                };
             }
             context.strokeStyle = current ? '#d99b00' : rollable ? '#17805d' : free ? '#3a9bdc' : 'rgba(90, 96, 96, .85)';
             context.lineWidth = current ? 4 : rollable ? 3 : freeOnPath ? 2.5 : 2;
             context.setLineDash(current || rollable ? [] : free ? [4, 4] : [2, 4]);
             context.strokeRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
-            if (sizeX >= 44 && sizeY >= 36) {
-                const marker = current ? 'YOU' : rollable ? candidate.number + ' · ' + (candidate.kind === 'revisit' ? 'TASK' : 'NEW') :
-                    free ? 'FREE' : waiting ? 'WAITING' : 'UNLOCKED';
-                context.setLineDash([]);
-                context.font = 'bold ' + Math.max(8, Math.min(13, sizeX * .14)) + 'px Arial, sans-serif';
-                context.textAlign = 'center'; context.textBaseline = 'middle';
-                const width = context.measureText(marker).width + 10;
-                const centerX = Math.max(x + width / 2 + 6, Math.min(x + sizeX - width / 2 - 6, areaFocus?.x ?? x + sizeX / 2));
-                const badgeRoom = current && areaSections.length && sizeX >= 70 && sizeY >= 60 ? 34 : 11;
-                const centerY = Math.max(y + 13, Math.min(y + sizeY - badgeRoom, areaFocus?.y ?? y + sizeY / 2));
-                context.fillStyle = current ? 'rgba(91, 66, 5, .82)' : rollable ? 'rgba(13, 104, 77, .86)' :
-                    free ? 'rgba(31, 105, 145, .78)' : 'rgba(65, 70, 70, .76)';
-                context.fillRect(centerX - width / 2, centerY - 10, width, 20);
-                context.fillStyle = '#fff'; context.fillText(marker, centerX, centerY + .5);
-                if (current && areaSections.length && sizeX >= 70 && sizeY >= 60) {
-                    const areaMarker = (areaSections.length === 1 ? 'AREA ' : 'AREAS ') + areaSections.join('+');
-                    context.font = 'bold ' + Math.max(8, Math.min(12, sizeX * .12)) + 'px Arial, sans-serif';
-                    const areaWidth = context.measureText(areaMarker).width + 9;
-                    context.fillStyle = 'rgba(255, 209, 102, .92)';
-                    context.fillRect(centerX - areaWidth / 2, centerY + 12, areaWidth, 17);
-                    context.fillStyle = '#17241f'; context.fillText(areaMarker, centerX, centerY + 20.5);
-                }
-            }
         }
         context.restore();
     }

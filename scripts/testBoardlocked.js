@@ -2203,18 +2203,19 @@ test('manual starting-tile selection is staged behind an explicit confirmation',
     assert.match(ui, /if \(!pickingStartingTile \|\| hasStarted\(\)\) return false;/,
         'map clicks are intercepted only while choosing the first tile');
 });
-test('active map uses one numbered style for every roll candidate and labels waiting tasks', () => {
+test('active map uses one text-free outline system and keeps new roll candidates visually locked', () => {
     const root = path.join(__dirname, '..');
     const ui = fs.readFileSync(path.join(root, 'boardlocked-ui.js'), 'utf8');
     const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
-    assert.match(ui, /new Map\(pool\.candidates\.map\(\(candidate, index\)/,
-        'frontier and revisit candidates share one numbered pool');
-    assert.match(ui, /candidate\.number \+ ' · ' \+ \(candidate\.kind === 'revisit' \? 'TASK' : 'NEW'\)/);
-    assert.match(ui, /waiting \? 'WAITING' : 'UNLOCKED'/);
+    assert.match(ui, /new Map\(pool\.candidates\.map\(candidate => \[candidate\.locationId, candidate\]\)\)/,
+        'frontier and revisit candidates share one rollable style');
     assert.match(ui, /bl-key-rollable/);
     assert.match(ui, /bl-key-waiting/);
-    assert.match(index, /Boardlocked draws one consistent overlay for new and revisit/,
-        'the legacy bright-green candidate paint is bypassed in Boardlocked');
+    const mapOverlay = ui.slice(ui.indexOf('function drawOverlay'), ui.indexOf('function mount()'));
+    assert.doesNotMatch(mapOverlay, /fillText\(/, 'map status is carried by outlines, not text badges');
+    assert.match(index, /Keep a rollable new tile visually locked/);
+    assert.match(index, /colorBoxLight : colorBox/,
+        'the legacy bright-green candidate paint is replaced with the ordinary locked-tile shade');
 });
 test('production mode logic contains no hard-coded seed or equipment exceptions', () => {
     const root = path.join(__dirname, '..');
