@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 19;
+    const VERSION = 20;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -757,6 +757,29 @@
         }
         return tasks.map(task => replacements.get(task.taskId) || task);
     }
+    function openCatchUpMilestones(tasks, state = null) {
+        const open = tasks.filter(task => task.eligible && task.advancesSkillProgression);
+        const blocked = tasks.filter(task => task.progressionBlocked && task.advancesSkillProgression &&
+            task.available !== false && !task.completed && !task.backlogged && !task.superseded && task.activeOrigins?.length &&
+            (task.level || 1) <= (state?.actualLevels?.[task.skill] || 1));
+        const replacements = new Map();
+        for (const task of blocked) {
+            const catchUpOrigins = task.activeOrigins.filter(origin => {
+                if (open.some(other => other.skill === task.skill && other.activeOrigins.some(otherOrigin =>
+                    sameAccessibleArea(origin, otherOrigin)))) return false;
+                const nearest = Math.min(...blocked.filter(other => other.skill === task.skill && other.activeOrigins.some(otherOrigin =>
+                    sameAccessibleArea(origin, otherOrigin))).map(other => other.level || 1));
+                return (task.level || 1) === nearest;
+            });
+            if (!catchUpOrigins.length) continue;
+            replacements.set(task.taskId, { ...task, activeOrigins: catchUpOrigins, eligible: true,
+                progressionBlocked: false, catchUpProgression: true, catchUpOrigins,
+                progressionCeiling: task.level,
+                eligibilityReason: 'Your actual ' + task.skill + ' level makes this the nearest unfinished milestone available here',
+                whyWouldBeIneligible: (task.whyWouldBeIneligible || []).filter(reason => reason !== 'above current progression window') });
+        }
+        return tasks.map(task => replacements.get(task.taskId) || task);
+    }
     function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks, ids = {}) {
         const completedItems = completedEquipmentItems(legacy, state, ids);
         const adapted = tasks.map(task => {
@@ -786,7 +809,8 @@
                     ...(!origins.length ? ['no attributed origin'] : []), ...(origins.length && !activeOrigins.length ? ['origin geography or section closed'] : [])
                 ] };
         });
-        const ordered = orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(adapted), legacy, state, ids);
+        const withCatchUp = openCatchUpMilestones(adapted, state);
+        const ordered = orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(withCatchUp), legacy, state, ids);
         return chooseResourceRepresentativeTasks(ordered, state);
     }
 
@@ -1087,25 +1111,43 @@
             candidateTaskIds: [], status: 'pending_calculation', resolution: null, resolvedTaskId: null, note: '' };
         return journal({ ...state, travelAnchor: visit.locationId, travelAnchorSections: entrySections }, visit);
     }
+    const snapshotTask = task => ({ name: task.name, skill: task.skill, displayName: task.displayName, level: task.level || null,
+        equipmentName: task.equipmentName || null, taskClass: task.taskClass || null,
+        enablerItemKey: task.enablerItemKey || null, provesAcquiredItemKeys: task.provesAcquiredItemKeys || [],
+        confirmsEquipped: !!task.confirmsEquipped, capabilities: task.capabilities || [],
+        bisReason: task.bisReason || null, bisSet: task.bisSet || null });
+    function taskMatchesVisit(task, visit) {
+        const arrivalSections = new Set(visit.arrivalSections || []);
+        return task.activeOrigins?.some(origin => origin.chunkId === visit.locationId &&
+            (!arrivalSections.size || !origin.sectionId || arrivalSections.has(origin.sectionId)));
+    }
     function snapshotVisit(state, tasks) {
         if (state.currentVisit?.status !== 'pending_calculation') return state;
         const reachableIds = new Set(state.currentVisit.reachableTaskIds || []);
-        const arrivalSections = new Set(state.currentVisit.arrivalSections || []);
         const visit = { ...state.currentVisit, candidateTaskIds: [...new Set(tasks.filter(t => t.eligible &&
-            (reachableIds.size ? reachableIds.has(t.taskId) : t.activeOrigins.some(o => o.chunkId === state.currentVisit.locationId &&
-                (!arrivalSections.size || !o.sectionId || arrivalSections.has(o.sectionId))))).map(t => t.taskId))] };
+            (reachableIds.size ? reachableIds.has(t.taskId) : taskMatchesVisit(t, state.currentVisit))).map(t => t.taskId))] };
         // Keep compact display/category metadata so an invalidated or subsequently
         // removed database entry is still intelligible and completable after reload.
         const snapshotIds = new Set(visit.candidateTaskIds);
-        visit.candidateTasks = Object.fromEntries(tasks.filter(t => snapshotIds.has(t.taskId)).map(t =>
-            [t.taskId, { name: t.name, skill: t.skill, displayName: t.displayName, level: t.level || null,
-                equipmentName: t.equipmentName || null, taskClass: t.taskClass || null,
-                enablerItemKey: t.enablerItemKey || null, provesAcquiredItemKeys: t.provesAcquiredItemKeys || [],
-                confirmsEquipped: !!t.confirmsEquipped, capabilities: t.capabilities || [],
-                bisReason: t.bisReason || null, bisSet: t.bisSet || null }]));
+        visit.candidateTasks = Object.fromEntries(tasks.filter(t => snapshotIds.has(t.taskId)).map(t => [t.taskId, snapshotTask(t)]));
         visit.status = visit.candidateTaskIds.length ? 'task_required' : 'resolved';
         if (!visit.candidateTaskIds.length) visit.resolution = 'no_tasks';
         return journal(state, visit);
+    }
+    function addCatchUpTasksToCurrentVisit(state, tasks) {
+        const visit = state.currentVisit;
+        if (visit?.status !== 'task_required' || !visit.candidateTaskIds?.length) return state;
+        const byId = new Map(tasks.map(task => [task.taskId, task]));
+        const existing = visit.candidateTaskIds.map(id => byId.get(id) || visit.candidateTasks?.[id]);
+        if (existing.some(task => !task || task.taskClass !== 'collection')) return state;
+        const known = new Set(visit.candidateTaskIds);
+        const additions = tasks.filter(task => task.catchUpProgression && task.eligible && !known.has(task.taskId) &&
+            taskMatchesVisit(task, visit));
+        if (!additions.length) return state;
+        const candidateTaskIds = [...visit.candidateTaskIds, ...additions.map(task => task.taskId)];
+        const candidateTasks = { ...(visit.candidateTasks || {}),
+            ...Object.fromEntries(additions.map(task => [task.taskId, snapshotTask(task)])) };
+        return journal(state, { ...visit, candidateTaskIds, candidateTasks });
     }
     function recalculateCurrentVisit(state, reason = 'Recalculated after run import', timestamp = new Date().toISOString()) {
         if (!state.currentVisit || state.currentVisit.status === 'resolved') return state;
@@ -1610,10 +1652,17 @@
             let before = meta.Objects.flatMap(object => expand(object, codes.objectsPlus).flatMap(source => fixed('objects', source)));
             if (constraints.length) before = before.filter(source => constraints.some(constraint => constraint.chunkId === source.chunkId &&
                 (!constraint.sectionId || constraint.sectionId === source.sectionId)));
-            forestryTreeRecords.push({ name, skill, treeTypes: meta.Objects.flatMap(object => expand(object, codes.objectsPlus)),
-                validSources: filterForestryOrigins(before), excludedSources: uniqueOrigins(before).filter(isExcludedForestryOrigin) });
+            const eligibleSources = filterForestryOrigins(before), requiredLevel = Number.isFinite(meta.Level) ? meta.Level : 1;
+            const levelMet = (state.actualLevels?.Woodcutting || 1) >= requiredLevel;
+            forestryTreeRecords.push({ name, skill, requiredLevel,
+                treeTypes: meta.Objects.flatMap(object => expand(object, codes.objectsPlus)),
+                validSources: levelMet ? eligibleSources : [], levelBlockedSources: levelMet ? [] : eligibleSources,
+                excludedSources: uniqueOrigins(before).filter(isExcludedForestryOrigin) });
         }
         const allForestryTreeOrigins = uniqueOrigins(forestryTreeRecords.flatMap(record => record.validSources));
+        const blockedForestryTreeOrigins = uniqueOrigins(forestryTreeRecords.flatMap(record => record.levelBlockedSources));
+        const minimumBlockedForestryLevel = Math.min(...forestryTreeRecords.filter(record => record.levelBlockedSources.length)
+            .map(record => record.requiredLevel), Infinity);
         const forestryKitCapability = forestry.kitItem ? chooseItemCapability(enablerModel, forestry.kitItem, 'Woodcutting') : null;
         const forestryAxeCapability = enablerModel.byRequirement.get('Axe[+]');
         const milestoneComplete = producer => isComplete({ ...producer, taskClass: 'skill_progression' }, legacy, state) ||
@@ -1767,6 +1816,8 @@
                 const treeValid = treeSources.length > 0;
                 const forestryReason = !kitAcquired && !kitObtainable ? 'Forestry kit unavailable: no accessible ' + (forestry.kitNpc || 'kit provider') :
                     !kitAcquired ? 'Forestry kit is obtainable but has not been registered as acquired' :
+                    !treeValid && Number.isFinite(minimumBlockedForestryLevel) ? 'Woodcutting level ' + minimumBlockedForestryLevel +
+                        ' is required for the nearest eligible Forestry tree' :
                     !treeValid ? 'No eligible non-Guild Forestry tree source is accessible' : 'Acquired Forestry kit and eligible non-Guild tree source verified';
                 const priorReason = record.accessResult?.allowed === false ? record.accessResult.reason : '';
                 record.available = record.available && kitAcquired && treeValid;
@@ -1774,13 +1825,17 @@
                 record.enablers = [
                     { type: 'persistent_item', name: forestry.kitItem, provider: forestry.kitNpc || null, origins: kitOrigins,
                         acquired: kitAcquired, obtainable: kitObtainable, valid: kitAcquired },
-                    { type: 'forestry_tree', treeTypes, origins: treeSources, excludedOrigins: excludedTreeSources, valid: treeValid,
+                    { type: 'forestry_tree', treeTypes, origins: treeSources, levelBlockedOrigins: blockedForestryTreeOrigins,
+                        minimumRequiredLevel: Number.isFinite(minimumBlockedForestryLevel) ? minimumBlockedForestryLevel : null,
+                        excludedOrigins: excludedTreeSources, valid: treeValid,
                         currentlyAccessible: treeValid, reason: 'Tree object is referenced by Forestry task metadata and is outside excluded origin groups' }
                 ];
                 record.accessResult = { allowed: record.available, reason, forestry: true,
                     kit: { item: forestry.kitItem, provider: forestry.kitNpc || null, origins: kitOrigins,
                         acquired: kitAcquired, obtainable: kitObtainable, valid: kitAcquired },
-                    treeSource: { treeTypes, origins: treeSources, excludedOrigins: excludedTreeSources, valid: treeValid,
+                    treeSource: { treeTypes, origins: treeSources, levelBlockedOrigins: blockedForestryTreeOrigins,
+                        minimumRequiredLevel: Number.isFinite(minimumBlockedForestryLevel) ? minimumBlockedForestryLevel : null,
+                        excludedOrigins: excludedTreeSources, valid: treeValid,
                         currentlyAccessible: treeValid, reason: 'Tree object is referenced by Forestry task metadata and is outside excluded origin groups' } };
                 if (!record.available) accessDiagnostics.push({ taskId: id, name: record.displayName, ...record.accessResult });
             } else if (!record.accessResult) record.accessResult = { allowed: true, reason: 'Passed strict source, rule and prerequisite calculation' };
@@ -1890,12 +1945,12 @@
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, resourceRepresentativeMetadata,
         equipmentObjectiveAlternatives, isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
-        collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, buildTaskCatalog,
+        collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,
         migrateStartingSections, deriveStartingPool, chooseStartingCandidate, canRoll,
-        startVisit, snapshotVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
+        startVisit, snapshotVisit, addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });

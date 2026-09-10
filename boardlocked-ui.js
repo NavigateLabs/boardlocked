@@ -345,6 +345,9 @@
         progressionHighWater = { ...state.progressionHighWater };
         const oldDormant = new Set(pool.dormant);
         tasks = R.adaptTasks(rawTasks, legacy(), state, tempChunks.unlocked || {}, sections, manualSections, catalog, tasksMap);
+        const previousCandidateCount = state.currentVisit?.candidateTaskIds?.length || 0;
+        state = R.addCatchUpTasksToCurrentVisit(state, tasks);
+        const catchUpAdded = (state.currentVisit?.candidateTaskIds?.length || 0) > previousCandidateCount;
         const completed = R.completionIds(legacy(), tasksMap);
         tasks.filter(t => t.completed).forEach(t => completed.add(t.taskId));
         state = R.resolveVisit(state, completed);
@@ -359,6 +362,8 @@
         const woke = pool.live.filter(id => oldDormant.has(id) && id !== state.currentVisit?.locationId);
         if (dataReady && woke.length && !/^(Run imported|Added unlocked chunks)/.test(message)) {
             message = woke.join(', ') + ' now has available tasks and can be rolled again.';
+        } else if (dataReady && catchUpAdded) {
+            message = 'Your current level unlocked a new skill-task alternative for this visit.';
         }
     }
     function invalidate() {
@@ -383,7 +388,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl20');
+        worker = new Worker('./worker.js?v=6.9.66-bl21');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1168,7 +1173,7 @@
             <details><summary id="bl-enabler-summary">Acquired tools (0)</summary><p>Reusable tools such as axes stay unlocked after you get them. If an old save is missing one, add it here.</p>
             <div class="bl-toolbar"><select id="bl-enabler-select" aria-label="Known persistent enabler to register"><option value="">Choose a known reusable item…</option></select><button id="bl-add-enabler" type="button">Mark acquired</button></div>
             <div id="bl-enabler-list"></div><details><summary>Unclear tool requirements</summary><p>These items are not treated as reusable because their task data is unclear.</p><div id="bl-enabler-ambiguities"></div></details></details>
-            <details><summary>Levels &amp; skill progression</summary><p>Train in any unlocked tile and update your actual levels here. Completed skill goals control which levels can be rolled next.</p><div id="bl-levels"></div><h3>Highest completed task levels</h3><div id="bl-frontiers"></div><button id="bl-rebuild-frontiers" type="button">Rebuild from completed tasks</button><p id="bl-milestones"></p></details>
+            <details><summary>Levels &amp; skill progression</summary><p>Train in any unlocked tile and update your actual levels here. Completed skill goals control the normal task band. If your real level gets ahead, the nearest unfinished task available in a tile can catch up.</p><div id="bl-levels"></div><h3>Highest completed task levels</h3><div id="bl-frontiers"></div><button id="bl-rebuild-frontiers" type="button">Rebuild from completed tasks</button><p id="bl-milestones"></p></details>
             <details><summary id="bl-task-count">Other tasks &amp; progress</summary><p>Record past goals, quests, and permanent unlocks here. Routine training does not complete the current visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
             <details><summary>Diagnostics and overrides</summary>
             <details><summary id="bl-unassigned-count">Unassigned Boardlocked Tasks</summary><div id="bl-unassigned"></div></details>

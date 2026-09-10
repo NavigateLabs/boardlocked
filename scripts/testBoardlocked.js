@@ -915,6 +915,55 @@ test('a sparse skill exposes its nearest next milestone without pretending its o
     assert.equal(adapted.progressionCeiling, 30); assert.match(adapted.eligibilityReason, /geography/);
 });
 
+test('actual levels open only the nearest catch-up milestone in each accessible area', () => {
+    const data = { challenges: { Woodcutting: {
+        Logs: { Level: 1, Primary: true }, Oak: { Level: 15, Primary: true }, Maple: { Level: 45, Primary: true },
+        Yew: { Level: 60, Primary: true }
+    } } };
+    const catalog = R.buildTaskCatalog(data);
+    const located = catalog.map(task => ({ ...task, origins: [origin(task.name === 'Oak' ? '2000' : '1000')], available: true }));
+    const baseState = { ...fresh(), progressionInitialized: true,
+        progressionHighWater: { ...fresh().progressionHighWater, Woodcutting: 1 },
+        actualLevels: { ...fresh().actualLevels, Woodcutting: 45 } };
+    let tasks = R.adaptTasks(located, {}, baseState, geo, {}, {}, catalog);
+    const oak = tasks.find(task => task.name === 'Oak'), maple = tasks.find(task => task.name === 'Maple'),
+        yew = tasks.find(task => task.name === 'Yew');
+    assert.equal(oak.eligible, true);
+    assert.equal(maple.eligible, true); assert.equal(maple.catchUpProgression, true);
+    assert.deepEqual(maple.activeOrigins.map(source => source.chunkId), ['1000']);
+    assert.equal(yew.eligible, false, 'catch-up never exceeds the actual level');
+
+    const belowMaple = { ...baseState, actualLevels: { ...baseState.actualLevels, Woodcutting: 44 } };
+    tasks = R.adaptTasks(located, {}, belowMaple, geo, {}, {}, catalog);
+    assert.equal(tasks.find(task => task.name === 'Maple').eligible, false);
+
+    const oakHere = located.map(task => task.name === 'Oak' ? { ...task, origins: [origin('1000')] } : task);
+    tasks = R.adaptTasks(oakHere, {}, baseState, geo, {}, {}, catalog);
+    assert.equal(tasks.find(task => task.name === 'Maple').eligible, false,
+        'an ordinary in-band milestone in the same area takes priority');
+});
+
+test('a newly reached catch-up milestone can join a collection-only current visit', () => {
+    const data = { challenges: { Woodcutting: {
+        Logs: { Level: 1, Primary: true }, Oak: { Level: 15, Primary: true }, Maple: { Level: 45, Primary: true }
+    } } };
+    const catalog = R.buildTaskCatalog(data);
+    const state = { ...fresh(), progressionInitialized: true,
+        progressionHighWater: { ...fresh().progressionHighWater, Woodcutting: 1 },
+        actualLevels: { ...fresh().actualLevels, Woodcutting: 45 } };
+    const located = catalog.map(task => ({ ...task, origins: [origin(task.name === 'Oak' ? '2000' : '1000')], available: true }));
+    const tasks = R.adaptTasks(located, {}, state, geo, {}, {}, catalog);
+    const maple = tasks.find(task => task.name === 'Maple');
+    const collection = task('rare-drop', ['1000'], { skill: 'Extra', taskClass: 'collection', advancesSkillProgression: false });
+    let visit = R.snapshotVisit(R.startVisit(state, { kind: 'revisit', locationId: '1000' }), [collection]);
+    assert.deepEqual(visit.currentVisit.candidateTaskIds, ['rare-drop']);
+    visit = R.addCatchUpTasksToCurrentVisit(visit, [...tasks, collection]);
+    assert.deepEqual(new Set(visit.currentVisit.candidateTaskIds), new Set(['rare-drop', maple.taskId]));
+    visit = R.resolveVisit(visit, new Set([maple.taskId]));
+    assert.equal(visit.currentVisit.resolution, 'task_completed');
+    assert.equal(visit.currentVisit.resolvedTaskId, maple.taskId);
+});
+
 test('metadata classification lets only ordinary XP and direct item-use actions advance skill progression', () => {
     const f = progressionFixture();
     assert.equal(f.catalog.find(task => task.name === 'Chicken').taskClass, 'skill_progression');
@@ -1651,6 +1700,29 @@ test('Forestry event uniques stay together at the Friendly Forester instead of o
     assert.ok([...ids].every(id => foresterVisit.currentVisit.candidateTaskIds.includes(id)));
     const resolved = R.resolveVisit(foresterVisit, new Set([eventTasks[0].taskId]));
     assert.equal(resolved.currentVisit.resolution, 'task_completed');
+});
+
+test('Forestry requires an actually choppable event tree rather than merely a visible high-level tree', () => {
+    const request = makeRequest(['5427']);
+    const forestryObjects = new Set(Object.values(request.chunkInfo.challenges).flatMap(tasks => Object.values(tasks || {}))
+        .filter(meta => meta.Category?.includes('Forestry') && meta.Objects).flatMap(meta => meta.Objects)
+        .flatMap(name => R.expand(name, request.chunkInfo.codeItems.objectsPlus)));
+    for (const section of Object.values(request.chunkInfo.chunks['5427'].Sections)) {
+        for (const object of Object.keys(section.Object || {})) if (forestryObjects.has(object) && object !== 'Maple tree') delete section.Object[object];
+    }
+    request.boardlocked.state.acquiredEnablers['Forestry kit'] = { manual: true };
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    const eventIds = new Set(Object.entries(request.chunkInfo.challenges.Extra).filter(([, meta]) =>
+        meta.Items?.length === 1 && annotations.forestry.eventUniqueItems.includes(meta.Items[0]))
+        .map(([name]) => R.taskId(name, 'Extra', request.boardlocked.tasksMap)));
+    request.boardlocked.state.actualLevels.Woodcutting = 1;
+    let result = runWorker(request).result;
+    assert.ok(!result.tasks.some(task => eventIds.has(task.taskId) && task.available));
+    assert.ok(result.accessDiagnostics.some(entry => entry.forestry && /Woodcutting level 45/.test(entry.reason)));
+
+    request.boardlocked.state.actualLevels.Woodcutting = 45;
+    result = runWorker(request).result;
+    assert.equal(result.tasks.filter(task => eventIds.has(task.taskId) && task.available).length, 4);
 });
 
 test('Forestry case D: a closed non-Guild tree section cannot satisfy the tree gate', () => {
