@@ -369,8 +369,8 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(worker, /boardlocked-data\.js\?v=16/);
     assert.match(worker, /boardlocked\.js\?v=54/);
     assert.match(worker, /boardlocked-worker\.js\?v=19/);
-    assert.match(html, /boardlocked-ui\.js\?v=72/);
-    assert.match(html, /boardlocked\.css\?v=19/);
+    assert.match(html, /boardlocked-ui\.js\?v=73/);
+    assert.match(html, /boardlocked\.css\?v=20/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -2761,6 +2761,7 @@ test('manual starting-tile selection is staged behind an explicit confirmation',
 test('active map uses one text-free outline system and keeps new roll candidates visually locked', () => {
     const root = path.join(__dirname, '..');
     const ui = fs.readFileSync(path.join(root, 'boardlocked-ui.js'), 'utf8');
+    const css = fs.readFileSync(path.join(root, 'boardlocked.css'), 'utf8');
     const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
     assert.match(ui, /new Map\(pool\.candidates\.map\(candidate => \[candidate\.locationId, candidate\]\)\)/,
         'frontier and revisit candidates share one rollable style');
@@ -2768,6 +2769,16 @@ test('active map uses one text-free outline system and keeps new roll candidates
     assert.match(ui, /bl-key-waiting/);
     const mapOverlay = ui.slice(ui.indexOf('function drawOverlay'), ui.indexOf('function mount()'));
     assert.doesNotMatch(mapOverlay, /fillText\(/, 'map status is carried by outlines, not text badges');
+    assert.match(mapOverlay, /free \? 'rgba\(90, 96, 96, \.55\)' : '#3a9bdc'/,
+        'free tiles are subdued while waiting-task tiles get the clearer blue boundary');
+    assert.match(mapOverlay, /current \|\| rollable \|\| free \? \[\] : \[5, 3\]/,
+        'only waiting-task tiles use the prominent dashed boundary');
+    assert.doesNotMatch(mapOverlay, /free && freeOnPath\)\) \{\s*context\.fillStyle/,
+        'free routes do not receive a fill that could make them look unlocked again');
+    assert.match(css, /\.bl-key-free \{[^}]*border-width: 1px[^}]*opacity: \.65;/,
+        'the legend represents free tiles with the same quiet visual weight');
+    assert.match(css, /\.bl-key-waiting \{[^}]*border-color: #3a9bdc[^}]*border-style: dashed/,
+        'the legend matches the clearer waiting-task boundary');
     assert.match(index, /Keep a rollable new tile visually locked/);
     assert.match(index, /colorBoxLight : colorBox/,
         'the legacy bright-green candidate paint is replaced with the ordinary locked-tile shade');

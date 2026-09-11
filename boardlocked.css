@@ -80,8 +80,8 @@ body.bl-start-picking #canvas { cursor: crosshair !important; }
 #bl-panel .bl-key-current { border-color: #d99b00 !important; background: #ffd16655; }
 #bl-panel .bl-key-area { border-color: #d99b00 !important; background: #ffd166aa; box-shadow: inset 0 0 0 2px #fff5b8; }
 #bl-panel .bl-key-rollable { border-color: #17805d !important; background: #239b6912; }
-#bl-panel .bl-key-free { border-color: #3a9bdc !important; border-style: dashed !important; background: #3a9bdc44; }
-#bl-panel .bl-key-waiting { border-color: #686e6e !important; border-style: dotted !important; background: transparent; }
+#bl-panel .bl-key-free { border-color: #686e6e !important; border-width: 1px !important; background: transparent; opacity: .65; }
+#bl-panel .bl-key-waiting { border-color: #3a9bdc !important; border-style: dashed !important; background: transparent; }
 #bl-panel .bl-area-hint { padding: 8px 9px; background: #ffd16633; border: 1px solid #c69318; border-radius: 4px; font-size: 12px; }
 #bl-message:not(:empty) { padding: 9px; background: #d8ecd9; color: #153c33; border-radius: 4px; }
 #bl-message.bl-error { background: #ffe0d9; color: #8d2113; }

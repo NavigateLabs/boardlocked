@@ -1388,8 +1388,8 @@
             const current = id === state.travelAnchor;
             const candidate = candidateByLocation.get(id), rollable = !!candidate;
             const free = pool.dormant.includes(id), freeOnPath = pool.reachableFree.includes(id);
-            if (current || (free && freeOnPath)) {
-                context.fillStyle = current ? 'rgba(255, 209, 102, .08)' : 'rgba(58, 155, 220, .04)';
+            if (current) {
+                context.fillStyle = 'rgba(255, 209, 102, .08)';
                 context.fillRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
             }
             const areaSections = current ? currentAreaSections() : [];
@@ -1404,9 +1404,9 @@
                 }
                 context.restore();
             }
-            context.strokeStyle = current ? '#d99b00' : rollable ? '#17805d' : free ? '#3a9bdc' : 'rgba(90, 96, 96, .85)';
-            context.lineWidth = current ? 4 : rollable ? 3 : freeOnPath ? 2.5 : 2;
-            context.setLineDash(current || rollable ? [] : free ? [4, 4] : [2, 4]);
+            context.strokeStyle = current ? '#d99b00' : rollable ? '#17805d' : free ? 'rgba(90, 96, 96, .55)' : '#3a9bdc';
+            context.lineWidth = current ? 4 : rollable ? 3 : free ? (freeOnPath ? 1.5 : 1.25) : 2.5;
+            context.setLineDash(current || rollable || free ? [] : [5, 3]);
             context.strokeRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
         }
         context.restore();
