@@ -21,7 +21,7 @@ The tasks are similar to those you would expect from chunklocked, I.e. get a new
 
 You have access to everything in previously unlocked chunks, and can freely re-enter areas you have previously been to. However you must focus on your task. I.e. if you need to get woodcutting to lvl 60 to cut yew, that should be the goal you focus on in your unlocked chunks and therfore you shouldn't go train thieving.
 
-The tasks are more than likely begin very simple (get an axe, cut a tree), but not to worry, after a couple chunks you'll find yourself with increasingly harder tasks.
+The tasks are more than likely begin very simple (get an axe, cut a tree), after a couple chunks you'll find yourself with increasingly harder tasks.
 
 ## Start a new account
 
