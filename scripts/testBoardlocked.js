@@ -505,13 +505,13 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=24/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=70/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl46/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl46/);
+    assert.match(html, /boardlocked\.js\?v=71/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl47/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl47/);
     assert.match(worker, /boardlocked-data\.js\?v=24/);
-    assert.match(worker, /boardlocked\.js\?v=70/);
+    assert.match(worker, /boardlocked\.js\?v=71/);
     assert.match(worker, /boardlocked-worker\.js\?v=26/);
-    assert.match(html, /boardlocked-ui\.js\?v=88/);
+    assert.match(html, /boardlocked-ui\.js\?v=89/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -3112,6 +3112,26 @@ test('Tower and temple section access is shared by travel and manual-start requi
     assert.equal(reverted.state.travelAnchor, '6706');
     assert.equal(reverted.state.visitHistory.find(visit => visit.visitNumber === 2).resolution, 'admin_void',
         'an imported visit with no valid arrival is removed instead of becoming a softlock');
+
+    let stranded = R.startVisit(state,
+        { kind: 'frontier', locationId: '6451', metadata: { entrySections: ['1'] } });
+    stranded = R.snapshotVisit(stranded, []);
+    stranded = R.startVisit(stranded,
+        { kind: 'frontier', locationId: '6706', metadata: { entrySections: ['2'] } });
+    stranded = R.snapshotVisit(stranded, []);
+    stranded = R.startVisit(stranded,
+        { kind: 'frontier', locationId: '6450', metadata: { entrySections: ['1'] } });
+    const recovered = R.migrateCurrentArrival(chunkData, stranded,
+        { '6451': '6451', '6706': '6706', '6450': '6450' },
+        { '6451': { '1': true }, '6706': { '2': true }, '6450': { '1': true } },
+        (from, to) => [from, to].every(location =>
+            R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, location)),
+        annotations.travelConnections, chunkData.walkableChunks);
+    assert.equal(recovered.changed, true);
+    assert.equal(recovered.state.currentVisit.locationId, '6451',
+        'migration skips earlier arrivals that are themselves trapped behind the new gate');
+    assert.equal(recovered.state.travelAnchor, '6451');
+    assert.deepEqual(recovered.state.adminHistory.at(-1).skippedVisitNumbers, [2]);
 });
 
 test('clue UI groups reward goals and keeps each tier lock independent', () => {

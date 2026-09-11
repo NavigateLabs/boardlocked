@@ -319,7 +319,8 @@
             const arrivalMigration = sourceVersion < R.VERSION ? R.migrateCurrentArrival(chunkInfo, state,
                 tempChunks.unlocked || {}, manualSections,
                 (from, to, connection) => completedConnectionAllowed(from, to, connection, arrivalAccess),
-                BoardlockedData.travelConnections) : { state, changed: false, removedSections: [], addedSections: [] };
+                BoardlockedData.travelConnections, chunkInfo.walkableChunks || [], tempChunks.blacklisted || {}) :
+                { state, changed: false, removedSections: [], addedSections: [] };
             state = arrivalMigration.state;
             const migratedArrivalLocation = arrivalMigration.locationId || state.currentVisit?.locationId;
             if (arrivalMigration.changed) for (const section of arrivalMigration.removedSections) {
@@ -492,7 +493,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl46');
+        worker = new Worker('./worker.js?v=6.9.66-bl47');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1821,7 +1822,24 @@
                 // boundary from the real connection graph and persistent map.
                 rebuildImportedFrontier();
             }
+            state = nextState;
             syncAssumedAccountSetup();
+            nextState = state;
+            const arrivalAccess = actualAccessEvaluator();
+            const arrivalMigration = imported.version < R.VERSION ? R.migrateCurrentArrival(chunkInfo, nextState,
+                tempChunks.unlocked || {}, manualSections,
+                (from, to, connection) => completedConnectionAllowed(from, to, connection, arrivalAccess),
+                BoardlockedData.travelConnections, chunkInfo.walkableChunks || [], tempChunks.blacklisted || {}) :
+                { state: nextState, changed: false, removedSections: [], addedSections: [] };
+            nextState = arrivalMigration.state;
+            state = nextState;
+            const migratedArrivalLocation = arrivalMigration.locationId || nextState.currentVisit?.locationId;
+            if (arrivalMigration.changed) for (const section of arrivalMigration.removedSections) {
+                if (manualSections[migratedArrivalLocation]?.[section] === true) delete manualSections[migratedArrivalLocation][section];
+            }
+            if (arrivalMigration.changed) for (const section of arrivalMigration.addedSections) {
+                (manualSections[migratedArrivalLocation] ||= {})[section] = true;
+            }
             const startSectionMigration = R.migrateStartingSections(chunkInfo, nextState, manualSections,
                 chunkInfo.walkableChunks || [], tempChunks.blacklisted || {});
             nextState = startSectionMigration.state; manualSections = startSectionMigration.sections;
@@ -1849,7 +1867,8 @@
             if (state.enabled && !state.rulePresetInitialized) applyBoardlockedPreset(true);
             upgradeBoardlockedPreset();
             error = ''; loadFailure = false; signature = '';
-            message = recalculatingVisit ? 'Run imported. The active visit and every tile’s encounter/free status are recalculating.' :
+            message = arrivalMigration.changed ? 'Run imported. The current location was restored to an accessible route.' :
+                recalculatingVisit ? 'Run imported. The active visit and every tile’s encounter/free status are recalculating.' :
                 'Run imported. Every unlocked tile is being recalculated as an encounter or free travel tile.';
             save(); render();
             calcCurrentChallengesCanvas(true, true, true); drawCanvas();

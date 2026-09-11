@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 45;
+    const VERSION = 46;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -474,7 +474,8 @@
         return isPortLanding(data, fromMedium === 'land' ? from : to);
     }
 
-    function migrateCurrentArrival(data, state, unlocked, accessibleSections = {}, connectionAllowed = () => true, travelConnections = []) {
+    function migrateCurrentArrival(data, state, unlocked, accessibleSections = {}, connectionAllowed = () => true,
+        travelConnections = [], allowedChunkIds = data.walkableChunks || Object.keys(data.chunks || {}), blacklisted = {}) {
         const visit = state.currentVisit;
         if (!visit || visit.visitNumber <= 1 || !Array.isArray(visit.arrivalSections)) {
             return { state, changed: false, removedSections: [], addedSections: [] };
@@ -491,15 +492,37 @@
             Array.isArray(previous.arrivalSections) ? previous.arrivalSections : null);
         const candidate = pool.candidates.find(item => item.kind === 'frontier' && item.locationId === target);
         if (!candidate) {
+            const priorVisits = (state.visitHistory || []).filter(item => item.visitNumber < visit.visitNumber)
+                .sort((a, b) => b.visitNumber - a.visitNumber);
+            const frontier = deriveConnectedFrontier(data, unlocked, allowedChunkIds, blacklisted);
+            const fallbackGraph = buildTravelGraph(data, unlocked, accessibleSections, frontier,
+                connectionAllowed, travelConnections);
+            const hasLegalExit = item => {
+                const parsed = parseLocation(item?.locationId), id = parsed?.chunkId;
+                if (!id || !own(unlocked, id)) return false;
+                const arrivals = Array.isArray(item.arrivalSections) ? item.arrivalSections.map(String) : [];
+                const available = fallbackGraph.nodesByChunk?.[id] || [];
+                if (arrivals.length && !arrivals.some(section => available.includes(id + '-' + section))) return false;
+                const reachable = derivePool(frontier, unlocked, [], null, fallbackGraph, id,
+                    arrivals.length ? arrivals : null);
+                return reachable.candidates.length > 0 || reachable.reachableFree.length > 0;
+            };
+            // A newly gated route can strand several consecutive historical
+            // arrivals. Walk back to the most recent anchor that can still leave
+            // its recorded section, rather than restoring only one visit.
+            const fallback = priorVisits.find(hasLegalExit) || previous;
+            const fallbackId = parseLocation(fallback?.locationId)?.chunkId || previousId;
             const invalidated = { ...visit, status: 'resolved', resolution: 'admin_void',
                 note: 'Invalidated after its arrival section became inaccessible' };
             const visitHistory = state.visitHistory.map(item =>
                 item.visitNumber === visit.visitNumber ? invalidated : item);
-            const next = { ...state, currentVisit: copy(previous), visitHistory,
-                travelAnchor: previousId, travelAnchorSections: copy(previous.arrivalSections || []),
+            const next = { ...state, currentVisit: copy(fallback), visitHistory,
+                travelAnchor: fallbackId, travelAnchorSections: copy(fallback.arrivalSections || []),
                 adminHistory: [...state.adminHistory, { timestamp: new Date().toISOString(),
                     action: 'repair_inaccessible_current_visit', locationId: target,
-                    restoredLocationId: previousId, removedSectionIds: [...visit.arrivalSections],
+                    restoredLocationId: fallbackId, removedSectionIds: [...visit.arrivalSections],
+                    skippedVisitNumbers: priorVisits.filter(item => item.visitNumber > fallback.visitNumber)
+                        .map(item => item.visitNumber),
                     reason: 'The current arrival no longer has an accessible route' }] };
             return { state: next, changed: true, reverted: true, locationId: target,
                 removedSections: [...visit.arrivalSections], addedSections: [] };
