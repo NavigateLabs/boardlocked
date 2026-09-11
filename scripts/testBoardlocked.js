@@ -361,9 +361,9 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl17/);
-    assert.match(html, /boardlocked\.js\?v=48/);
-    assert.match(html, /boardlocked-ui\.js\?v=61/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl18/);
+    assert.match(html, /boardlocked\.js\?v=49/);
+    assert.match(html, /boardlocked-ui\.js\?v=62/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -1953,7 +1953,8 @@ test('BIS Skilling can retain an iron tool upgrade without duplicating it as a b
     const result = runWorker(request).result;
     const upgrade = result.tasks.find(task => task.taskClass === 'bis' && task.bisSet === 'BIS Axe' && /iron axe/i.test(task.name));
     assert.ok(upgrade); assert.match(upgrade.bisReason, /BIS Skilling · BIS Axe/);
-    assert.match(upgrade.bisReason, /Melee Tank upgrade weapon/);
+    assert.match(upgrade.bisReason, /Melee upgrade weapon/);
+    assert.doesNotMatch(upgrade.bisReason, /Tank/, 'tool weapons do not gain a separate defensive weapon role');
     assert.deepEqual(upgrade.provesAcquiredItemKeys, ['Iron axe']);
     assert.ok(!result.tasks.some(task => task.taskClass === 'enabler' && /iron axe/i.test(task.name)));
 });
@@ -2433,26 +2434,27 @@ test('bronze dagger ownership exposes both iron dagger and rune scimitar as stri
     assert.ok(!weapons.some(task => task.equipmentName === 'Bronze dagger'));
 });
 
-test('steel weapon choices expose their distinct combat roles and label tied role bests consistently', () => {
+test('tank scores do not create weapon goals while tank armour and shields remain valid', () => {
     const request = usePreset(makeRequest(['6705', '6961', '6449', '6193', '5937', '5938']), 'Boardlocked Chunker');
     request.boardlocked.state.actualLevels.Attack = 5;
+    request.boardlocked.state.actualLevels.Defence = 40;
     request.manualEquipment['Steel scimitar'] = true;
+    const sourceSection = request.chunkInfo.chunks['6705'].Sections?.['1'] || request.chunkInfo.chunks['6705'];
+    sourceSection.Spawn = { ...(sourceSection.Spawn || {}), 'Iron kiteshield': 1 };
     const calculate = () => runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
     let weapons = calculate();
-    const longsword = weapons.find(task => task.equipmentName === 'Steel longsword');
-    const dagger = weapons.find(task => task.equipmentName === 'Iron dagger');
-    assert.ok(longsword); assert.equal(longsword.bisReason, 'Melee Tank BiS weapon');
-    assert.match(longsword.displayName, /^\[Melee Tank BiS weapon\] Obtain and wield a steel longsword$/);
-    assert.ok(dagger); assert.equal(dagger.bisReason, 'Magic Tank BiS weapon');
-    assert.match(dagger.displayName, /^\[Magic Tank BiS weapon\] Obtain and wield an iron dagger$/);
-    assert.ok(weapons.filter(task => /longsword/i.test(task.equipmentName || '')).every(task =>
-        task.bisReason === 'Melee Tank BiS weapon'), 'equal tank scores are all described as tied BiS choices');
+    assert.ok(!weapons.some(task => task.equipmentName === 'Steel longsword'),
+        'a worse offensive weapon is not revived by its defence bonuses');
+    assert.ok(!weapons.some(task => task.equipmentName === 'Iron dagger'),
+        'a defensive score alone does not create a weapon goal');
+    assert.ok(weapons.some(task => task.equipmentName === 'Iron kiteshield' && /Tank/.test(task.bisReason)),
+        'tank roles continue to evaluate actual defensive equipment');
 
     request.manualEquipment['Steel longsword'] = true;
     weapons = calculate();
     assert.ok(!weapons.some(task => /longsword/i.test(task.equipmentName || '')),
-        'no equal-or-worse tank weapon remains after one tied best is owned');
-    assert.equal(weapons.find(task => task.equipmentName === 'Iron dagger')?.bisReason, 'Magic Tank BiS weapon');
+        'registering the inferior weapon does not change the offensive progression');
+    assert.ok(!weapons.some(task => task.equipmentName === 'Iron dagger'));
 });
 test('real worker: source backlog removes tasks supplied by that monster', () => {
     const request = makeRequest(['5942']); request.backloggedSources.monsters = { 'Moss giant': true };

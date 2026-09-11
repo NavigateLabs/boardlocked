@@ -198,6 +198,11 @@ function blAddWeaponUpgradeTasks(atomicValids, highestOverallCompleted = {}, wea
     for (const [key, scores] of Object.entries(weaponScores)) {
         if (!key.endsWith('-weapon') && !key.endsWith('-2h')) continue;
         const split = key.lastIndexOf('-'), style = key.slice(0, split).replaceAll('_', ' '), slot = key.slice(split + 1);
+        // Defence remains meaningful for armour and shields, but small defence
+        // bonuses do not make an ordinary main-hand or two-handed item a useful
+        // weapon upgrade. Special defensive weapons remain available through
+        // their offensive roles or their native collection-log tasks.
+        if (style.endsWith(' Tank')) continue;
         const ownedItem = highestOverallCompleted[key];
         const ownedScore = Number(scores[ownedItem]);
         const baseline = Number.isFinite(ownedScore) ? ownedScore : Number(scores.Unarmed) || 0;
