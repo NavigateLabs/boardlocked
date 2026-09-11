@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 36;
+    const VERSION = 37;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -603,12 +603,17 @@
                     'Direct item/tool-use action with a skill level and no reward, geography, prerequisite, or special category';
         }
         const advancesSkillProgression = taskClass === 'skill_progression' && Number.isFinite(meta.Level);
+        // Secondary actions can still carry real skill requirements. They do not
+        // advance the high-water mark, but their levels must obey the same pacing
+        // window when they are used directly or as an item-production step.
+        const usesSkillLevelWindow = advancesSkillProgression || (taskClass === 'other' && meta.Primary === false &&
+            SKILLS.includes(skill) && Number.isFinite(meta.Level));
         const bisReason = taskClass === 'bis' ? stripMarkup(meta.BisReason ||
             (meta.Set ? 'BIS Skilling · ' + meta.Set : meta.Label || (categories.includes('BIS Skilling') ? 'BIS Skilling' : ''))) : '';
         return { taskId: taskId(name, skill, ids), name, displayName: displayName(name), skill, type: skill,
             category: meta.Label || skill, sourceCategories: categories.slice(), level: meta.Level || null,
             priority: Number.isFinite(meta.Priority) ? meta.Priority : null,
-            description: meta.Description || '', taskClass, classificationReason, advancesSkillProgression,
+            description: meta.Description || '', taskClass, classificationReason, advancesSkillProgression, usesSkillLevelWindow,
             skilling: advancesSkillProgression, bisReason,
             bisSet: meta.Set || null };
     }
@@ -944,17 +949,17 @@
             const completed = isComplete(task, legacy, state) || !!impliedByItem || !!impliedByBetterEquipment,
                 backlogged = isBacklogged(task, legacy);
             const highWater = state.progressionHighWater?.[task.skill] ?? 0;
-            const ceiling = task.advancesSkillProgression ? progressionCeiling(catalog, task.skill, highWater,
+            const ceiling = task.usesSkillLevelWindow ? progressionCeiling(catalog, task.skill, highWater,
                 state.actualLevels?.[task.skill] || 1) : null;
             const superseded = !!task.advancesSkillProgression && task.level <= highWater;
-            const progressionBlocked = !!task.advancesSkillProgression && task.level > ceiling;
+            const progressionBlocked = !!task.usesSkillLevelWindow && task.level > ceiling;
             return { ...task, origins, activeOrigins, blockedBossSources, bossDeferred, activeSlayerTrainingOrigins,
                 slayerTrainingAlternative: !!task.slayerTrainingAlternative && activeSlayerTrainingOrigins.length > 0,
                 completed, implicitlyCompleted: !!impliedByItem || !!impliedByBetterEquipment,
                 completionEvidenceItem: impliedByBetterEquipment || impliedByItem,
                 superiorEquipmentCompletion: !!impliedByBetterEquipment,
                 backlogged, superseded,
-                progressionBlocked, progressionHighWater: task.advancesSkillProgression ? highWater : null,
+                progressionBlocked, progressionHighWater: task.usesSkillLevelWindow ? highWater : null,
                 progressionCeiling: ceiling,
                 eligible: task.available !== false && !completed && !backlogged && !superseded && !progressionBlocked && activeOrigins.length > 0,
                 eligibilityReason: impliedByItem ? 'Completed by obtaining ' + impliedByItem : completed ? 'Completed' : superseded ? 'At or below the highest completed ' + task.skill + ' task (level ' + highWater + ')' :
@@ -1796,10 +1801,14 @@
     }
 
     // baseChunkData is the legacy source graph. Retain it; build a memoized sidecar.
-    function buildTasks({ data, valids, base, ids = {}, rules = {}, state, legacy = {}, unlocked = {}, sections = {}, manualSections = {}, annotations = {} }) {
+    function buildTasks({ data, valids, base, ids = {}, rules = {}, state, legacy = {}, unlocked = {}, sections = {}, manualSections = {},
+        annotations = {}, dropRates = {} }) {
         const codes = data.codeItems || {}, tasks = new Map(), sourceCache = new Map(), originCache = new Map();
         const bossMonsters = new Set(Object.keys(codes.bossMonsters || {}));
         const diagnostics = [], accessDiagnostics = [], enablerModel = buildEnablerModel(data, annotations);
+        const taskCatalog = buildTaskCatalog(data, ids), dependencyDiagnostics = new Map();
+        let trainingAnalysisReady = false, trainingSupportedSkills = new Set(), trainingEvidenceSkills = new Set(),
+            trainingMethodsBySkill = new Map();
         const pendingCapabilities = new Map();
         const slayerProgression = slayerProgressionModel({ data, state, legacy, base, ids, unlocked, sections, manualSections });
         const shipCombat = annotations.shipCombat || {};
@@ -1820,6 +1829,42 @@
         const categories = Object.keys(valids).sort((a, b) => ['Quest', 'Diary', 'Extra', 'BiS'].indexOf(b) - ['Quest', 'Diary', 'Extra', 'BiS'].indexOf(a));
         for (const category of ['Quest', 'Diary', 'Extra', 'BiS', ...SKILLS, 'Nonskill']) {
             for (const name of Object.keys(data.challenges[category] || {})) if (!knownNames.has(name)) knownNames.set(name, category);
+        }
+        const knownSkillLevel = skill => Math.max(1, Number(state.actualLevels?.[skill] || 1),
+            Number(state.progressionHighWater?.[skill] || 0));
+        const skillCeiling = skill => progressionCeiling(taskCatalog, skill,
+            Number(state.progressionHighWater?.[skill] || 0), Number(state.actualLevels?.[skill] || 1));
+        const rememberDependencyBlock = (itemName, block) => {
+            const key = canonicalItemKey(itemName).replaceAll('*', '');
+            const current = dependencyDiagnostics.get(key) || [];
+            if (!current.some(entry => entry.reason === block.reason)) dependencyDiagnostics.set(key, [...current, block]);
+        };
+        function taskLevelReadiness(name, skill, meta = data.challenges?.[skill]?.[name] || {}) {
+            const record = taskMetadata(name, skill, meta, ids);
+            if (isComplete(record, legacy, state) || !record.usesSkillLevelWindow) return { allowed: true };
+            const ceiling = skillCeiling(skill), known = knownSkillLevel(skill);
+            if (record.level <= known) return { allowed: true };
+            if (record.level > ceiling) return { allowed: false, skill, level: record.level, ceiling,
+                reason: skill + ' level ' + record.level + ' is above the current progression window (through ' + ceiling + ')' };
+            if (trainingAnalysisReady && trainingEvidenceSkills.has(skill) && !trainingSupportedSkills.has(skill)) {
+                return { allowed: false, skill, level: record.level, known,
+                    reason: 'No repeatable ' + skill + ' training method is available from level ' + known };
+            }
+            return { allowed: true };
+        }
+        function declaredSkillReadiness(meta = {}) {
+            for (const [skill, rawLevel] of Object.entries(meta.Skills || {})) {
+                if (!SKILLS.includes(skill)) continue;
+                const level = Number(rawLevel || 1), known = knownSkillLevel(skill), ceiling = skillCeiling(skill);
+                if (level <= known) continue;
+                if (level > ceiling) return { allowed: false, skill, level, ceiling,
+                    reason: skill + ' level ' + level + ' is above the current progression window (through ' + ceiling + ')' };
+                if (trainingAnalysisReady && level > known && !trainingSupportedSkills.has(skill)) return {
+                    allowed: false, skill, level, known,
+                    reason: 'No repeatable ' + skill + ' training method is available from level ' + known
+                };
+            }
+            return { allowed: true };
         }
         const origin = (location, type, name, reason) => {
             const parsed = parseLocation(location);
@@ -1861,8 +1906,20 @@
                 if (String(type).includes('drop')) return acquisitionOrigins(name, source, fixed('monsters', source));
                 const direct = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
                 if (direct.length) return direct;
-                const category = knownNames.get(source);
-                return category ? taskOrigins(source, category, next) : [];
+                const category = knownNames.get(source), sourceMeta = data.challenges?.[category]?.[source];
+                if (!category || !sourceMeta) return [];
+                const levelReadiness = taskLevelReadiness(source, category, sourceMeta);
+                const declaredReadiness = declaredSkillReadiness(sourceMeta);
+                if (!levelReadiness.allowed || !declaredReadiness.allowed) {
+                    rememberDependencyBlock(name, !levelReadiness.allowed ? levelReadiness : declaredReadiness);
+                    return [];
+                }
+                const inputs = taskInputReadiness(source, category, sourceMeta, next);
+                if (!inputs.allowed) {
+                    for (const block of inputs.blocks) rememberDependencyBlock(name, block);
+                    return [];
+                }
+                return taskOrigins(source, category, next);
             });
             const result = uniqueOrigins(origins);
             // Do not memoize an unresolved cycle as a permanent negative result.
@@ -2092,6 +2149,127 @@
             nonCircularOriginCache.set(cacheKey, result);
             return result;
         }
+        const ownedReusableItems = new Set([
+            ...Object.keys(state.acquiredEnablers || {}),
+            ...Object.entries(legacy.manualEquipment || {}).filter(([, value]) => value !== false).map(([name]) => name)
+        ].map(comparableItemKey));
+        function itemRequirementReadiness(rawItem, visiting = new Set()) {
+            const alternatives = expand(rawItem, codes.itemsPlus).map(canonicalItemKey);
+            const available = alternatives.some(itemName => ownedReusableItems.has(comparableItemKey(itemName)) ||
+                item(itemName, visiting).length > 0);
+            if (available) return { allowed: true, blocks: [] };
+            const blocks = alternatives.flatMap(itemName => dependencyDiagnostics.get(itemName) || []);
+            return { allowed: false, blocks: blocks.length ? blocks : [{
+                item: canonicalItemKey(rawItem).replaceAll('*', ''), reason: 'No accessible source for ' + canonicalItemKey(rawItem).replaceAll('*', '')
+            }] };
+        }
+        function taskInputReadiness(name, skill, meta = data.challenges?.[skill]?.[name] || {}, visiting = new Set()) {
+            const key = 'inputs:' + skill + ':' + name;
+            if (visiting.has(key)) return { allowed: false, blocks: [{ reason: 'Circular item dependency' }] };
+            const next = new Set(visiting).add(key), blocks = [];
+            for (const rawItem of meta.Items || []) {
+                const readiness = itemRequirementReadiness(rawItem, next);
+                if (!readiness.allowed) blocks.push(...readiness.blocks);
+            }
+            return { allowed: blocks.length === 0, blocks: [...new Map(blocks.map(block => [block.reason, block])).values()] };
+        }
+        function producerDependencyReadiness(name, skill, meta = data.challenges?.[skill]?.[name] || {}, visiting = new Set()) {
+            const level = taskLevelReadiness(name, skill, meta);
+            if (!level.allowed) return { allowed: false, blocks: [level] };
+            const declared = declaredSkillReadiness(meta);
+            if (!declared.allowed) return { allowed: false, blocks: [declared] };
+            return taskInputReadiness(name, skill, meta, visiting);
+        }
+
+        const TRAINING_DROP_RATE = 1 / 4;
+        const dropChance = (monster, itemName) => {
+            const computed = Object.entries(dropRates?.[monster] || {})
+                .filter(([name]) => comparableItemKey(name) === comparableItemKey(itemName))
+                .map(([, rate]) => rate);
+            const drops = data.drops?.[monster] || {};
+            const matching = Object.entries(drops).filter(([name]) => comparableItemKey(name) === comparableItemKey(itemName));
+            const rawRates = computed.length ? computed : matching.flatMap(([, quantities]) => Object.values(quantities || {}));
+            if (!rawRates.length) return null;
+            return Math.max(0, ...rawRates.map(raw => {
+                const value = String(raw).replaceAll('~', '').replaceAll(',', '').trim();
+                if (/^always$/i.test(value)) return 1;
+                const fraction = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(value);
+                if (fraction) return Number(fraction[1]) / Number(fraction[2]);
+                const percent = /^(\d+(?:\.\d+)?)%$/.exec(value);
+                return percent ? Number(percent[1]) / 100 : 0;
+            }));
+        };
+        const spawnCount = (itemName, location) => {
+            const parsed = parseLocation(location), chunk = parsed && data.chunks?.[parsed.chunkId];
+            if (!chunk) return 0;
+            const container = parsed.sectionId ? chunk.Sections?.[parsed.sectionId] : chunk;
+            const spawns = container?.Spawn || {};
+            const found = Object.entries(spawns).find(([name]) => comparableItemKey(name) === comparableItemKey(itemName));
+            return Number(found?.[1] || 0);
+        };
+        function directRepeatableItem(itemName) {
+            const entries = itemSourceEntries(itemName), totalSpawns = entries
+                .filter(([, type]) => String(type).includes('spawn'))
+                .reduce((sum, [source]) => sum + spawnCount(itemName, source), 0);
+            if (totalSpawns >= 2) return true;
+            return entries.some(([source, type]) => {
+                if (type === 'shop' && base.shops?.[source]) return true;
+                if (String(type).includes('drop')) {
+                    const chance = dropChance(source, itemName);
+                    return chance === null || chance >= TRAINING_DROP_RATE;
+                }
+                if (String(type).includes('spawn')) return false;
+                return ['objects', 'npcs'].some(kind => fixed(kind, source).length > 0);
+            });
+        }
+        function buildTrainingSupport() {
+            const repeatableItems = new Set(Object.keys(base.items || {}).filter(directRepeatableItem).map(comparableItemKey));
+            const methods = new Map(), allTasks = [];
+            for (const skill of [...SKILLS, 'Nonskill']) for (const [name, meta] of Object.entries(data.challenges?.[skill] || {})) {
+                allTasks.push({ name, skill, meta });
+            }
+            const rawRepeatable = raw => expand(raw, codes.itemsPlus).some(itemName => repeatableItems.has(comparableItemKey(itemName)));
+            const rawObtainableOnce = (raw, visiting) => expand(raw, codes.itemsPlus).some(itemName =>
+                ownedReusableItems.has(comparableItemKey(itemName)) || item(itemName, visiting).length > 0);
+            let changed = true, passes = 0;
+            while (changed && passes++ < allTasks.length + SKILLS.length) {
+                changed = false;
+                for (const { name, skill, meta } of allTasks) {
+                    if (!own(valids[skill] || {}, name) || !taskOrigins(name, skill).length) continue;
+                    const level = Number(meta.Level || 1), known = knownSkillLevel(skill);
+                    if (SKILLS.includes(skill) && level > known &&
+                        (!trainingSupportedSkills.has(skill) || level > skillCeiling(skill))) continue;
+                    const declared = Object.entries(meta.Skills || {}).every(([requiredSkill, rawLevel]) => {
+                        if (!SKILLS.includes(requiredSkill)) return true;
+                        const requiredLevel = Number(rawLevel || 1), requiredKnown = knownSkillLevel(requiredSkill);
+                        return requiredLevel <= requiredKnown || (trainingSupportedSkills.has(requiredSkill) && requiredLevel <= skillCeiling(requiredSkill));
+                    });
+                    if (!declared) continue;
+                    const reusable = (meta.Items || []).filter(raw => !raw.includes('*'));
+                    if (!reusable.every(raw => rawObtainableOnce(raw, new Set(['training:' + skill + ':' + name])))) continue;
+                    if (SKILLS.includes(skill) && meta.Primary === true && !meta.NoXp && level <= known) {
+                        trainingEvidenceSkills.add(skill);
+                    }
+                    const consumables = (meta.Items || []).filter(raw => raw.includes('*'));
+                    if (!consumables.every(rawRepeatable)) continue;
+                    if (SKILLS.includes(skill) && meta.Primary === true && !meta.NoXp && level <= known &&
+                        !trainingSupportedSkills.has(skill)) {
+                        trainingSupportedSkills.add(skill); methods.set(skill, new Set([name])); changed = true;
+                    } else if (SKILLS.includes(skill) && meta.Primary === true && !meta.NoXp && level <= known &&
+                        trainingSupportedSkills.has(skill)) methods.get(skill)?.add(name);
+                    if (meta.Output) {
+                        const output = comparableItemKey(meta.Output);
+                        if (!repeatableItems.has(output)) { repeatableItems.add(output); changed = true; }
+                    }
+                }
+            }
+            trainingMethodsBySkill = new Map([...methods].map(([skill, names]) => [skill, [...names]]));
+        }
+        buildTrainingSupport();
+        trainingAnalysisReady = true;
+        // The first pass deliberately traces the worker's raw source graph. Clear
+        // those caches so normal task construction applies the level and training gates.
+        sourceCache.clear(); originCache.clear(); dependencyDiagnostics.clear();
         function applySlayerProgression(record, requirementMeta, requirementSkill) {
             const otherwiseAvailable = record.available !== false;
             const explicitRequirement = Math.max(
@@ -2313,7 +2491,7 @@
                     .flatMap(reason => String(reason).split(/\/\u200b?/)).map(reason => reason.trim()).filter(Boolean)
                     .filter((reason, index, all) => all.indexOf(reason) === index).join('/\u200b');
                 record = { ...record, taskClass: native.taskClass, classificationReason: native.classificationReason,
-                    advancesSkillProgression: false, skilling: false,
+                    advancesSkillProgression: false, usesSkillLevelWindow: native.usesSkillLevelWindow, skilling: false,
                     bisReason: combinedBisReason, bisSet: native.bisSet };
                 if (skill === 'BiS' && combinedBisReason) {
                     const slot = data.equipment?.[equipmentName]?.slot;
@@ -2326,6 +2504,23 @@
             }
             if (record.taskClass === 'bis' && record.bisReason && !record.displayName.startsWith('[')) {
                 record.displayName = '[' + record.bisReason + '] ' + record.displayName;
+            }
+            if (SKILLS.includes(requirementSkill)) {
+                const levelReadiness = taskLevelReadiness(name, requirementSkill, requirementMeta);
+                const declaredReadiness = declaredSkillReadiness(requirementMeta);
+                const inputReadiness = taskInputReadiness(name, requirementSkill, requirementMeta);
+                const dependencyReadiness = !declaredReadiness.allowed ? declaredReadiness :
+                    !levelReadiness.allowed && levelReadiness.reason.startsWith('No repeatable ') ? levelReadiness : null;
+                const progressionInputBlocks = inputReadiness.blocks.filter(block => block.skill);
+                if (dependencyReadiness || progressionInputBlocks.length) {
+                    const blocks = dependencyReadiness ? [dependencyReadiness] : progressionInputBlocks;
+                    record.available = false;
+                    record.dependencyBlocks = blocks;
+                    record.accessResult = { allowed: false, reason: blocks[0].reason,
+                        dependencyBlocks: blocks, trainingMethods: trainingMethodsBySkill.get(dependencyReadiness?.skill) || [] };
+                    accessDiagnostics.push({ taskId: id, name: record.displayName, allowed: false,
+                        reason: record.accessResult.reason, dependencyBlocks: blocks });
+                }
             }
             const acquisitionTarget = record.taskClass === 'bis' && equipmentName ? equipmentName :
                 ['bis', 'collection'].includes(record.taskClass) && requirementMeta.Items?.length === 1 &&

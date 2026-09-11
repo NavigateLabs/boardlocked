@@ -363,13 +363,13 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-data\.js\?v=16/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl22/);
-    assert.match(html, /boardlocked\.js\?v=53/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl33/g);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl23/);
+    assert.match(html, /boardlocked\.js\?v=54/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl34/g);
     assert.match(worker, /boardlocked-data\.js\?v=16/);
-    assert.match(worker, /boardlocked\.js\?v=53/);
-    assert.match(worker, /boardlocked-worker\.js\?v=18/);
-    assert.match(html, /boardlocked-ui\.js\?v=71/);
+    assert.match(worker, /boardlocked\.js\?v=54/);
+    assert.match(worker, /boardlocked-worker\.js\?v=19/);
+    assert.match(html, /boardlocked-ui\.js\?v=72/);
     assert.match(html, /boardlocked\.css\?v=19/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -1555,6 +1555,77 @@ test('Shipwreck Cove ignores its unusable small-net pickup', () => {
         validRequest.chunks, validResult.sections, validRequest.manualSections, catalog, validRequest.boardlocked.tasksMap);
     assert.equal(caughtTasks.find(task => task.name === 'Cut raw fish into ~|fish offcuts|~')?.eligible, true,
         'completing the raw-fish milestone exposes fish processing');
+});
+
+test('secondary recipe steps and their produced items obey every prerequisite skill window', () => {
+    const unlocked = ['4910', '4911', '4912', '5166', '5167', '5424', '5425', '5426', '5427', '5428',
+        '5682', '5683', '5684', '5938', '5939', '5940', '6195', '6196', '6451'];
+    const request = usePreset(makeRequest(unlocked), 'Boardlocked Chunker');
+    Object.assign(request.boardlocked.state.actualLevels, { Cooking: 13, Firemaking: 1, Smithing: 1, Mining: 1 });
+    Object.assign(request.boardlocked.state.progressionHighWater, { Cooking: 13, Firemaking: 1, Smithing: 0, Mining: 0 });
+    request.boardlocked.state.progressionInitialized = true;
+    for (const item of ['Bronze axe', 'Hammer', 'Knife', 'Tinderbox']) {
+        request.boardlocked.state.acquiredEnablers[item] = { manual: true };
+    }
+    const result = runWorker(request).result;
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
+        result.sections, request.manualSections, catalog, request.boardlocked.tasksMap, request.chunkInfo);
+    const roast = tasks.find(task => task.name === 'Cook a ~|roast rabbit|~');
+    const skewer = tasks.find(task => task.name === 'Add ~|raw rabbit|~ to a spit');
+    const spit = tasks.find(task => task.name === 'Smith an ~|iron spit|~');
+    const bronze = tasks.find(task => task.name === 'Smith a ~|bronze dagger|~');
+    assert.ok(roast && skewer && spit && bronze);
+    assert.equal(skewer.usesSkillLevelWindow, true, 'a secondary Firemaking action still has a real level requirement');
+    assert.equal(skewer.progressionBlocked, true); assert.equal(skewer.progressionCeiling, 16);
+    assert.equal(roast.available, false); assert.match(roast.eligibilityReason, /Firemaking level 20/);
+    assert.equal(spit.progressionBlocked, true); assert.equal(spit.progressionCeiling, 1);
+    assert.match(spit.accessResult.reason, /Smithing level 15/);
+    assert.equal(bronze.available, true, 'one bronze bar remains valid for the one-time level-one task');
+});
+
+test('one item spawn permits one objective but cannot establish a training loop', () => {
+    const baseChunks = ['4911', '5428', '6451'];
+    const calculate = chunkIds => {
+        const request = usePreset(makeRequest(chunkIds), 'Boardlocked Chunker');
+        request.boardlocked.state.progressionHighWater.Smithing = 1;
+        request.boardlocked.state.progressionInitialized = true;
+        request.boardlocked.state.actualLevels.Smithing = 1;
+        request.boardlocked.state.acquiredEnablers.Hammer = { manual: true };
+        return runWorker(request).result.tasks.find(task => task.name === 'Smith a ~|bronze mace|~');
+    };
+    const oneSpawn = calculate(baseChunks);
+    assert.ok(oneSpawn); assert.equal(oneSpawn.available, false);
+    assert.match(oneSpawn.accessResult.reason, /No repeatable Smithing training method/);
+
+    const mineAndFurnace = calculate([...baseChunks, '12849']);
+    assert.ok(mineAndFurnace); assert.equal(mineAndFurnace.available, true,
+        'repeatable copper and tin plus the existing furnace create a real Smithing training loop');
+});
+
+test('a rare one-time ingredient does not prove a repeatable training route', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges.Cooking = {
+        Chicken: { Items: ['Raw chicken*'], Objects: ['Cooking object[+]'], Level: 1, Primary: true, Output: 'Cooked chicken' },
+        Stew: { Items: ['Raw beef*'], Objects: ['Cooking object[+]'], Level: 15, Primary: true, Output: 'Stew' }
+    };
+    fixture.data.drops = { Imp: { 'Raw chicken': { 1: '5/128' } }, Cow: { 'Raw beef': { 1: 'Always' } } };
+    fixture.base.monsters = { Imp: { '2000': true }, Cow: { '2000': true } };
+    fixture.base.items = { 'Raw chicken': { Imp: 'primary-drop' }, 'Raw beef': { Cow: 'primary-drop' } };
+    fixture.valids.Cooking = { Chicken: 1, Stew: 15 };
+    fixture.ids = { ...fixture.ids, Chicken: 'chicken', Stew: 'stew' };
+    fixture.state.progressionHighWater.Cooking = 1;
+    fixture.state.progressionInitialized = true;
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Chicken').available, true,
+        'the rare chicken remains a valid one-time level-one objective');
+    assert.equal(tasks.find(task => task.name === 'Stew').available, false);
+    assert.match(tasks.find(task => task.name === 'Stew').accessResult.reason, /No repeatable Cooking training method/);
+
+    fixture.data.drops.Imp['Raw chicken'][1] = 'Always';
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Stew').available, true,
+        'a steady level-one ingredient source can support later Cooking training');
 });
 
 test('a task in one disconnected section does not block a free route through another section', () => {

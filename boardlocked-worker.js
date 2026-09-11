@@ -260,7 +260,7 @@ function blOutput(highestOverallCompleted = {}, equipmentScores = {}) {
         base: { ...baseChunkData, items: acquisitionItems }, ids: blContext.tasksMap, rules, state: blContext.state,
         legacy: { completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
             manualEquipment, backlog }, unlocked: blContext.unlocked, sections: unlockedSections,
-        manualSections, annotations: BoardlockedData });
+        manualSections, annotations: BoardlockedData, dropRates: dropRatesGlobal });
     Object.keys(baseChunkData.items).forEach(name => blPresentItems.add(name.replace(/\*.*$/, '')));
     const sourceDiagnostics = [...blSourceDiagnostics.values()].filter(gate => {
         if (gate.type !== 'Items') return true;
