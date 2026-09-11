@@ -125,12 +125,10 @@ function blEquipmentUsable(itemName) {
         // Slayer's master-supported milestone gate runs after the legacy BiS
         // calculation, so retain the candidate here for that stricter check.
         if (skill === 'Slayer') return true;
-        // Ordinary equipment milestones may ask the player to train within the
-        // current progression window. Offer the exact obtainable item over the
-        // generic wear/wield task when that requirement is equally reachable.
-        if (skill === 'Combat' || !Boardlocked.SKILLS.includes(skill)) return false;
-        const highWater = blContext.state.progressionHighWater?.[skill] || 0;
-        return Math.min(99, highWater + Boardlocked.progressionWindow(skill)) >= Number(minimum);
+        // An obtainable upgrade is itself a reason to train the relevant skill.
+        // The ordinary calculation still requires a real training method, while
+        // non-skill gates such as Combat remain actual-state requirements.
+        return skill !== 'Combat' && Boardlocked.SKILLS.includes(skill);
     });
 }
 
@@ -174,7 +172,7 @@ function blSectionConnectionAllowed(from, to) {
     });
 }
 
-function blAddWeaponUpgradeTasks(atomicValids, highestOverallCompleted = {}, weaponScores = {}) {
+function blAddEquipmentUpgradeTasks(atomicValids, highestOverallCompleted = {}, equipmentScores = {}) {
     atomicValids.BiS ||= {};
     chunkInfo.challenges.BiS ||= {};
     const addReason = (existing, reason) => {
@@ -188,27 +186,25 @@ function blAddWeaponUpgradeTasks(atomicValids, highestOverallCompleted = {}, wea
         return /^[aeiou]/.test(lower) ? ' an ' : ' a ';
     };
     const scoredItems = new Set();
-    for (const [key, scores] of Object.entries(weaponScores)) if (key.endsWith('-weapon') || key.endsWith('-2h')) {
-        Object.keys(scores).forEach(item => scoredItems.add(item));
-    }
-    // The upstream task list contains only the final winner for each role. For
-    // scored weapons, rebuild that slice from the owned baseline so ties and
-    // intermediate upgrades follow the same rule as every other candidate.
+    for (const scores of Object.values(equipmentScores)) Object.keys(scores).forEach(item => scoredItems.add(item));
+    // The upstream task list contains only the final winner for each role. Rebuild
+    // combat equipment from the owned baseline so every strict improvement is a
+    // visible task, including intermediate armour and weapon upgrades.
     for (const taskName of Object.keys(atomicValids.BiS)) {
         const item = chunkInfo.challenges.BiS?.[taskName]?.ItemsDetails?.[0];
-        if (item && scoredItems.has(item) && ['weapon', '2h'].includes(chunkInfo.equipment?.[item]?.slot)) delete atomicValids.BiS[taskName];
+        if (item && scoredItems.has(item) && !chunkInfo.challenges.BiS?.[taskName]?.Set) delete atomicValids.BiS[taskName];
     }
-    for (const [key, scores] of Object.entries(weaponScores)) {
-        if (!key.endsWith('-weapon') && !key.endsWith('-2h')) continue;
+    for (const [key, scores] of Object.entries(equipmentScores)) {
         const split = key.lastIndexOf('-'), style = key.slice(0, split).replaceAll('_', ' '), slot = key.slice(split + 1);
         // Defence remains meaningful for armour and shields, but small defence
         // bonuses do not make an ordinary main-hand or two-handed item a useful
         // weapon upgrade. Special defensive weapons remain available through
         // their offensive roles or their native collection-log tasks.
-        if (style.endsWith(' Tank')) continue;
+        if (style.endsWith(' Tank') && (slot === 'weapon' || slot === '2h')) continue;
         const ownedItem = highestOverallCompleted[key];
         const ownedScore = Number(scores[ownedItem]);
-        const baseline = Number.isFinite(ownedScore) ? ownedScore : Number(scores.Unarmed) || 0;
+        const emptyWeaponScore = slot === 'weapon' || slot === '2h' ? Number(scores.Unarmed) || 0 : -Infinity;
+        const baseline = Number.isFinite(ownedScore) ? ownedScore : emptyWeaponScore;
         const upgrades = Object.entries(scores).filter(([item, rawScore]) => {
             const score = Number(rawScore);
             return item !== 'Unarmed' && Number.isFinite(score) && score > baseline && !!baseChunkData.items[item] &&
@@ -227,14 +223,14 @@ function blAddWeaponUpgradeTasks(atomicValids, highestOverallCompleted = {}, wea
             const existing = chunkInfo.challenges.BiS[taskName] || {};
             const skillingReason = existing.Set ? 'BIS Skilling · ' + existing.Set : '';
             chunkInfo.challenges.BiS[taskName] = { ...existing, ItemsDetails: [item],
-                Label: addReason(skillingReason, atomicValids.BiS[taskName]), WeaponUpgrade: true };
+                Label: addReason(skillingReason, atomicValids.BiS[taskName]), EquipmentUpgrade: true };
         }
     }
 }
 
-function blOutput(highestOverallCompleted = {}, weaponScores = {}) {
+function blOutput(highestOverallCompleted = {}, equipmentScores = {}) {
     const atomicValids = { ...globalValids, Extra: { ...globalValids.Extra }, BiS: { ...globalValids.BiS } };
-    blAddWeaponUpgradeTasks(atomicValids, highestOverallCompleted, weaponScores);
+    blAddEquipmentUpgradeTasks(atomicValids, highestOverallCompleted, equipmentScores);
     const acquisitionItems = { ...baseChunkData.items };
     // Valid thieving/resource/minigame actions can also have collection drops.
     // Follow their existing output tables; no probability threshold is applied.

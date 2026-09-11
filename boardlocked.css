@@ -20,9 +20,6 @@
 #bl-panel .bl-task > small { display: block; margin-left: 25px; }
 #bl-panel .bl-task-tools button { padding: 2px 5px; font-size: 12px; }
 #bl-panel .bl-task-tools small { flex: 1 0 100%; }
-#bl-panel .bl-equipment-replacement { display: grid; grid-template-columns: 1fr auto; gap: 5px; margin: 7px 0; }
-#bl-panel .bl-equipment-replacement small { grid-column: 1 / -1; opacity: .82; }
-#bl-panel .bl-equipment-replacement input { min-width: 0; padding: 4px 6px; color: inherit; background: var(--color4, #fff); border: 1px solid #888; border-radius: 3px; font: inherit; }
 #bl-panel .bl-task-debug { padding: 7px; background: #0001; border-radius: 3px; }
 #bl-panel .bl-boss-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 3px 10px; margin-top: 12px; }
 #bl-panel .bl-boss-heading h4 { margin: 0 0 5px; }

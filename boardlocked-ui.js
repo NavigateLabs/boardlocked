@@ -673,29 +673,6 @@
         onLegacyChange(); setData();
     }
 
-    function completeWithEquipmentUpgrade(task, requestedName) {
-        if (!canEdit() || !task?.equipmentName) return;
-        const wanted = String(requestedName || '').trim().toLowerCase();
-        const candidate = Object.keys(chunkInfo.equipment || {}).find(name => name.toLowerCase() === wanted);
-        if (!candidate) return notice('Choose an equipment item from the list.');
-        if (!R.equipmentCompletesUpgradeTask(chunkInfo, task, candidate, legacy(), state, true)) {
-            return notice(candidate + ' is not a new BiS upgrade for every combat role in this goal.');
-        }
-        const timestamp = new Date().toISOString();
-        const previous = typeof manualEquipment[candidate] === 'object' ? manualEquipment[candidate] : {};
-        manualEquipment[candidate] = { ...previous, confirmedEquipped: true, recordedAt: timestamp,
-            replacementForTaskIds: [...new Set([...(previous.replacementForTaskIds || []),
-                previous.replacementForTaskId, task.taskId].filter(Boolean))], replacementForItem: task.equipmentName };
-        for (const [skill, level] of Object.entries(chunkInfo.equipment[candidate].requirements || {})) {
-            if (R.SKILLS.includes(skill)) state.actualLevels[skill] = Math.max(state.actualLevels[skill] || 1, Number(level) || 1);
-        }
-        state.adminHistory.push({ timestamp, action: 'complete_with_equipment_upgrade',
-            taskId: task.taskId, requiredItem: task.equipmentName, equippedItem: candidate });
-        message = candidate + ' is your new BiS upgrade and completes this goal.';
-        forceUpdatePluginOutput = true;
-        onLegacyChange(); setData();
-    }
-
     function removeEnabler(itemKey) {
         if (!canEdit()) return;
         delete state.acquiredEnablers[itemKey];
@@ -911,8 +888,6 @@
             checkbox.addEventListener('change', () => complete(task, checkbox.checked));
             checkLabel.append(checkbox, element('span', (task.level ? '[' + task.level + '] ' : '') + task.displayName));
             row.append(checkLabel);
-            if (task.taskClass === 'bis' && task.equipmentName && task.confirmsEquipped) row.append(element('small',
-                'The named item is one option. A lower or higher item also counts if it becomes your new BiS for every listed role. Record a different item in Details & options.'));
             if (!task.eligible) row.append(element('small', task.eligibilityReason || (task.completed ? 'Completed' : 'No longer eligible')));
             const tools = element('details', null, { className: 'bl-task-tools' });
             tools.append(element('summary', 'Details & options'));
@@ -944,21 +919,6 @@
                 whyWouldBeIneligible: task.whyWouldBeIneligible || [],
                 progressionRole: task.advancesSkillProgression ? 'rolling-level-progression' : 'independent'
             }, null, 2), { className: 'bl-task-debug' }));
-            if (task.taskClass === 'bis' && task.equipmentName && task.confirmsEquipped) {
-                const alternatives = R.equipmentReplacementOptions(chunkInfo, task, legacy(), state);
-                if (alternatives.length) {
-                    const replacement = element('div', null, { className: 'bl-equipment-replacement' });
-                    replacement.append(element('small', 'Equipped a different upgrade? It counts when it becomes your new BiS for every role listed above.'));
-                    const input = element('input', null, { type: 'text', placeholder: 'Equipment name',
-                        'aria-label': 'Different equipment upgrade used for ' + task.equipmentName });
-                    const listId = 'bl-equipment-options-' + task.taskId.replace(/[^a-z0-9_-]/gi, '-');
-                    input.setAttribute('list', listId);
-                    const choices = element('datalist', null, { id: listId });
-                    for (const item of alternatives) choices.append(element('option', null, { value: item }));
-                    const use = button('Use this upgrade', () => completeWithEquipmentUpgrade(task, input.value));
-                    replacement.append(input, choices, use); tools.append(replacement);
-                }
-            }
             tools.append(button('Inspect', () => inspectTask(task)));
             if (chunkInfo.challenges?.[task.skill]?.[task.name]) tools.append(button('Details', () => {
                 setPanelOpen(false);

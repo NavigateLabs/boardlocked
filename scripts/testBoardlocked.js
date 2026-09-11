@@ -363,14 +363,14 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-data\.js\?v=16/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl21/);
-    assert.match(html, /boardlocked\.js\?v=52/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl32/g);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl22/);
+    assert.match(html, /boardlocked\.js\?v=53/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl33/g);
     assert.match(worker, /boardlocked-data\.js\?v=16/);
-    assert.match(worker, /boardlocked\.js\?v=52/);
-    assert.match(worker, /boardlocked-worker\.js\?v=17/);
-    assert.match(html, /boardlocked-ui\.js\?v=70/);
-    assert.match(html, /boardlocked\.css\?v=18/);
+    assert.match(worker, /boardlocked\.js\?v=53/);
+    assert.match(worker, /boardlocked-worker\.js\?v=18/);
+    assert.match(html, /boardlocked-ui\.js\?v=71/);
+    assert.match(html, /boardlocked\.css\?v=19/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -1394,7 +1394,7 @@ test('equipment collapsing is local to a tile and a completed specific item perm
     assert.equal(result.completionEvidenceItem, 'Steel scimitar');
 });
 
-test('a newly equipped BiS upgrade can satisfy a named item above or below it without using item tiers', () => {
+test('superior completed equipment still retires an obsolete lower BiS task', () => {
     const combinedRoles = 'Ranged Tank/' + '\u200b' + 'Melee Tank/' + '\u200b' + 'Melee BiS body';
     const target = { taskId: 'steel-body', name: 'Obtain a ~|steel platebody|~',
         displayName: '[' + combinedRoles + '] Obtain and wear a steel platebody',
@@ -1407,26 +1407,8 @@ test('a newly equipped BiS upgrade can satisfy a named item above or below it wi
         'passing the first listed role cannot hide a loss in a later role');
     assert.equal(R.equipmentDominatesTask(chunkData, target, 'Blue wizard robe', fresh(), true), false,
         'an item that improves Magic but loses either named tank role cannot replace the combined objective');
-    assert.equal(R.equipmentCompletesUpgradeTask(chunkData, target, 'Bronze platebody', {}, fresh(), true), true,
-        'with no previous body BiS, even the bronze body is a genuine upgrade in every listed role');
-    const bronzeBaseline = { completedChallenges: { BiS: { 'Obtain a ~|bronze platebody|~': true } } };
-    assert.equal(R.equipmentCompletesUpgradeTask(chunkData, target, 'Iron platebody', bronzeBaseline, fresh(), true), true,
-        'an item below the named target counts when it improves every listed role over the previous BiS');
-    assert.equal(R.equipmentCompletesUpgradeTask(chunkData, target, 'Bronze platebody', bronzeBaseline, fresh(), true), false,
-        'equipment that was already the current BiS is not a new upgrade');
-    assert.equal(R.equipmentCompletesUpgradeTask(chunkData, target, 'Blue wizard robe', bronzeBaseline, fresh(), true), false);
-    const choices = R.equipmentReplacementOptions(chunkData, target, bronzeBaseline, fresh());
-    assert.ok(choices.includes('Iron platebody')); assert.ok(choices.includes('Rune platebody'));
-    assert.ok(!choices.includes('Bronze platebody'));
-
-    let legacy = { ...bronzeBaseline, manualEquipment: { 'Iron platebody': { confirmedEquipped: true,
-        replacementForTaskIds: ['steel-body'] } } };
+    let legacy = { manualEquipment: { 'Rune platebody': true } };
     let result = R.adaptTasks([target], legacy, fresh(), geo, {}, {}, [target], {}, chunkData)[0];
-    assert.equal(result.completed, true);
-    assert.equal(result.completionEvidenceItem, 'Iron platebody');
-
-    legacy = { manualEquipment: { 'Rune platebody': true } };
-    result = R.adaptTasks([target], legacy, fresh(), geo, {}, {}, [target], {}, chunkData)[0];
     assert.equal(result.completed, false, 'an old ownership-only record does not prove a level-40 item was worn at Defence 1');
 
     legacy = { manualEquipment: { 'Rune platebody': { confirmedEquipped: true } } };
@@ -1440,6 +1422,31 @@ test('a newly equipped BiS upgrade can satisfy a named item above or below it wi
     result = R.adaptTasks([target], { manualEquipment: { 'Rune platebody': true } }, levelled,
         geo, {}, {}, [target], {}, chunkData)[0];
     assert.equal(result.completed, true, 'known levels can verify an older ownership-only equipment record');
+});
+
+test('every obtainable platebody upgrade is visible in the imported Salvager Overlook run', () => {
+    const unlocked = ['4910', '4911', '4912', '5166', '5167', '5424', '5425', '5426', '5427', '5428',
+        '5682', '5683', '5684', '5938', '5939', '5940', '6195', '6196', '6451'];
+    const calculate = ownedBody => {
+        const request = usePreset(makeRequest(unlocked), 'Boardlocked Chunker');
+        Object.assign(request.boardlocked.state.actualLevels,
+            { Attack: 5, Defence: ownedBody === 'Steel platebody' ? 5 : 1, Hitpoints: 10, Cooking: 13, Herblore: 3 });
+        request.completedChallenges.BiS = {
+            'Obtain a ~|bronze axe|~': true,
+            'Obtain an ~|iron dagger|~': true,
+            'Obtain a ~|blue wizard hat|~': true,
+            'Obtain a ~|steel scimitar|~': true
+        };
+        if (ownedBody) request.completedChallenges.BiS['Obtain a ~|' + ownedBody.toLowerCase() + '|~'] = true;
+        return runWorker(request).result.tasks.filter(task => task.skill === 'BiS' &&
+            task.origins.some(origin => origin.chunkId === '6451') && /platebody/i.test(task.equipmentName || ''));
+    };
+    const freshBodies = calculate().map(task => task.equipmentName).sort();
+    assert.deepEqual(freshBodies, ['Adamant platebody', 'Bronze platebody', 'Iron platebody', 'Mithril platebody', 'Steel platebody'],
+        'every shop item that improves an empty body slot is shown as a separate task');
+    const afterSteel = calculate('Steel platebody').map(task => task.equipmentName).sort();
+    assert.deepEqual(afterSteel, ['Adamant platebody', 'Mithril platebody'],
+        'items at or below the current body BiS disappear while every remaining upgrade stays visible');
 });
 
 test('live acceptance worker output offers axe Enablers and blocks concrete gathering actions', () => {
@@ -2182,13 +2189,13 @@ test('Boardlocked Chunker preset has the strict broad-progression defaults', () 
     assert.equal(preset['Rare Drop Amount'], '0');
 });
 
-test('strict BiS respects actual levels plus the current progression window and exposes core defensive categories', () => {
+test('obtainable equipment upgrades ignore skill windows and expose core defensive categories', () => {
     const request = usePreset(makeRequest(['5944', '6200']), 'Boardlocked Chunker');
     const low = runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
     assert.ok(low.some(task => task.equipmentName === 'Iron dagger' && /Melee (?:BiS|upgrade) weapon/.test(task.bisReason)));
     assert.ok(low.some(task => task.equipmentName === 'Bronze med helm' && /Melee Tank/.test(task.bisReason)));
-    assert.ok(!low.some(task => task.equipmentName === 'Rune scimitar'));
-    assert.ok(!low.some(task => task.equipmentName === 'Rune kiteshield'));
+    assert.ok(low.some(task => task.equipmentName === 'Rune scimitar'), 'the item goal itself may require training Attack');
+    assert.ok(low.some(task => task.equipmentName === 'Rune kiteshield'), 'the item goal itself may require training Defence');
     request.boardlocked.state.actualLevels.Attack = 40;
     request.boardlocked.state.actualLevels.Defence = 40;
     const high = runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
@@ -2203,14 +2210,15 @@ test('fresh Hill Giant start replaces the generic steel milestone with its exact
     const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
         result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
     const steel = tasks.find(task => task.equipmentName === 'Steel longsword');
-    assert.ok(steel?.eligible); assert.match(steel.bisReason, /Melee BiS weapon/);
+    assert.ok(steel?.eligible); assert.match(steel.bisReason, /Melee upgrade weapon/);
     for (const item of ['Iron dagger', 'Iron full helm', 'Iron kiteshield']) {
         assert.ok(tasks.some(task => task.equipmentName === item && task.eligible), item + ' remains a distinct obtainable upgrade');
     }
     const generic = tasks.find(task => task.name === 'Wield a ~|steel weapon|~');
     assert.equal(generic.eligible, false); assert.equal(generic.progressionBlocked, true);
     assert.equal(generic.progressionCeiling, 1);
-    assert.ok(!tasks.some(task => task.equipmentName === 'Rune scimitar'), 'fresh progression does not jump to level-40 gear');
+    assert.ok(tasks.some(task => task.equipmentName === 'Rune scimitar' && task.eligible),
+        'a higher obtainable upgrade remains visible even when equipping it requires training');
 });
 
 test('strict collection tasks use actual quest points', () => {
@@ -2601,8 +2609,10 @@ test('tank scores do not create weapon goals while tank armour and shields remai
 
     request.manualEquipment['Steel longsword'] = true;
     weapons = calculate();
-    assert.ok(!weapons.some(task => /longsword/i.test(task.equipmentName || '')),
-        'registering the inferior weapon does not change the offensive progression');
+    assert.ok(!weapons.some(task => task.equipmentName === 'Steel longsword'),
+        'registering the inferior weapon does not make that same weapon an upgrade');
+    assert.ok(weapons.some(task => task.equipmentName === 'Adamant longsword'),
+        'a different longsword remains visible when it is an actual upgrade over the current weapon');
     assert.ok(!weapons.some(task => task.equipmentName === 'Iron dagger'));
 });
 test('real worker: source backlog removes tasks supplied by that monster', () => {

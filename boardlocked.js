@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 35;
+    const VERSION = 36;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -87,12 +87,6 @@
             candidate.strength >= target.strength;
         return candidate >= target;
     }
-    function roleScoreBetter(candidate, target) {
-        if (!roleScoreAtLeast(candidate, target)) return false;
-        if (typeof candidate === 'object') return candidate.speed < target.speed || candidate.attack > target.attack ||
-            candidate.strength > target.strength;
-        return candidate > target;
-    }
     function equipmentRequirementsMet(item, state) {
         return Object.entries(item?.requirements || {}).every(([skill, level]) =>
             skill !== 'Combat' && Number.isFinite(state?.actualLevels?.[skill]) && state.actualLevels[skill] >= Number(level));
@@ -104,42 +98,6 @@
         const roles = combatRolesFromBisReason(task.bisReason);
         return roles.length > 0 && roles.every(role =>
             roleScoreAtLeast(equipmentRoleScore(candidate, role), equipmentRoleScore(target, role)));
-    }
-    function equipmentImprovesCurrentBis(data, task, candidateName, completedItems, state = null, confirmedEquipped = false) {
-        const target = data?.equipment?.[task?.equipmentName], candidate = data?.equipment?.[candidateName];
-        if (!target || !candidate || candidate.slot !== target.slot) return false;
-        if (!confirmedEquipped && !equipmentRequirementsMet(candidate, state)) return false;
-        const roles = combatRolesFromBisReason(task.bisReason);
-        if (!roles.length) return false;
-        const priorItems = [...completedItems.values()].filter(evidence =>
-            comparableItemKey(evidence.item) !== comparableItemKey(candidateName) &&
-            data.equipment?.[evidence.item]?.slot === candidate.slot &&
-            (evidence.confirmedEquipped || equipmentRequirementsMet(data.equipment[evidence.item], state)));
-        return roles.every(role => {
-            const candidateScore = equipmentRoleScore(candidate, role);
-            const emptyScore = typeof candidateScore === 'object' ? { speed: Infinity, attack: 0, strength: 0 } : 0;
-            const baselines = priorItems.map(evidence => equipmentRoleScore(data.equipment[evidence.item], role))
-                .filter(score => score != null);
-            return (baselines.length ? baselines : [emptyScore]).every(score => roleScoreBetter(candidateScore, score));
-        });
-    }
-    function equipmentCompletesUpgradeTask(data, task, candidateName, legacy = {}, state = null, confirmedEquipped = false,
-        knownCompletedItems = null) {
-        const candidate = data?.equipment?.[candidateName], target = data?.equipment?.[task?.equipmentName];
-        if (!candidate || !target || candidate.slot !== target.slot) return false;
-        const completedItems = knownCompletedItems || completedEquipmentItems(legacy, state);
-        const evidence = completedItems.get(comparableItemKey(candidateName));
-        if (evidence?.replacementForTaskIds?.includes(task.taskId)) return true;
-        if (candidateName === task.equipmentName) return confirmedEquipped || equipmentRequirementsMet(candidate, state);
-        if (equipmentDominatesTask(data, task, candidateName, state, confirmedEquipped)) return true;
-        if (evidence) return false;
-        return equipmentImprovesCurrentBis(data, task, candidateName, completedItems, state, confirmedEquipped);
-    }
-    function equipmentReplacementOptions(data, task, legacy = {}, state = null) {
-        const completedItems = completedEquipmentItems(legacy, state);
-        return Object.keys(data?.equipment || {}).filter(item =>
-            item !== task.equipmentName && equipmentCompletesUpgradeTask(data, task, item, legacy, state, true, completedItems))
-            .sort((left, right) => left.localeCompare(right));
     }
     const enablerTaskId = itemKey => 'bl_enabler_item_' + encodeURIComponent(canonicalItemKey(itemKey));
     const enablerItemFromTaskId = id => {
@@ -2546,8 +2504,7 @@
         canonicalItemKey, itemSourceAllowed, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, resourceRepresentativeMetadata,
-        equipmentObjectiveAlternatives, equipmentDominatesTask, equipmentImprovesCurrentBis,
-        equipmentCompletesUpgradeTask, equipmentReplacementOptions, superiorEquipmentCompletion,
+        equipmentObjectiveAlternatives, equipmentDominatesTask, superiorEquipmentCompletion,
         isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
