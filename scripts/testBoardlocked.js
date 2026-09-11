@@ -511,7 +511,7 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(worker, /boardlocked-data\.js\?v=25/);
     assert.match(worker, /boardlocked\.js\?v=72/);
     assert.match(worker, /boardlocked-worker\.js\?v=27/);
-    assert.match(html, /boardlocked-ui\.js\?v=89/);
+    assert.match(html, /boardlocked-ui\.js\?v=90/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -3204,6 +3204,9 @@ test('clue UI groups reward goals and keeps each tier lock independent', () => {
     assert.match(ui, /R\.clueTaskListPresentations\(list\)/,
         'BiS goals with two source kinds are rendered under both their ordinary and clue origins');
     assert.match(ui, /I received a Master clue from a casket/);
+    assert.match(ui, /I received a ' \+ label \+ ' clue incidentally/,
+        'every tier can record a clue obtained from a non-generating source');
+    assert.match(ui, /changeIncidentalClue\(tier, 1\)/);
     assert.match(ui, /An unlocked source will generate reward goals again after the next non-clue goal/);
     assert.match(ui, /No step from this clue tier can currently be completed in the unlocked area/);
     assert.match(ui, /Discard this deadlocked clue/);

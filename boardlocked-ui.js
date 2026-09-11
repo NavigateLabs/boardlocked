@@ -1432,23 +1432,24 @@
             unknown);
         return editor;
     }
-    function changeIncidentalMaster(delta) {
+    function changeIncidentalClue(tier, delta) {
         if (!canEdit() || busy) return;
-        const count = Math.max(0, Number(state.incidentalClues?.master) || 0) + delta;
-        state = R.setIncidentalClueCount(state, 'master', count);
+        const count = Math.max(0, Number(state.incidentalClues?.[tier]) || 0) + delta;
+        state = R.setIncidentalClueCount(state, tier, count);
         state.adminHistory.push({ timestamp: new Date().toISOString(),
-            action: delta > 0 ? 'register_incidental_master_clue' : 'finish_incidental_master_clue', count });
-        message = delta > 0 ? 'Incidental Master clue recorded. Its rewards can be registered below without adding Master goals to this tile.' :
-            'Incidental Master clue resolved.';
+            action: delta > 0 ? 'register_incidental_clue' : 'finish_incidental_clue', tier, count });
+        const label = clueTierLabel(tier);
+        message = delta > 0 ? 'Incidental ' + label + ' clue recorded. Its rewards can be registered below without adding goals to this tile.' :
+            'Incidental ' + label + ' clue resolved.';
         save(); render();
     }
-    function incidentalRewardTask(reward) {
+    function incidentalRewardTask(reward, tier) {
         const calculated = tasks.find(task => task.taskId === reward.taskId);
         if (calculated) return { ...calculated, eligible: true, eligibilityReason: '',
-            clueReward: { ...(calculated.clueReward || {}), tier: 'master', itemKey: reward.itemKey, incidental: true } };
+            clueReward: { ...(calculated.clueReward || {}), tier, itemKey: reward.itemKey, incidental: true } };
         return { taskId: reward.taskId, name: reward.name, displayName: R.displayName(reward.name), skill: 'Extra',
             taskClass: 'collection', category: 'Collection Log', completed: reward.completed, eligible: true,
-            clueReward: { tier: 'master', itemKey: reward.itemKey, incidental: true }, origins: [], activeOrigins: [] };
+            clueReward: { tier, itemKey: reward.itemKey, incidental: true }, origins: [], activeOrigins: [] };
     }
     function renderClues() {
         const summary = document.getElementById('bl-clue-summary'), list = document.getElementById('bl-clue-tiers');
@@ -1530,22 +1531,24 @@
                     row.append(clueLockEditor(tier, 'bl-clue-step-panel-' + tier));
                 }
             }
-            if (tier === 'master' && !status.generating && !status.complete) {
-                const incidentalCount = Number(state.incidentalClues?.master) || 0;
-                const received = button('I received a Master clue from a casket', () => changeIncidentalMaster(1));
+            if (!status.generating && !status.complete && !status.blocked) {
+                const incidentalCount = Number(state.incidentalClues?.[tier]) || 0;
+                const label = clueTierLabel(tier);
+                const received = button(tier === 'master' ? 'I received a Master clue from a casket' :
+                    'I received a ' + label + ' clue incidentally', () => changeIncidentalClue(tier, 1));
                 received.className = 'bl-clue-incidental'; received.disabled = !canEdit() || busy; row.append(received);
                 if (incidentalCount) {
                     const incidental = element('details', null, { className: 'bl-clue-incidental-rewards' });
                     incidental.append(element('summary', 'Record rewards from ' + incidentalCount +
-                        (incidentalCount === 1 ? ' incidental Master clue' : ' incidental Master clues')));
+                        (incidentalCount === 1 ? ' incidental ' + label + ' clue' : ' incidental ' + label + ' clues')));
                     const rewards = element('div', null, { className: 'bl-clue-checks' });
-                    for (const reward of (clueStatus.rewards || []).filter(reward => reward.ownerTier === 'master')) {
-                        const task = incidentalRewardTask(reward), check = element('input', null, { type: 'checkbox' });
+                    for (const reward of (clueStatus.rewards || []).filter(reward => reward.ownerTier === tier)) {
+                        const task = incidentalRewardTask(reward, tier), check = element('input', null, { type: 'checkbox' });
                         check.checked = !!task.completed; check.disabled = !canEdit() || busy;
                         check.onchange = () => complete(task, check.checked);
                         const label = element('label'); label.append(check, element('span', reward.itemKey)); rewards.append(label);
                     }
-                    const finish = button('Finish one incidental Master clue', () => changeIncidentalMaster(-1));
+                    const finish = button('Finish one incidental ' + label + ' clue', () => changeIncidentalClue(tier, -1));
                     finish.disabled = !canEdit() || busy; incidental.append(rewards, finish); row.append(incidental);
                 }
             }
