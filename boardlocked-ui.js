@@ -493,7 +493,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl48');
+        worker = new Worker('./worker.js?v=6.9.66-bl49');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1692,13 +1692,15 @@
             const snapshotIds = new Set(visit.candidateTaskIds);
             taskList(candidates, visit.candidateTaskIds.map(id => {
                 const savedTask = visit.candidateTasks?.[id] || {};
-                return tasks.find(t => t.taskId === id) || {
+                const liveTask = tasks.find(t => t.taskId === id);
+                return R.mergeVisitTaskForDisplay(liveTask, savedTask) || {
                     taskId: id, name: tasksMapReverse[id] || id, displayName: R.displayName(tasksMapReverse[id] || id),
                     skill: rawTasks.find(t => t.taskId === id)?.skill || 'Unavailable', ...savedTask,
                     completed: completedIds.has(id) || (!!savedTask.enablerItemKey && R.own(state.acquiredEnablers, savedTask.enablerItemKey)), available: false,
+                    eligible: false,
                     eligibilityReason: 'No longer eligible; inspect rules/access/backlogs or void the visit', origins: []
                 };
-            }).filter(task => !task.implicitlyCompleted && (!task.redundant ||
+            }).filter(task => R.visitTaskVisible(visit, task) && (!task.redundant ||
                 !(task.coveredByTaskIds || []).some(id => snapshotIds.has(id)))), true);
         }
         document.getElementById('bl-void').disabled = !visit || R.canRoll(state) || !canEdit();

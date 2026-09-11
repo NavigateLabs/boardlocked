@@ -2091,6 +2091,29 @@
             supportingMasters: task.slayerProgression.supportingMasters || [],
             requiresTraining: !!task.slayerProgression.requiresTraining
         } : null });
+    const VISIT_SNAPSHOT_DISPLAY_FIELDS = Object.freeze(['name', 'skill', 'displayName', 'level', 'equipmentName',
+        'taskClass', 'bossSources', 'encounterSources', 'encounterDetails', 'enablerItemKey',
+        'provesAcquiredItemKeys', 'confirmsEquipped', 'capabilities', 'bisReason', 'bisSet',
+        'slayerTrainingAlternative', 'slayerTrainingMasters', 'slayerProgression']);
+    function mergeVisitTaskForDisplay(liveTask, savedTask) {
+        if (!liveTask) return null;
+        if (!savedTask || typeof savedTask !== 'object') return liveTask;
+        const snapshotDisplay = {};
+        for (const field of VISIT_SNAPSHOT_DISPLAY_FIELDS) {
+            if (own(savedTask, field)) snapshotDisplay[field] = copy(savedTask[field]);
+        }
+        // clueReward changes which visual group owns the row. A visit snapshot
+        // created before this field existed was an ordinary row, so absence is
+        // deliberately treated as null rather than adopting later provenance.
+        snapshotDisplay.clueReward = own(savedTask, 'clueReward') && savedTask.clueReward ?
+            copy(savedTask.clueReward) : null;
+        return { ...liveTask, ...snapshotDisplay };
+    }
+    function visitTaskVisible(visit, task) {
+        if (!task || task.implicitlyCompleted) return false;
+        if (visit?.status !== 'resolved') return true;
+        return task.taskId === visit.resolvedTaskId || task.completed || task.eligible !== false;
+    }
     function taskMatchesVisit(task, visit) {
         const arrivalSections = new Set(visit.arrivalSections || []);
         return task.activeOrigins?.some(origin => origin.chunkId === visit.locationId &&
@@ -3920,6 +3943,7 @@
         migrateStartingSections, directStartingRequirements, mergeStartingRequirements, resolveStartingRequirements, sectionAccessAllowed,
         automaticStartingRequirementsAllowed, deriveStartingPool, deriveManualStartingPool, startingCandidateForRegion,
         chooseStartingCandidate, canRoll,
-        startVisit, slayerMasterConfirmationForVisit, snapshotVisit, addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
+        startVisit, slayerMasterConfirmationForVisit, snapshotVisit, mergeVisitTaskForDisplay, visitTaskVisible,
+        addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });

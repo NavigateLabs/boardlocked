@@ -505,13 +505,13 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=25/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=72/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl48/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl48/);
+    assert.match(html, /boardlocked\.js\?v=73/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl49/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl49/);
     assert.match(worker, /boardlocked-data\.js\?v=25/);
-    assert.match(worker, /boardlocked\.js\?v=72/);
+    assert.match(worker, /boardlocked\.js\?v=73/);
     assert.match(worker, /boardlocked-worker\.js\?v=27/);
-    assert.match(html, /boardlocked-ui\.js\?v=90/);
+    assert.match(html, /boardlocked-ui\.js\?v=91/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -702,6 +702,27 @@ test('tasks activated after snapshot do not join the current visit', () => {
     const next = R.snapshotVisit(first, adapt([task('a'), task('new')]));
     assert.deepEqual(next.currentVisit.candidateTaskIds, ['a']);
     assert.equal(R.resolveVisit(next, new Set(['new'])).currentVisit.status, 'task_required');
+});
+test('visit rows retain their snapshotted group when later rules add clue provenance', () => {
+    const live = task('armour', ['1000'], {
+        skill: 'BiS', taskClass: 'bis', displayName: '[Melee upgrade body] Obtain and wear armour',
+        clueReward: { tier: 'medium', itemName: 'Armour', collection: false }
+    });
+    const saved = { name: live.name, skill: 'BiS', taskClass: 'bis',
+        displayName: '[Melee upgrade body] Obtain and wear armour' };
+    const displayed = R.mergeVisitTaskForDisplay(live, saved);
+    assert.equal(displayed.clueReward, null,
+        'an older ordinary visit candidate must not move into a clue group after reload');
+    assert.equal(displayed.eligible, true, 'current eligibility remains live rather than snapshotted');
+});
+test('resolved visits hide alternatives invalidated by newer source rules', () => {
+    const visit = { status: 'resolved', resolution: 'task_completed', resolvedTaskId: 'done' };
+    assert.equal(R.visitTaskVisible(visit, task('done', ['1000'], { eligible: false, completed: true })), true);
+    assert.equal(R.visitTaskVisible(visit, task('stale-recipe', ['1000'], { eligible: false })), false);
+    assert.equal(R.visitTaskVisible(visit, task('still-valid', ['1000'], { eligible: true })), true);
+    assert.equal(R.visitTaskVisible({ ...visit, status: 'task_required' },
+        task('needs-review', ['1000'], { eligible: false })), true,
+        'an unresolved invalid task stays visible so the player can inspect or void it');
 });
 test('an imported unresolved visit can be rebuilt in place from current tasks', () => {
     const imported = start(adapt([task('old')]));
