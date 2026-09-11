@@ -6,6 +6,13 @@ const { execFileSync } = require('node:child_process');
 const root = path.join(__dirname, '..');
 const R = require('../boardlocked');
 const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8').replace(/\r\n/g, '\n');
+const chunkInfoJson = fs.readFileSync(path.join(root, 'chunkpicker-chunkinfo-export.json'), 'utf8');
+const tasksMapJson = fs.readFileSync(path.join(root, 'tasksMap.json'), 'utf8');
+const workerSource = fs.readFileSync(path.join(root, 'worker.js'), 'utf8');
+const workerScript = new vm.Script(workerSource, { filename: 'worker.js' });
+const workerUsesLodash = /\b_\./.test(workerSource);
+const declarationCache = new Map();
+const importedScriptCache = new Map();
 
 // Use the clone's actual default objects and presets, not a second task/config database.
 function declarationFrom(code, name) {
@@ -15,10 +22,13 @@ function declarationFrom(code, name) {
     const end = tail.indexOf(';') < tail.indexOf('\n') ? tail.indexOf(';') : tail[0] === '{' ? tail.indexOf('\n};') + 2 : tail[0] === '[' ? tail.indexOf('\n];') + 2 : tail.indexOf(';');
     return vm.runInNewContext('(' + tail.slice(0, end) + ')');
 }
-const declaration = name => declarationFrom(index, name);
+function declaration(name) {
+    if (!declarationCache.has(name)) declarationCache.set(name, declarationFrom(index, name));
+    return structuredClone(declarationCache.get(name));
+}
 function makeRequest(chunkIds = [], strict = true) {
-    const data = JSON.parse(fs.readFileSync(path.join(root, 'chunkpicker-chunkinfo-export.json'), 'utf8'));
-    const ids = JSON.parse(fs.readFileSync(path.join(root, 'tasksMap.json'), 'utf8'));
+    const data = JSON.parse(chunkInfoJson);
+    const ids = JSON.parse(tasksMapJson);
     const result = { type: 'current', chunkInfo: data, chunks: Object.fromEntries(chunkIds.map(id => [String(id), String(id)])),
         requestId: 1, updateLevel: 'unconnected-areas', isDiary2Tier: false, isOnlyManualAreas: false,
         optOutSections: false, optOutSectionsWater: false, ...data.codeItems };
@@ -57,18 +67,20 @@ function runWorker(request, options = {}) {
             // worker.js currently imports lodash but calls none of its APIs.
             // Fail the harness if it starts using them instead of silently mocking it.
             if (/^https:/.test(url)) {
-                if (/\b_\./.test(fs.readFileSync(path.join(root, 'worker.js'), 'utf8'))) throw new Error('Harness requires the legacy lodash dependency');
+                if (workerUsesLodash) throw new Error('Harness requires the legacy lodash dependency');
                 continue;
             }
             const relative = url.split('?')[0].replace(/^\.\//, '');
-            const currentPath = path.join(root, relative);
-            const source = fs.existsSync(currentPath) ? fs.readFileSync(currentPath, 'utf8') :
-                execFileSync('git', ['show', 'HEAD:' + relative], { cwd: root, maxBuffer: 5 * 1024 * 1024, encoding: 'utf8' });
-            vm.runInContext(source, context, { filename: url });
+            if (!importedScriptCache.has(relative)) {
+                const currentPath = path.join(root, relative);
+                const source = fs.existsSync(currentPath) ? fs.readFileSync(currentPath, 'utf8') :
+                    execFileSync('git', ['show', 'HEAD:' + relative], { cwd: root, maxBuffer: 5 * 1024 * 1024, encoding: 'utf8' });
+                importedScriptCache.set(relative, new vm.Script(source, { filename: url }));
+            }
+            importedScriptCache.get(relative).runInContext(context);
         }
     };
-    const code = options.code || fs.readFileSync(path.join(root, 'worker.js'), 'utf8');
-    vm.runInContext(code, context, { filename: 'worker.js' });
+    (options.code ? new vm.Script(options.code, { filename: 'worker.js' }) : workerScript).runInContext(context);
     context.request = structuredClone(request);
     vm.runInContext('onmessage({data: request})', context, { timeout: 120000 });
     const failure = messages.find(message => message.type === 'error');

@@ -62,6 +62,17 @@ Then open **http://127.0.0.1:8080/?local=default**.
 No package installation or build step is required. The site still loads several
 public libraries from CDNs, so an internet connection is needed.
 
+## Tests
+
+Run the Boardlocked suite across four isolated workers:
+
+```powershell
+node scripts/runBoardlockedTests.js
+```
+
+Set `BOARDLOCKED_TEST_WORKERS` to use a different worker count. Run
+`node --test scripts/testBoardlocked.js` when a single-process test trace is useful.
+
 
 ## Credits
 

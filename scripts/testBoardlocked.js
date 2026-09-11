@@ -1,5 +1,5 @@
 'use strict';
-const test = require('node:test');
+const nodeTest = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -9,6 +9,14 @@ const R = require('../boardlocked');
 const annotations = require('../boardlocked-data');
 const chunkData = require('../chunkpicker-chunkinfo-export.json');
 const { makeRequest, usePreset, runWorker, declaration, declarationFrom } = require('./boardlockedTestHarness');
+const testShardCount = Math.max(1, Number.parseInt(process.env.BOARDLOCKED_TEST_SHARD_COUNT || '1', 10));
+const testShardIndex = Math.max(0, Number.parseInt(process.env.BOARDLOCKED_TEST_SHARD_INDEX || '0', 10));
+let registeredTestIndex = 0;
+const test = (name, fn) => {
+    const index = registeredTestIndex++;
+    if (index % testShardCount !== testShardIndex) return;
+    return nodeTest(name, fn);
+};
 const fresh = () => R.normalizeState();
 const origin = (id, sectionId = null) => ({ chunkId: id, sectionId, sourceType: 'objects', sourceName: 'Resource', reason: 'Action source' });
 const task = (id, locations = ['1000'], rest = {}) => ({ taskId: id, name: id, displayName: id, skill: 'Woodcutting',
