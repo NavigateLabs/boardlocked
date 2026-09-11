@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 46;
+    const VERSION = 47;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -2183,6 +2183,92 @@
         return percent ? Number(percent[1]) / 100 : null;
     }
 
+    function clueSourceCatalog(data = {}, annotations = {}) {
+        const config = annotations.clues?.sourcePolicy || {};
+        const directMinimum = { beginner: 1 / 300, easy: 1 / 128, medium: 1 / 128,
+            hard: 1 / 128, elite: 1 / 200, ...(config.directMinimumChanceByTier || {}) };
+        const focusedMinimum = { beginner: 1 / 100, easy: 1 / 100, medium: 1 / 200,
+            hard: 1 / 200, elite: 1 / 200, ...(config.focusedMinimumChanceByTier || {}) };
+        const focusedCategories = new Set(config.focusedCategories || ['Boss', 'Minigame', 'Extra implings']);
+        const incidentalCategories = new Set(config.incidentalCategories || ['Wandering implings']);
+        const groups = data.codeItems?.dropTables || {}, monsterGroups = data.codeItems?.monstersPlus || {};
+        const bestChance = quantities => Math.max(-1,
+            ...Object.values(quantities || {}).map(supplyChance).filter(Number.isFinite));
+        const clueChance = (items, clueName) => Math.max(-1, ...Object.entries(items || {}).flatMap(([raw, quantities]) => {
+            const outer = bestChance(quantities);
+            if (raw === clueName) return outer;
+            if (!own(groups[raw], clueName)) return [];
+            const inner = supplyChance(groups[raw][clueName]);
+            if (!Number.isFinite(inner)) return [];
+            return outer >= 0 ? outer * inner : inner;
+        }));
+        const bossEntryCosts = new Set();
+        for (const tasks of Object.values(data.challenges || {})) for (const meta of Object.values(tasks || {})) {
+            if (!(meta.Category || []).includes('Boss') || !(meta.Items || []).some(item => String(item).includes('*'))) continue;
+            for (const raw of meta.Monsters || []) for (const monster of expand(raw, monsterGroups)) bossEntryCosts.add(monster);
+        }
+        const byTier = Object.fromEntries(CLUE_TIERS.map(tier => [tier, []]));
+        const add = (tier, source) => {
+            const list = byTier[tier], identity = source.kind + ':' + source.sourceName;
+            const existing = list.find(candidate => candidate.identity === identity);
+            if (!existing) list.push({ ...source, tier, identity });
+            else if (Number.isFinite(source.chance) && (!Number.isFinite(existing.chance) || source.chance > existing.chance)) {
+                existing.chance = source.chance;
+            }
+        };
+        for (const tier of CLUE_TIERS.filter(tier => tier !== 'master')) {
+            const clueName = 'Clue scroll (' + tier + ')', threshold = Number(directMinimum[tier]);
+            for (const [monster, drops] of Object.entries(data.drops || {})) {
+                const chance = clueChance(drops, clueName);
+                if (chance < 0) continue;
+                const entryCost = bossEntryCosts.has(monster);
+                const allowed = !entryCost && Number.isFinite(threshold) && chance >= threshold;
+                add(tier, { kind: 'monster', sourceName: monster, chance, allowed,
+                    reason: entryCost ? 'Boss consumes an entry item, so its clue is incidental' :
+                        allowed ? 'Repeatable direct drop within the normal ' + tier + ' clue rate' :
+                            'Direct drop is too rare to support deliberate ' + tier + ' clue hunting' });
+            }
+            const activityThreshold = Number(focusedMinimum[tier]);
+            for (const [skill, pools] of Object.entries(data.skillItems || {})) for (const [pool, items] of Object.entries(pools || {})) {
+                const chance = clueChance(items, clueName);
+                if (chance < 0) continue;
+                for (const [name, meta] of Object.entries(data.challenges?.[skill] || {})) {
+                    if (meta.Output !== pool) continue;
+                    const categories = meta.Category || [];
+                    const consumedBossEntry = categories.includes('Boss') &&
+                        (meta.Items || []).some(item => String(item).includes('*'));
+                    const incidental = consumedBossEntry || categories.some(category => incidentalCategories.has(category));
+                    const directCombat = skill === 'Slayer';
+                    const focused = directCombat || meta.Primary === true || categories.some(category => focusedCategories.has(category));
+                    const minimumChance = directCombat ? threshold : activityThreshold;
+                    const allowed = !incidental && focused && Number.isFinite(minimumChance) && chance >= minimumChance;
+                    add(tier, { kind: 'activity', sourceName: name, sourceSkill: skill, chance, allowed,
+                        reason: consumedBossEntry ? 'Boss chest consumes a separate entry item, so its clue is incidental' :
+                            incidental ? 'Roaming or passive opportunity; record the clue only if it appears' :
+                            !focused ? 'Clue is a by-product of another activity' :
+                                allowed ? (directCombat ? 'Repeatable Slayer target' : 'Repeatable focused activity') +
+                                    ' within the normal ' + tier + ' clue rate' :
+                                    'Activity clue rate is too low to support deliberate ' + tier + ' clue hunting' });
+                }
+            }
+        }
+        const masterSource = annotations.clues?.masterPersistentSource || 'Watson';
+        add('master', { kind: 'master', sourceName: masterSource, chance: 1, allowed: true,
+            reason: 'Guaranteed exchange of one completed easy, medium, hard and elite clue' });
+        for (const tier of CLUE_TIERS) byTier[tier].sort((left, right) =>
+            Number(right.allowed) - Number(left.allowed) || (right.chance || 0) - (left.chance || 0) ||
+            left.sourceName.localeCompare(right.sourceName));
+        const sourceAllowed = (tier, sourceName, sourceType = '') => {
+            if (!CLUE_TIERS.includes(tier)) return false;
+            if (tier === 'master') return sourceName === masterSource;
+            const kind = String(sourceType).includes('drop') ? 'monster' : 'activity';
+            return byTier[tier].some(source => source.allowed && source.kind === kind && source.sourceName === sourceName);
+        };
+        return { tiers: byTier, sourceAllowed, masterSource,
+            policy: { directMinimumChanceByTier: { ...directMinimum }, focusedMinimumChanceByTier: { ...focusedMinimum },
+                focusedCategories: [...focusedCategories], incidentalCategories: [...incidentalCategories] } };
+    }
+
     function recipeSupplyCatalog(data = {}, annotations = {}) {
         const enabled = !!annotations.recipeSupply, config = annotations.recipeSupply || {};
         const trackedSkills = new Set(enabled ? config.skills || ['Cooking', 'Crafting'] : []);
@@ -2687,6 +2773,7 @@
             for (const name of Object.keys(data.challenges[category] || {})) if (!knownNames.has(name)) knownNames.set(name, category);
         }
         const recipeSupply = recipeSupplyCatalog(data, annotations);
+        const clueSources = clueSourceCatalog(data, annotations);
         const recipeSupplySkills = new Set(recipeSupply.skills);
         const knownSkillLevel = skill => Math.max(1, Number(state.actualLevels?.[skill] || 1),
             Number(state.progressionHighWater?.[skill] || 0));
@@ -2797,7 +2884,22 @@
             if (clueSourceCache.has(tier)) return clueSourceCache.get(tier);
             const result = tier === 'master' ?
                 (masterClueInputs.every(input => clueRewards.tiers[input]?.complete) ? fixed('npcs', masterClueSource) : []) :
-                item('Clue scroll (' + tier + ')', new Set(visiting).add('clue-source:' + tier));
+                itemSourceEntries('Clue scroll (' + tier + ')')
+                    .filter(([source, type]) => clueSources.sourceAllowed(tier, source, type))
+                    .flatMap(([source, type]) => {
+                        const clueName = 'Clue scroll (' + tier + ')';
+                        const next = new Set(visiting).add('clue-source:' + tier);
+                        if (String(type).includes('drop')) return acquisitionOrigins(clueName, source, fixed('monsters', source));
+                        const direct = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
+                        if (direct.length) return direct;
+                        const category = knownNames.get(source), sourceMeta = data.challenges?.[category]?.[source];
+                        if (!category || !sourceMeta) return [];
+                        const levelReadiness = taskLevelReadiness(source, category, sourceMeta);
+                        const declaredReadiness = declaredSkillReadiness(sourceMeta);
+                        if (!levelReadiness.allowed || !declaredReadiness.allowed) return [];
+                        const inputs = taskInputReadiness(source, category, sourceMeta, next);
+                        return inputs.allowed ? taskOrigins(source, category, next) : [];
+                    });
             const unique = uniqueOrigins(result.map(source => ({ ...source, clueTier: tier,
                 reason: tier[0].toUpperCase() + tier.slice(1) + ' clue source · ' + source.reason })));
             if (unique.length) clueSourceCache.set(tier, unique);
@@ -3799,7 +3901,7 @@
             enablerCatalog, enablerAmbiguities: enablerModel.ambiguous, clueStatus };
     }
     return { VERSION, STARTING_SECTION_POLICY, SKILLS, CLUE_TIERS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
-        canonicalItemKey, itemSourceAllowed, recipeSupplyCatalog, applyRecipeSupplyAliases,
+        canonicalItemKey, itemSourceAllowed, clueSourceCatalog, recipeSupplyCatalog, applyRecipeSupplyAliases,
         enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, completedQuestProgress, taskMetadata, resourceRepresentativeMetadata,

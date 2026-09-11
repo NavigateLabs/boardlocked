@@ -8,6 +8,7 @@ let blPresentItems = new Set();
 let blStructuralGates = new Set();
 let blClueRewards = null;
 let blClueEquipmentTiers = new Map();
+let blClueSources = null;
 
 function blLegacyProgress() {
     return { completedChallenges, checkedChallenges, checkedAllTasks: blContext?.checkedAllTasks,
@@ -23,8 +24,10 @@ function blInitialize(request) {
     blStructuralGates = new Set();
     blClueRewards = null;
     blClueEquipmentTiers = new Map();
+    blClueSources = null;
     if (!blContext) return;
     Boardlocked.applyRecipeSupplyAliases(chunkInfo, BoardlockedData);
+    blClueSources = Boardlocked.clueSourceCatalog(chunkInfo, BoardlockedData);
     blClueRewards = Boardlocked.clueRewardCatalog(chunkInfo, blLegacyProgress(), blContext.state, blContext.tasksMap);
     const collectionRewardKeys = new Set(blClueRewards.rewards.map(reward => reward.key));
     for (const [tier, itemNames] of Object.entries(BoardlockedData.clues?.equipmentRewardsByTier || {})) {
@@ -76,7 +79,28 @@ function blAddDirectClueMonsterSources(base) {
         const drops = dropTables[rawDrop] ? Object.keys(dropTables[rawDrop]) : [rawDrop];
         for (const tier of directClueTiers) {
             const clue = 'Clue scroll (' + tier + ')';
-            if (drops.includes(clue)) (base.items[clue] ||= {})[monster] ||= 'clue-drop';
+            if (drops.includes(clue) && blClueSources.sourceAllowed(tier, monster, 'clue-drop')) {
+                (base.items[clue] ||= {})[monster] ||= 'clue-drop';
+            }
+        }
+    }
+    return base;
+}
+
+function blAddFocusedClueActivitySources(base) {
+    const directClueTiers = (BoardlockedData.clues?.tiers || Boardlocked.CLUE_TIERS)
+        .filter(tier => tier !== 'master');
+    for (const [skill, valids] of Object.entries(globalValids || {})) for (const name of Object.keys(valids || {})) {
+        if (valids[name] === false) continue;
+        const output = chunkInfo.challenges?.[skill]?.[name]?.Output;
+        const loot = chunkInfo.skillItems?.[skill]?.[output];
+        if (!loot) continue;
+        const drops = Object.keys(loot).flatMap(rawDrop => dropTables[rawDrop] ? Object.keys(dropTables[rawDrop]) : [rawDrop]);
+        for (const tier of directClueTiers) {
+            const clue = 'Clue scroll (' + tier + ')';
+            if (drops.includes(clue) && blClueSources.sourceAllowed(tier, name, 'primary-' + skill)) {
+                (base.items[clue] ||= {})[name] ||= 'primary-' + skill;
+            }
         }
     }
     return base;
@@ -89,7 +113,8 @@ function blAddVirtualClueRewardSources(base) {
         if (blContext.state.clueLocks?.[tier] || blContext.state.clueTaskCooldown || blClueRewards.tiers?.[tier]?.complete) return false;
         if (tier === 'master') return masterInputs.every(input => blClueRewards.tiers?.[input]?.complete) &&
             !!base.npcs?.[masterSource] && Object.keys(base.npcs[masterSource]).length > 0;
-        return Object.keys(base.items?.['Clue scroll (' + tier + ')'] || {}).length > 0;
+        return Object.entries(base.items?.['Clue scroll (' + tier + ')'] || {})
+            .some(([source, type]) => blClueSources.sourceAllowed(tier, source, type));
     };
     // Virtual reward entries let the existing BiS scorer compare clue gear.
     // buildTasks resolves their real origin through the tier's scroll source;
@@ -110,7 +135,7 @@ function blAddVirtualClueRewardSources(base) {
 
 function blRestoreClueProgressionSources(base) {
     if (!blContext) return base;
-    return blAddVirtualClueRewardSources(blAddDirectClueMonsterSources(base));
+    return blAddVirtualClueRewardSources(blAddFocusedClueActivitySources(blAddDirectClueMonsterSources(base)));
 }
 
 function blFilterSources(base) {
@@ -232,7 +257,7 @@ function blClueTierSourceAvailable(tier) {
             !!baseChunkData.npcs?.[source] && Object.keys(baseChunkData.npcs[source]).length > 0;
     }
     const sources = baseChunkData.items?.['Clue scroll (' + tier + ')'] || {};
-    return Object.keys(sources).length > 0;
+    return Object.entries(sources).some(([source, type]) => blClueSources.sourceAllowed(tier, source, type));
 }
 
 function blCanOpen(name) {

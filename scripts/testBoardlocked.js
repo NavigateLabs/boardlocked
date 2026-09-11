@@ -502,15 +502,15 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=24/);
+    assert.match(html, /boardlocked-data\.js\?v=25/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=71/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl47/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl47/);
-    assert.match(worker, /boardlocked-data\.js\?v=24/);
-    assert.match(worker, /boardlocked\.js\?v=71/);
-    assert.match(worker, /boardlocked-worker\.js\?v=26/);
+    assert.match(html, /boardlocked\.js\?v=72/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl48/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl48/);
+    assert.match(worker, /boardlocked-data\.js\?v=25/);
+    assert.match(worker, /boardlocked\.js\?v=72/);
+    assert.match(worker, /boardlocked-worker\.js\?v=27/);
     assert.match(html, /boardlocked-ui\.js\?v=89/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
@@ -2880,6 +2880,55 @@ test('clue rewards have one highest-tier owner and old duplicate completions sti
     const ownedElsewhere = R.clueRewardCatalog(chunkData, { manualEquipment: { 'Black pickaxe': true } }, fresh(), ids);
     assert.equal(ownedElsewhere.rewards.find(reward => reward.itemKey === 'Black pickaxe').completed, false,
         'owning an item from another source does not prove its clue collection-log slot');
+});
+
+test('clue source policy keeps deliberate tier routes and rejects incidental clue rolls', () => {
+    const catalog = R.clueSourceCatalog(chunkData, annotations);
+    const find = (tier, kind, name) => catalog.tiers[tier].find(source =>
+        source.kind === kind && source.sourceName === name);
+    for (const tier of R.CLUE_TIERS) assert.ok(catalog.tiers[tier].some(source => source.allowed),
+        tier + ' retains at least one primary source');
+
+    assert.equal(find('beginner', 'monster', 'Chicken').allowed, true,
+        'rapid low-level kills keep the established 1/300 beginner route');
+    assert.equal(find('easy', 'activity', 'Pickpocket a ~|H.A.M. Member|~').allowed, true);
+    assert.equal(find('medium', 'activity', 'Catch an ~|eclectic impling|~').allowed, true);
+    assert.equal(find('hard', 'monster', 'Hellhound').allowed, true);
+    assert.equal(find('hard', 'activity', 'Slay an ~|abyssal demon|~').allowed, true,
+        'Slayer loot tables follow the direct-drop envelope and keep their existing master and level gates');
+    assert.equal(find('elite', 'activity', 'Gold key loot*').allowed, true,
+        'the repeatable Shades chest route remains a primary elite source');
+    assert.equal(find('elite', 'monster', 'Vardorvis').allowed, true);
+
+    assert.equal(find('easy', 'monster', 'Vardorvis').allowed, false,
+        'a boss side-roll below the easy tier rate envelope stays incidental');
+    assert.equal(find('hard', 'monster', 'Lizardman shaman').allowed, false);
+    assert.equal(find('elite', 'monster', 'Lizardman shaman').allowed, false);
+    assert.equal(find('elite', 'activity', 'Slay an ~|abyssal demon|~').allowed, false,
+        'the same Slayer target is only an incidental source of its much rarer elite clue');
+    assert.equal(find('beginner', 'activity', 'Clue nest loot').allowed, false,
+        'passive skilling containers do not turn ordinary resource tiles into clue sources');
+    assert.equal(find('medium', 'activity', 'Catch a wandering ~|eclectic impling|~').allowed, false,
+        'a chance encounter with a roaming impling is recordable but not a persistent source');
+    assert.equal(find('beginner', 'activity', "Chest (Bryophyta's lair)*").allowed, false,
+        'a guaranteed boss chest roll does not hide the rare entry-key cost');
+    assert.deepEqual(catalog.tiers.master.filter(source => source.allowed).map(source => source.sourceName), ['Watson']);
+});
+
+test('focused clue activities survive legacy rarity filtering without admitting roaming variants', () => {
+    const request = usePreset(makeRequest(['10307']), 'Boardlocked Chunker');
+    const eclectic = 'Catch an ~|eclectic impling|~';
+    request.manualTasks = { Hunter: { [eclectic]: 50 } };
+    request.manualEquipment = { 'Butterfly net': true, 'Impling jar': true };
+    request.boardlocked.state.actualLevels.Hunter = 99;
+    request.chunkInfo.challenges.Nonskill['Test completable medium clue step'] = {
+        ClueTier: 'medium', Chunks: ['10307']
+    };
+    const result = runWorker(request).result;
+    assert.equal(result.clueStatus.tiers.medium.generating, true);
+    assert.ok(result.clueStatus.tiers.medium.sourceOrigins.some(source => source.sourceName === 'Eclectic impling'));
+    assert.equal(result.clueStatus.tiers.medium.sourceOrigins.some(source =>
+        source.sourceName.includes('wandering')), false);
 });
 
 test('direct clue sources expose collection rewards and every strict clue-equipment upgrade', () => {

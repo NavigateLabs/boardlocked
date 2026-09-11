@@ -331,6 +331,30 @@
         }),
         clues: Object.freeze({
             tiers: Object.freeze(['beginner', 'easy', 'medium', 'hard', 'elite', 'master']),
+            // Clue rewards are long grinds, so a source must support deliberate
+            // clue hunting rather than merely having a theoretical clue roll.
+            // Direct drops use the normal rate envelope for their tier. Focused
+            // activities may be slightly rarer because every action is aimed at
+            // the same source. Passive skilling containers, roaming implings,
+            // and lower-tier reward caskets remain incidental discoveries.
+            sourcePolicy: Object.freeze({
+                directMinimumChanceByTier: Object.freeze({
+                    beginner: 1 / 300,
+                    easy: 1 / 128,
+                    medium: 1 / 128,
+                    hard: 1 / 128,
+                    elite: 1 / 200
+                }),
+                focusedMinimumChanceByTier: Object.freeze({
+                    beginner: 1 / 100,
+                    easy: 1 / 100,
+                    medium: 1 / 200,
+                    hard: 1 / 200,
+                    elite: 1 / 200
+                }),
+                focusedCategories: Object.freeze(['Boss', 'Minigame', 'Extra implings']),
+                incidentalCategories: Object.freeze(['Wandering implings'])
+            }),
             // A reward shared between tiers belongs to the highest listed tier.
             // Master clues from lower-tier caskets remain player-registered,
             // one-off opportunities and never become map task sources.
