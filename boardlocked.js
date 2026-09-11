@@ -240,10 +240,14 @@
                 }
                 for (const [tier, lock] of Object.entries(input.clueLocks)) {
                     if (!CLUE_TIERS.includes(tier) || !lock || Array.isArray(lock) || typeof lock !== 'object' ||
-                        (typeof lock.stepId !== 'string' && typeof lock.name !== 'string')) {
+                        (lock.manual !== true && typeof lock.stepId !== 'string' && typeof lock.name !== 'string') ||
+                        (lock.targetChunkId != null && !parseLocation(lock.targetChunkId))) {
                         throw new Error('Invalid clue lock state: ' + tier);
                     }
                     state.clueLocks[tier] = copy(lock);
+                    if (lock.manual === true && lock.targetChunkId != null) {
+                        state.clueLocks[tier].targetChunkId = parseLocation(lock.targetChunkId).chunkId;
+                    }
                 }
             }
             if (input.clueTaskCooldown !== undefined) {
@@ -723,7 +727,8 @@
         const result = new Map();
         for (const origin of origins) {
             if (!origin?.chunkId) continue;
-            result.set([origin.chunkId, origin.sectionId || '', origin.sourceType, origin.sourceName].join('|'), origin);
+            result.set([origin.chunkId, origin.sectionId || '', origin.sourceType, origin.sourceName,
+                origin.clueTier || ''].join('|'), origin);
         }
         return [...result.values()];
     }
@@ -823,6 +828,50 @@
         return [...new Set((Array.isArray(raw) ? raw : raw ? [raw] : [])
             .map(tier => String(tier).toLowerCase()).filter(tier => CLUE_TIERS.includes(tier)))];
     };
+    function clueMapImagePath(name, meta = {}) {
+        if (meta.ClueType !== 'Map') return null;
+        const encodedName = String(name).split(/[?#]/)[0].split('/').at(-1) || '';
+        let fileName;
+        try { fileName = decodeURIComponent(encodedName); } catch (_) { return null; }
+        if (!/^Map_clue_[^/\\]+\.png$/i.test(fileName)) return null;
+        // The checked-in filename predates the source-data casing.
+        if (fileName === 'Map_clue_soul_altar.png') fileName = 'Map_clue_Soul_Altar.png';
+        return './resources/clue_maps/' + fileName;
+    }
+    function clueStepDisplayName(name, meta = {}) {
+        const imagePath = clueMapImagePath(name, meta);
+        if (!imagePath) return displayName(name);
+        return imagePath.split('/').at(-1).replace(/\.png$/i, '').replace(/^Map_clue_/i, '').replaceAll('_', ' ');
+    }
+    function clueTierFromOrigin(origin) {
+        if (CLUE_TIERS.includes(origin?.clueTier)) return origin.clueTier;
+        const match = /^Clue scroll \((beginner|easy|medium|hard|elite|master)\)$/.exec(origin?.sourceName || '');
+        return match?.[1] || null;
+    }
+    function clueTaskPresentations(task) {
+        if (task?.skill !== 'BiS' || task.clueReward || task.completed || task.eligible === false) return [task];
+        const activeClueOrigins = (task.activeOrigins || []).filter(clueTierFromOrigin);
+        const activeOrdinaryOrigins = (task.activeOrigins || []).filter(origin => !clueTierFromOrigin(origin));
+        if (!activeClueOrigins.length) return [task];
+        const allClueOrigins = (task.origins || []).filter(clueTierFromOrigin);
+        const allOrdinaryOrigins = (task.origins || []).filter(origin => !clueTierFromOrigin(origin));
+        const tiers = [...new Set(activeClueOrigins.map(clueTierFromOrigin))];
+        const cluePresentations = tiers.map(tier => ({ ...task,
+            origins: allClueOrigins.filter(origin => clueTierFromOrigin(origin) === tier),
+            activeOrigins: activeClueOrigins.filter(origin => clueTierFromOrigin(origin) === tier),
+            clueReward: { tier, ownerTier: tier, sourceTiers: tiers, itemKey: task.equipmentName,
+                incidental: false, equipmentOnly: true, presentationOnly: true } }));
+        return activeOrdinaryOrigins.length ?
+            [{ ...task, origins: allOrdinaryOrigins, activeOrigins: activeOrdinaryOrigins }, ...cluePresentations] :
+            cluePresentations;
+    }
+    function clueTaskListPresentations(tasks = []) {
+        const presentations = tasks.flatMap(clueTaskPresentations);
+        const clueBis = new Set(presentations.filter(task => task.skill === 'BiS' && task.clueReward?.itemKey)
+            .map(task => task.clueReward.tier + '|' + comparableItemKey(task.clueReward.itemKey)));
+        return presentations.filter(task => !(task.taskClass === 'collection' && task.skill !== 'BiS' &&
+            task.clueReward?.itemKey && clueBis.has(task.clueReward.tier + '|' + comparableItemKey(task.clueReward.itemKey))));
+    }
     function clueRewardCatalog(data = {}, legacy = {}, state = null, ids = {}) {
         const groups = new Map();
         for (const [name, meta] of Object.entries(data.challenges?.Extra || {})) {
@@ -874,6 +923,7 @@
             if (!CLUE_TIERS.includes(clueTier) || (tier && clueTier !== tier)) return [];
             return [{ stepId: taskId(name, 'Nonskill', ids), name, tier: clueTier,
                 type: meta.ClueType || 'Clue step', clueId: meta.ClueId || null,
+                displayName: clueStepDisplayName(name, meta), imagePath: clueMapImagePath(name, meta),
                 requirements: {
                     chunks: [...(meta.Chunks || [])], items: [...(meta.Items || [])],
                     npcs: [...(meta.NPCs || [])], monsters: [...(meta.Monsters || [])],
@@ -892,9 +942,16 @@
         const clueLocks = { ...(state.clueLocks || {}) };
         if (!step) delete clueLocks[tier];
         else {
-            if (typeof step.stepId !== 'string' && typeof step.name !== 'string') throw new Error('Invalid clue step');
-            clueLocks[tier] = { stepId: step.stepId || '', name: step.name || '',
-                blockedAt: step.blockedAt || new Date().toISOString() };
+            if (step.manual === true) {
+                const targetChunkId = step.targetChunkId == null ? null : parseLocation(step.targetChunkId)?.chunkId;
+                if (step.targetChunkId != null && !targetChunkId) throw new Error('Invalid clue unlock tile');
+                clueLocks[tier] = { stepId: '', name: 'Clue step not identified', manual: true,
+                    targetChunkId, blockedAt: step.blockedAt || new Date().toISOString() };
+            } else {
+                if (typeof step.stepId !== 'string' && typeof step.name !== 'string') throw new Error('Invalid clue step');
+                clueLocks[tier] = { stepId: step.stepId || '', name: step.name || '',
+                    blockedAt: step.blockedAt || new Date().toISOString() };
+            }
         }
         return { ...state, clueLocks };
     }
@@ -905,6 +962,7 @@
         return { ...state, incidentalClues: { ...(state.incidentalClues || {}), [tier]: count } };
     }
     function clueStepTargets(data = {}, tier, lock = null, ids = {}) {
+        if (lock?.manual) return lock.targetChunkId ? [String(lock.targetChunkId)] : [];
         const step = clueStepDefinition(data, tier, lock, ids);
         if (!step) return [];
         const codes = data.codeItems || {}, targets = new Set(), visitedTasks = new Set();
@@ -945,6 +1003,13 @@
         return [...targets].sort((left, right) => Number(left) - Number(right));
     }
     function clueStepStatus(data = {}, tier, lock = null, valids = {}, legacy = {}, state = null, ids = {}, base = {}) {
+        if (lock?.manual) return { tier, valid: true, satisfied: false,
+            targets: clueStepTargets(data, tier, lock, ids), selfCycle: false, cycleItems: [],
+            manual: true, targetChunkId: lock.targetChunkId || null,
+            step: { stepId: '', name: 'Clue step not identified', tier, type: 'Unknown', clueId: null,
+                displayName: 'Clue step not identified', imagePath: null,
+                requirements: { chunks: lock.targetChunkId ? [String(lock.targetChunkId)] : [], items: [], npcs: [],
+                    monsters: [], objects: [], tasks: {}, skills: {}, questPoints: 0, combatLevel: 0 } } };
         const definition = clueStepDefinition(data, tier, lock, ids);
         if (!definition) return { tier, valid: false, satisfied: false, targets: [], selfCycle: false, step: null };
         const rewards = clueRewardCatalog(data, legacy, state, ids).rewards;
@@ -2474,7 +2539,8 @@
             const result = tier === 'master' ?
                 (masterClueInputs.every(input => clueRewards.tiers[input]?.complete) ? fixed('npcs', masterClueSource) : []) :
                 item('Clue scroll (' + tier + ')', new Set(visiting).add('clue-source:' + tier));
-            const unique = uniqueOrigins(result);
+            const unique = uniqueOrigins(result.map(source => ({ ...source, clueTier: tier,
+                reason: tier[0].toUpperCase() + tier.slice(1) + ' clue source · ' + source.reason })));
             if (unique.length) clueSourceCache.set(tier, unique);
             return unique;
         }
@@ -2997,7 +3063,11 @@
         }
         function acquisitionPath(itemName, source, type) {
             let directOrigins = [];
-            if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', itemName, 'Direct item spawn');
+            if (type === 'clue-reward') {
+                const match = /^Clue scroll \((beginner|easy|medium|hard|elite|master)\)$/.exec(source);
+                if (!match || !clueTierCanGenerate(match[1])) return null;
+                directOrigins = clueTierSourceOrigins(match[1]);
+            } else if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', itemName, 'Direct item spawn');
             else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
             else if (String(type).includes('drop')) directOrigins = acquisitionOrigins(itemName, source, fixed('monsters', source));
             else directOrigins = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
@@ -3186,7 +3256,11 @@
                 const acquisition = itemAcquisitionStatus(acquisitionTarget);
                 if (acquisition.paths.length) {
                     record.acquisition = acquisition;
-                    record.origins = acquisition.origins;
+                    // A clue collection row proves the casket source, even when
+                    // the same item also exists in a shop, spawn, or drop table.
+                    // Mixed-source BiS rows keep every path so the UI can show
+                    // one ordinary presentation and one clue presentation.
+                    if (!record.clueReward) record.origins = acquisition.origins;
                     if (!acquisition.available) {
                         record.available = false;
                         record.accessResult = { allowed: false, reason: acquisition.reason, acquisition };
@@ -3379,7 +3453,9 @@
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, completedQuestProgress, taskMetadata, resourceRepresentativeMetadata,
         equipmentObjectiveAlternatives, equipmentDominatesTask, superiorEquipmentCompletion,
-        clueRewardCatalog, clueStepCatalog, clueStepDefinition, clueStepTargets, clueStepStatus, setClueLock, setIncidentalClueCount,
+        clueRewardCatalog, clueMapImagePath, clueTaskPresentations, clueTaskListPresentations,
+        clueStepCatalog, clueStepDefinition, clueStepTargets, clueStepStatus,
+        setClueLock, setIncidentalClueCount,
         isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, completedSkillProgress, trainingMethodsAtOrBelow,

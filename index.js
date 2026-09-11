@@ -2985,6 +2985,11 @@ let handleMouseUp = function(e) {
                 let chunkId = convertToChunkNum(Math.floor((currentX - dragTotalX) / (totalZoom * (imgW / rowSize))), Math.floor((currentY - dragTotalY) / (totalZoom * (imgH / (fullSize / rowSize)))));
                 let coords = convertToXY(chunkId);
                 if (coords.x >= 0 && coords.x < rowSize && coords.y >= 0 && coords.y < (fullSize / rowSize) &&
+                    window.boardlockedController.handleClueTargetTileClick?.(chunkId)) {
+                    drawCanvas();
+                    return;
+                }
+                if (coords.x >= 0 && coords.x < rowSize && coords.y >= 0 && coords.y < (fullSize / rowSize) &&
                     window.boardlockedController.handleStartingTileClick?.(chunkId)) {
                     drawCanvas();
                     return;
@@ -3732,7 +3737,7 @@ let calcCurrentChallengesCanvas = function(useOld, proceed, fromLoadData, inputT
         setCalculating('.panel-active', useOld);
         setCurrentChallenges(['No tasks currently backlogged.'], ['No tasks currently completed.'], true, true);
         myWorker.terminate();
-        myWorker = new Worker("./worker.js?v=6.9.66-bl43");
+        myWorker = new Worker("./worker.js?v=6.9.66-bl44");
         myWorker.onmessage = workerOnMessage;
         const request = currentWorkerRequest(tempSections);
         myWorker.postMessage(request);
@@ -4106,8 +4111,8 @@ $(document).ready(function() {
 // ------------------------------------------------------------
 
 // Recieve message from worker
-let myWorker = new Worker("./worker.js?v=6.9.66-bl43");
-let myWorker2 = new Worker("./worker.js?v=6.9.66-bl43");
+let myWorker = new Worker("./worker.js?v=6.9.66-bl44");
+let myWorker2 = new Worker("./worker.js?v=6.9.66-bl44");
 let workerOnMessage = function(e) {
     if (e.data.type === 'reload') {
         window.location.reload();
@@ -7286,7 +7291,7 @@ let calcFutureChallenges = function() {
     }
     tempSections = combineJSONs(tempSections, manualSections);
     myWorker2.terminate();
-    myWorker2 = new Worker("./worker.js?v=6.9.66-bl43");
+    myWorker2 = new Worker("./worker.js?v=6.9.66-bl44");
     myWorker2.onmessage = workerOnMessage;
     myWorker2.postMessage({
         type: 'future',

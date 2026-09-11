@@ -496,15 +496,15 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-data\.js\?v=22/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl30/);
-    assert.match(html, /boardlocked\.js\?v=67/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl43/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl43/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl31/);
+    assert.match(html, /boardlocked\.js\?v=68/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl44/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl44/);
     assert.match(worker, /boardlocked-data\.js\?v=22/);
-    assert.match(worker, /boardlocked\.js\?v=67/);
+    assert.match(worker, /boardlocked\.js\?v=68/);
     assert.match(worker, /boardlocked-worker\.js\?v=24/);
-    assert.match(html, /boardlocked-ui\.js\?v=85/);
-    assert.match(html, /boardlocked\.css\?v=24/);
+    assert.match(html, /boardlocked-ui\.js\?v=86/);
+    assert.match(html, /boardlocked\.css\?v=25/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -2695,6 +2695,81 @@ test('clue state migrates with independent tier locks, cooldown, and incidental 
     assert.equal(restored.incidentalClues.master, 2);
     assert.equal(R.setClueLock(restored, 'easy', null).clueLocks.easy, undefined);
     assert.throws(() => R.setClueLock(restored, 'legendary', step), /Invalid clue tier/);
+    const unidentified = R.setClueLock(restored, 'medium', { manual: true });
+    assert.equal(unidentified.clueLocks.medium.manual, true);
+    assert.equal(unidentified.clueLocks.medium.targetChunkId, null);
+    const targeted = R.setClueLock(unidentified, 'medium', { ...unidentified.clueLocks.medium,
+        manual: true, targetChunkId: '12850' });
+    assert.equal(R.normalizeState(JSON.parse(JSON.stringify(targeted))).clueLocks.medium.targetChunkId, '12850');
+    const targetStatus = R.clueStepStatus(chunkData, 'medium', targeted.clueLocks.medium, {}, {}, targeted,
+        require('../tasksMap.json'));
+    assert.equal(targetStatus.manual, true);
+    assert.deepEqual(targetStatus.targets, ['12850']);
+    assert.equal(targetStatus.satisfied, false, 'an unidentified clue is unlocked by the UI only after its optional tile is reached');
+    assert.throws(() => R.setClueLock(targeted, 'medium', { manual: true, targetChunkId: 'outside-map' }),
+        /Invalid clue unlock tile/);
+});
+
+test('map clue records resolve to their matching checked-in images', () => {
+    const steps = R.clueStepCatalog(chunkData, null, require('../tasksMap.json')).filter(step => step.type === 'Map');
+    assert.equal(steps.length, 36);
+    assert.equal(new Set(steps.map(step => step.imagePath)).size, 31,
+        'shared clue images are reused across their tiers');
+    for (const step of steps) {
+        assert.match(step.imagePath, /^\.\/resources\/clue_maps\/Map_clue_.+\.png$/);
+        assert.ok(fs.existsSync(path.join(__dirname, '..', step.imagePath.slice(2))), step.imagePath + ' exists');
+        const sourceFile = decodeURIComponent(step.name.split('?')[0].split('/').at(-1)).toLowerCase();
+        assert.equal(path.basename(step.imagePath).toLowerCase(), sourceFile,
+            'the displayed image corresponds to the source clue record');
+    }
+});
+
+test('BiS tasks with clue and ordinary sources retain both presentations', () => {
+    const clue = { chunkId: '4651', sectionId: '1', sourceType: 'items', sourceName: 'Clue scroll (beginner)' };
+    const ordinary = { chunkId: '12850', sectionId: '1', sourceType: 'shops', sourceName: 'Lumbridge shop' };
+    const mixed = R.clueTaskPresentations({ taskId: 'bis-shortbow', skill: 'BiS', equipmentName: 'Shortbow',
+        origins: [clue, ordinary], activeOrigins: [clue, ordinary] });
+    assert.equal(mixed.length, 2);
+    assert.equal(mixed[0].clueReward, undefined);
+    assert.deepEqual(mixed[0].activeOrigins, [ordinary]);
+    assert.equal(mixed[1].clueReward.tier, 'beginner');
+    assert.equal(mixed[1].clueReward.presentationOnly, true);
+    assert.deepEqual(mixed[1].activeOrigins, [clue]);
+    const collectionRow = {
+        taskId: 'collection-shortbow', skill: 'Extra', taskClass: 'collection', equipmentName: 'Shortbow',
+        clueReward: { tier: 'beginner', itemKey: 'Shortbow' }, origins: [clue], activeOrigins: [clue]
+    };
+    const withCollectionRow = R.clueTaskListPresentations([collectionRow,
+    { taskId: 'bis-shortbow', skill: 'BiS', equipmentName: 'Shortbow', origins: [clue, ordinary],
+        activeOrigins: [clue, ordinary] }]);
+    assert.equal(withCollectionRow.length, 2, 'the clue BiS presentation replaces its duplicate collection row');
+    assert.ok(withCollectionRow.some(task => task.skill === 'BiS' && task.clueReward));
+    assert.ok(withCollectionRow.some(task => task.skill === 'BiS' && !task.clueReward));
+    const afterOrdinaryCompletion = R.clueTaskListPresentations([collectionRow, {
+        taskId: 'bis-shortbow', skill: 'BiS', equipmentName: 'Shortbow', completed: true,
+        origins: [clue, ordinary], activeOrigins: [clue, ordinary]
+    }]);
+    assert.ok(afterOrdinaryCompletion.some(task => task.taskClass === 'collection'),
+        'obtaining the BiS elsewhere does not falsely complete or hide its clue collection slot');
+    const clueOnly = R.clueTaskPresentations({ taskId: 'bis-shortbow', skill: 'BiS', equipmentName: 'Shortbow',
+        origins: [clue, ordinary], activeOrigins: [clue] });
+    assert.equal(clueOnly.length, 1);
+    assert.equal(clueOnly[0].clueReward.tier, 'beginner', 'an inaccessible ordinary source does not pull a clue BiS outside its group');
+});
+
+test('real worker preserves clue provenance beside an ordinary BiS source', () => {
+    const request = usePreset(makeRequest(['13360', '12850']), 'Boardlocked Chunker');
+    const result = runWorker(request).result;
+    const adapted = R.adaptTasks(result.tasks, { checkedAllTasks: request.boardlocked.checkedAllTasks },
+        request.boardlocked.state, request.chunks, result.sections, request.manualSections,
+        R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap), request.boardlocked.tasksMap, request.chunkInfo);
+    const shortbow = adapted.find(task => task.eligible && task.skill === 'BiS' && task.equipmentName === 'Shortbow');
+    assert.ok(shortbow.activeOrigins.some(origin => origin.clueTier === 'beginner'));
+    assert.ok(shortbow.activeOrigins.some(origin => !origin.clueTier));
+    const presentations = R.clueTaskListPresentations([shortbow]);
+    assert.equal(presentations.length, 2);
+    assert.ok(presentations.some(task => task.clueReward?.tier === 'beginner'));
+    assert.ok(presentations.some(task => !task.clueReward));
 });
 
 test('clue rewards have one highest-tier owner and old duplicate completions still count', () => {
@@ -2735,6 +2810,8 @@ test('direct clue sources expose collection rewards and every strict clue-equipm
     }
     assert.ok(equipmentRewards.every(task => task.skill === 'BiS'));
     assert.ok(beginner.every(task => task.origins.some(origin => origin.chunkId === '4651')));
+    assert.ok(beginner.every(task => task.origins.some(origin => origin.clueTier === 'beginner')),
+        'resolved monster origins retain their clue provenance for task grouping');
     assert.equal(adaptResult(result).some(task => task.eligible && task.clueReward && task.clueReward.tier !== 'beginner'), false);
 
     request.boardlocked.state.clueTaskCooldown = 1;
@@ -2803,12 +2880,23 @@ test('same-tier clue reward dependencies expose a general deadlock escape', () =
 test('clue UI groups reward goals and keeps each tier lock independent', () => {
     const ui = fs.readFileSync(path.join(__dirname, '..', 'boardlocked-ui.js'), 'utf8');
     const css = fs.readFileSync(path.join(__dirname, '..', 'boardlocked.css'), 'utf8');
+    const index = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
     assert.match(ui, /className: 'bl-clue-task-group'/);
     assert.match(ui, /I can't complete my current " \+ tierLabel \+ ' clue'/,
         'the active task group exposes the blocked-step action without opening the Clues panel');
     assert.match(ui, /bl-clue-step-task-/);
     assert.match(ui, /bl-clue-step-panel-/);
     assert.match(ui, /I can't complete my current clue step/);
+    assert.match(ui, /Type words from the clue/);
+    assert.match(ui, /My clue has a map image/);
+    assert.match(ui, /step\.imagePath/);
+    assert.match(ui, /I can't find my clue step/);
+    assert.match(ui, /locks this tier until you unlock it yourself/);
+    assert.match(ui, /Choose automatic unlock tile/);
+    assert.match(ui, /function handleClueTargetTileClick\(locationId\)/);
+    assert.match(index, /handleClueTargetTileClick/);
+    assert.match(ui, /R\.clueTaskListPresentations\(list\)/,
+        'BiS goals with two source kinds are rendered under both their ordinary and clue origins');
     assert.match(ui, /I received a Master clue from a casket/);
     assert.match(ui, /An unlocked source will generate reward goals again after the next non-clue goal/);
     assert.match(ui, /Discard this deadlocked clue/);

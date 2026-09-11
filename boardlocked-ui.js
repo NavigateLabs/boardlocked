@@ -14,6 +14,7 @@
     let slayerLockMapTargets = [];
     let clueStatus = { tiers: {}, locks: {}, steps: [], rewards: [], cooldown: 0, incidentalClues: {} };
     let clueLockMapTargets = [];
+    let pickingClueTargetTier = null;
     let pool = R.derivePool([], {}, [], null), travelGraph = null, signature = '', previousUnlocked = null;
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
     let manualStartingPool = { ids: [], groups: [], groupByLocation: {} };
@@ -228,6 +229,11 @@
             document.body.classList.remove('bl-start-picking');
             if (typeof drawCanvas === 'function') drawCanvas();
         }
+        if (!open && pickingClueTargetTier) {
+            pickingClueTargetTier = null;
+            document.body.classList.remove('bl-clue-target-picking');
+            if (typeof drawCanvas === 'function') drawCanvas();
+        }
         panel.hidden = !open;
         document.getElementById('boardlocked-panel-button')?.setAttribute('aria-expanded', String(open));
     }
@@ -295,6 +301,8 @@
         loadedKey = key; rawTasks = []; tasks = []; sections = {}; signature = ''; previousUnlocked = null;
         clueStatus = { tiers: {}, locks: {}, steps: [], rewards: [], cooldown: 0, incidentalClues: {} };
         clueLockMapTargets = [];
+        pickingClueTargetTier = null;
+        document.body.classList.remove('bl-clue-target-picking');
         dataReady = false; busy = true; error = ''; message = ''; loadFailure = false;
         try {
             const saved = pendingStoredState || localStorage.getItem(key) || localStorage.getItem(legacyStorageKey());
@@ -464,7 +472,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl43');
+        worker = new Worker('./worker.js?v=6.9.66-bl44');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -492,12 +500,18 @@
             }
             clueStatus = result.clueStatus || clueStatus;
             clueLockMapTargets = [...new Set(Object.values(clueStatus.locks || {}).flatMap(lock => lock.targets || []))];
-            const resolvedClueLocks = Object.entries(clueStatus.locks || {}).filter(([, lock]) => lock.satisfied);
+            const resolvedClueLocks = Object.entries(clueStatus.locks || {}).filter(([, lock]) => lock.satisfied ||
+                (lock.manual && lock.targetChunkId && Object.prototype.hasOwnProperty.call(tempChunks.unlocked || {}, lock.targetChunkId)));
             if (resolvedClueLocks.length) {
                 for (const [tier, lock] of resolvedClueLocks) {
                     state = R.setClueLock(state, tier, null);
                     state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'auto_unlock_clue_tier',
-                        tier, stepId: lock.step?.stepId || null, stepName: lock.step?.name || null });
+                        tier, stepId: lock.step?.stepId || null, stepName: lock.step?.name || null,
+                        targetChunkId: lock.targetChunkId || null });
+                }
+                if (resolvedClueLocks.some(([tier]) => tier === pickingClueTargetTier)) {
+                    pickingClueTargetTier = null;
+                    document.body.classList.remove('bl-clue-target-picking');
                 }
                 clueLockMapTargets = [];
                 message = resolvedClueLocks.map(([tier]) => tier[0].toUpperCase() + tier.slice(1)).join(', ') +
@@ -1026,7 +1040,7 @@
             row.append(tools);
             return row;
         };
-        const ordered = list.slice().sort((a, b) => Number(!encounterGroup(a).length) - Number(!encounterGroup(b).length) ||
+        const ordered = R.clueTaskListPresentations(list).sort((a, b) => Number(!encounterGroup(a).length) - Number(!encounterGroup(b).length) ||
             group(a).localeCompare(group(b)) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName));
         const categories = new Map();
         for (const task of ordered) {
@@ -1271,36 +1285,130 @@
         const restoreCurrent = !step && clueSourceAtCurrentVisit(tier) && state.currentVisit &&
             (!R.canRoll(state) || state.currentVisit.resolution === 'no_tasks');
         state = R.setClueLock(state, tier, step);
+        const savedLock = state.clueLocks?.[tier] || null;
+        if (!step && pickingClueTargetTier === tier) {
+            pickingClueTargetTier = null;
+            document.body.classList.remove('bl-clue-target-picking');
+        }
         state.adminHistory.push({ timestamp: new Date().toISOString(),
             action: action || (step ? 'lock_clue_tier' : 'unlock_clue_tier'), tier,
-            stepId: step?.stepId || previous?.stepId || null, stepName: step?.name || previous?.name || null });
+            stepId: savedLock?.stepId || previous?.stepId || null, stepName: savedLock?.name || previous?.name || null,
+            manual: !!savedLock?.manual, targetChunkId: savedLock?.targetChunkId || previous?.targetChunkId || null });
         if (step && state.currentVisit && !R.canRoll(state)) state = R.recalculateCurrentVisit(state,
             'Player blocked the current ' + tier + ' clue step');
         else if (restoreCurrent) state = R.recalculateCurrentVisit(state,
             'Player reactivated ' + tier + ' clues', undefined, { reopenNoTasks: true });
-        message = step ? clueTierLabel(tier) + ' clue rewards are blocked until this step becomes possible.' :
+        message = step?.manual ? clueTierLabel(tier) + ' clues are locked. Unlock them manually, or choose an automatic unlock tile.' :
+            step ? clueTierLabel(tier) + ' clue rewards are blocked until this step becomes possible.' :
             restoreCurrent ? clueTierLabel(tier) + ' clue rewards are being restored to this visit.' :
                 clueTierLabel(tier) + ' clue rewards are available again.';
         save(); schedule(); render();
     }
-    function saveClueLock(tier, selectId = 'bl-clue-step-panel-' + tier) {
-        const select = document.getElementById(selectId);
-        const step = (clueStatus.steps || []).find(candidate => candidate.tier === tier && candidate.stepId === select?.value);
-        if (!step) return notice('Choose the clue step you cannot complete.');
-        changeClueLock(tier, step);
+    function setClueTargetPicker(tier, active) {
+        if (!R.CLUE_TIERS.includes(tier) || !state.clueLocks?.[tier]?.manual) return;
+        pickingClueTargetTier = active ? tier : null;
+        document.body.classList.toggle('bl-clue-target-picking', !!pickingClueTargetTier);
+        message = active ? 'Click the map tile that should unlock ' + clueTierLabel(tier) + ' clues. No tile is required.' : '';
+        render(); drawCanvas();
     }
-    function clueLockEditor(tier, selectId, summaryText = "I can't complete my current clue step", className = '') {
+    function handleClueTargetTileClick(locationId) {
+        if (!pickingClueTargetTier || !state.clueLocks?.[pickingClueTargetTier]?.manual) return false;
+        const parsed = R.parseLocation(locationId);
+        if (!parsed || !chunkInfo.chunks?.[parsed.chunkId]) {
+            notice('Choose a valid map tile.');
+            return true;
+        }
+        if (Object.prototype.hasOwnProperty.call(tempChunks.unlocked || {}, parsed.chunkId) ||
+            (state.unlockedOrder || []).includes(parsed.chunkId)) {
+            notice('That tile is already unlocked. Choose a locked tile, or unlock the clue tier manually.');
+            return true;
+        }
+        if (Object.prototype.hasOwnProperty.call(tempChunks.blacklisted || {}, parsed.chunkId)) {
+            notice('That tile is blacklisted. Choose a tile that can enter the run.');
+            return true;
+        }
+        const tier = pickingClueTargetTier, previous = state.clueLocks[tier];
+        state = R.setClueLock(state, tier, { ...previous, manual: true, targetChunkId: parsed.chunkId });
+        state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'set_manual_clue_unlock_tile', tier,
+            targetChunkId: parsed.chunkId });
+        pickingClueTargetTier = null;
+        document.body.classList.remove('bl-clue-target-picking');
+        message = clueTierLabel(tier) + ' clues will unlock when tile ' + parsed.chunkId +
+            (label(parsed.chunkId) ? ' — ' + label(parsed.chunkId) : '') + ' is reached.';
+        save(); schedule(); render(); drawCanvas();
+        return true;
+    }
+    const normalizedClueText = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    function clueLockEditor(tier, editorId, summaryText = "I can't complete my current clue step", className = '') {
         const editor = element('details', null, { className: ['bl-clue-lock-editor', className].filter(Boolean).join(' ') });
         editor.append(element('summary', summaryText));
-        const select = element('select', null, { id: selectId,
-            'aria-label': 'Blocked ' + tier + ' clue step' });
-        select.append(element('option', 'Choose the step…', { value: '' }));
-        for (const step of (clueStatus.steps || []).filter(step => step.tier === tier)) {
-            select.append(element('option', step.name, { value: step.stepId }));
+        const steps = (clueStatus.steps || []).filter(step => step.tier === tier);
+        const textSteps = steps.filter(step => !step.imagePath), mapSteps = steps.filter(step => step.imagePath);
+        let selectedStep = null;
+        const guidance = element('p', 'Find the clue exactly as it appears in game. Blocking it hides this tier’s reward goals until the step becomes possible.',
+            { className: 'bl-clue-lock-guidance' });
+        const selected = element('small', 'No clue step selected.', { className: 'bl-clue-selected-step', 'aria-live': 'polite' });
+        const saveButton = button('Block ' + clueTierLabel(tier) + ' clues at this step', () => {
+            if (!selectedStep) return notice('Choose the clue step you cannot complete.');
+            changeClueLock(tier, selectedStep);
+        });
+        const chooseStep = (step, choiceButton = null) => {
+            selectedStep = step;
+            editor.querySelectorAll('.bl-clue-step-choice.is-selected').forEach(node => node.classList.remove('is-selected'));
+            choiceButton?.classList.add('is-selected');
+            selected.textContent = 'Selected: ' + (step.displayName || step.name);
+            saveButton.disabled = !canEdit() || busy;
+        };
+        const searchLabel = element('label', null, { className: 'bl-clue-search-label' });
+        searchLabel.append(element('span', 'Clue text'));
+        const search = element('input', null, { id: editorId + '-search', type: 'search',
+            placeholder: 'Type words from the clue…', autocomplete: 'off',
+            'aria-label': 'Search ' + tier + ' clue text' });
+        searchLabel.append(search);
+        const results = element('div', null, { className: 'bl-clue-search-results', 'aria-live': 'polite' });
+        const renderMatches = () => {
+            results.replaceChildren();
+            const query = normalizedClueText(search.value);
+            if (query.length < 2) {
+                results.append(element('small', 'Type at least two characters to find the clue text.'));
+                return;
+            }
+            const words = query.split(' ');
+            const matches = textSteps.filter(step => {
+                const searchable = normalizedClueText(step.name);
+                return words.every(word => searchable.includes(word));
+            }).slice(0, 12);
+            for (const step of matches) {
+                const choice = button(step.displayName || step.name, () => chooseStep(step, choice));
+                choice.className = 'bl-clue-step-choice';
+                results.append(choice);
+            }
+            if (!matches.length) results.append(element('small', 'No matching text clue found. Try fewer words.'));
+            else if (matches.length === 12) results.append(element('small', 'Showing the first 12 matches. Add more words to narrow them down.'));
         }
-        const saveButton = button('Block this clue tier', () => saveClueLock(tier, selectId));
-        saveButton.disabled = !canEdit() || busy;
-        editor.append(select, saveButton);
+        search.oninput = renderMatches;
+        renderMatches();
+        editor.append(guidance, searchLabel, results);
+        if (mapSteps.length) {
+            const maps = element('details', null, { className: 'bl-clue-map-picker' });
+            maps.append(element('summary', 'My clue has a map image · ' + mapSteps.length));
+            const grid = element('div', null, { className: 'bl-clue-map-grid' });
+            for (const step of mapSteps) {
+                const choice = element('button', null, { type: 'button', className: 'bl-clue-step-choice',
+                    'aria-label': 'Select map clue: ' + step.displayName });
+                choice.append(element('img', null, { src: step.imagePath,
+                    alt: step.displayName + ' clue map', loading: 'lazy' }));
+                choice.onclick = () => chooseStep(step, choice);
+                grid.append(choice);
+            }
+            maps.append(grid); editor.append(maps);
+        }
+        saveButton.disabled = true;
+        const unknown = button("I can't find my clue step", () => changeClueLock(tier, { manual: true }));
+        unknown.className = 'bl-clue-unknown-step'; unknown.disabled = !canEdit() || busy;
+        editor.append(selected, saveButton, element('div', null, { className: 'bl-clue-unknown-divider' }),
+            element('small', 'Can’t find it? The option below locks this tier until you unlock it yourself. You can optionally choose an automatic unlock tile afterward.'),
+            unknown);
         return editor;
     }
     function changeIncidentalMaster(delta) {
@@ -1348,8 +1456,11 @@
                     'This tier now counts as a freely obtainable Watson input.' : 'This tier no longer generates reward goals.'));
             } else if (status.blocked) {
                 const lock = status.lock;
-                row.append(element('small', lock?.step?.name || state.clueLocks?.[tier]?.name || 'Saved clue step', { className: 'bl-clue-step-name' }));
-                if (lock?.step?.requirements) {
+                const manualLock = !!(lock?.manual || state.clueLocks?.[tier]?.manual);
+                row.append(element('small', manualLock ? 'Clue step not identified' :
+                    lock?.step?.displayName || lock?.step?.name || state.clueLocks?.[tier]?.name || 'Saved clue step',
+                { className: 'bl-clue-step-name' }));
+                if (!manualLock && lock?.step?.requirements) {
                     const req = lock.step.requirements, parts = [
                         ...Object.entries(req.skills || {}).map(([skill, level]) => skill + ' ' + level),
                         ...(req.items || []).map(R.displayName), ...(req.chunks || []).map(chunk => 'area ' + chunk),
@@ -1360,10 +1471,24 @@
                     ];
                     if (parts.length) row.append(element('small', 'Needs: ' + parts.join(' · '), { className: 'bl-clue-requirements' }));
                 }
+                if (manualLock) {
+                    const target = lock?.targetChunkId || state.clueLocks?.[tier]?.targetChunkId;
+                    row.append(element('small', target ? 'Automatically unlocks when you reach tile ' + target +
+                        (label(target) ? ' — ' + label(target) : '') + '.' :
+                        'This tier stays locked until you unlock it yourself. An automatic unlock tile is optional.',
+                    { className: 'bl-clue-requirements' }));
+                }
                 const actions = element('div', null, { className: 'bl-toolbar bl-clue-actions' });
-                const unlock = button('I can complete this step now', () => changeClueLock(tier));
+                const unlock = button(manualLock ? 'Unlock ' + clueTierLabel(tier) + ' clues' :
+                    'I can complete this step now', () => changeClueLock(tier));
                 unlock.disabled = !canEdit() || busy; actions.append(unlock);
-                if (lock?.selfCycle) {
+                if (manualLock) {
+                    const choosingTarget = pickingClueTargetTier === tier;
+                    const chooseTarget = button(choosingTarget ? 'Cancel tile selection' :
+                        (lock?.targetChunkId ? 'Change automatic unlock tile' : 'Choose automatic unlock tile'),
+                    () => setClueTargetPicker(tier, !choosingTarget));
+                    chooseTarget.disabled = !canEdit() || busy; actions.append(chooseTarget);
+                } else if (lock?.selfCycle) {
                     const discard = button('Discard this deadlocked clue', () => changeClueLock(tier, null, 'discard_deadlocked_clue'));
                     discard.title = 'Available only because this step requires an unowned reward from its own clue tier';
                     discard.disabled = !canEdit() || busy; actions.append(discard);
@@ -1959,7 +2084,7 @@
         render();
     }
     window.boardlockedController = { enabled, notice, calculate, invalidate, onLegacyChange, roll, allowRelock, drawOverlay, bootstrapLocal,
-        handleStartingTileClick,
+        handleStartingTileClick, handleClueTargetTileClick,
         isFrontierCandidate: id => pool.candidates.some(candidate => candidate.kind === 'frontier' && candidate.locationId === String(id)),
         skillProgress: skill => R.completedSkillProgress(catalog, skill, legacy(), state, tasksMap),
         open: () => {
