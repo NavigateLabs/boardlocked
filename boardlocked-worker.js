@@ -261,6 +261,9 @@ function blOutput(highestOverallCompleted = {}, equipmentScores = {}) {
         legacy: { completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
             manualEquipment, backlog }, unlocked: blContext.unlocked, sections: unlockedSections,
         manualSections, annotations: BoardlockedData, dropRates: dropRatesGlobal });
+    const completedQuest = Boardlocked.completedQuestProgress(chunkInfo, {
+        completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks
+    }, blContext.tasksMap);
     Object.keys(baseChunkData.items).forEach(name => blPresentItems.add(name.replace(/\*.*$/, '')));
     const sourceDiagnostics = [...blSourceDiagnostics.values()].filter(gate => {
         if (gate.type !== 'Items') return true;
@@ -284,7 +287,7 @@ function blOutput(highestOverallCompleted = {}, equipmentScores = {}) {
         const requirements = Array.isArray(gate.requirements) ? gate.requirements : [gate.requirements?.Tasks || {}];
         requirements.forEach(group => Object.entries(group).forEach(([name, skill]) => visitRequirement(name, skill)));
     });
-    return { ...output, sections: unlockedSections, accessDiagnostics: [...blAccess.diagnostics.values()].filter(gate => needed.has(gate.key)).concat(sourceDiagnostics, output.accessDiagnostics || []),
+    return { ...output, ...completedQuest, sections: unlockedSections, accessDiagnostics: [...blAccess.diagnostics.values()].filter(gate => needed.has(gate.key)).concat(sourceDiagnostics, output.accessDiagnostics || []),
         // These source counts make the calculation inspectable without returning the giant dataset.
         sourceCounts: Object.fromEntries(Object.entries(baseChunkData).map(([key, values]) => [key, Object.keys(values).length])) };
 }

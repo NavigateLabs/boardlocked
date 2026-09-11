@@ -574,6 +574,25 @@
         }
         return ids;
     }
+    function completedQuestProgress(data = {}, legacy = {}, ids = {}, startingQuestPoints = 1) {
+        const progress = {}, completedFinals = new Set();
+        let questPointTotal = Number(startingQuestPoints) || 0;
+        const completed = [];
+        for (const [name, meta] of Object.entries(data.challenges?.Quest || {})) {
+            const record = { name, skill: 'Quest', taskId: taskId(name, 'Quest', ids) };
+            if (isComplete(record, legacy)) completed.push([name, meta]);
+        }
+        for (const [, meta] of completed) if (own(meta, 'QuestPoints')) {
+            completedFinals.add(meta.BaseQuest);
+            progress[meta.BaseQuest] = 'Complete the quest';
+            questPointTotal += Number(meta.QuestPoints || 0);
+        }
+        for (const [name, meta] of completed) {
+            if (completedFinals.has(meta.BaseQuest) || own(meta, 'QuestPoints')) continue;
+            (progress[meta.BaseQuest] ||= []).push(name);
+        }
+        return { questProgress: progress, questPointTotal };
+    }
     function taskMetadata(name, skill, meta, ids = {}) {
         const categories = meta.Category || [];
         const taskRequirements = Object.entries(meta.Tasks || {});
@@ -2735,7 +2754,7 @@
     return { VERSION, STARTING_SECTION_POLICY, SKILLS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
         canonicalItemKey, itemSourceAllowed, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
-        uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, resourceRepresentativeMetadata,
+        uniqueOrigins, isComplete, isBacklogged, completionIds, completedQuestProgress, taskMetadata, resourceRepresentativeMetadata,
         equipmentObjectiveAlternatives, equipmentDominatesTask, superiorEquipmentCompletion,
         isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,

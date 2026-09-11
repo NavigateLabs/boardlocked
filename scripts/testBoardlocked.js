@@ -116,6 +116,21 @@ test('initialization quests name every stable step, including final completion',
         { druidicRitual: { Herblore: 3 }, ocean: { Sailing: 5 } });
 });
 
+test('quest panel progress comes from completed tasks rather than currently possible quests', () => {
+    const request = makeRequest(['5428']);
+    const completedNames = Object.entries(request.chunkInfo.challenges.Quest).filter(([, meta]) =>
+        meta.BaseQuest === 'Druidic Ritual' || meta.BaseQuest === 'Children of the Sun').map(([name]) => name);
+    request.checkedAllTasks = { Quest: Object.fromEntries(completedNames.map(name => [name, true])) };
+    request.boardlocked.checkedAllTasks = request.checkedAllTasks;
+    const result = runWorker(request).result;
+    assert.equal(result.questProgress['Druidic Ritual'], 'Complete the quest');
+    assert.equal(result.questProgress['Children of the Sun'], 'Complete the quest');
+    assert.equal(result.questProgress['Vale Totems (miniquest)'], undefined,
+        'an available quest chain is not displayed as completed');
+    assert.equal(result.questPointTotal, 6,
+        'the existing one-point baseline plus completed quest rewards is preserved');
+});
+
 test('starting roll gives enabled groups equal odds before choosing a tile', () => {
     const starting = R.deriveStartingPool(chunkData, annotations,
         { varlamore: true, wilderness: true, ocean: true });
@@ -364,14 +379,14 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-data\.js\?v=17/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl24/);
-    assert.match(html, /boardlocked\.js\?v=56/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl35/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl35/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl25/);
+    assert.match(html, /boardlocked\.js\?v=57/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl36/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl36/);
     assert.match(worker, /boardlocked-data\.js\?v=17/);
-    assert.match(worker, /boardlocked\.js\?v=56/);
-    assert.match(worker, /boardlocked-worker\.js\?v=19/);
-    assert.match(html, /boardlocked-ui\.js\?v=74/);
+    assert.match(worker, /boardlocked\.js\?v=57/);
+    assert.match(worker, /boardlocked-worker\.js\?v=20/);
+    assert.match(html, /boardlocked-ui\.js\?v=75/);
     assert.match(html, /boardlocked\.css\?v=20/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
