@@ -17,7 +17,7 @@ Use the task icon in the top-right to reopen the panel.
 
 ## How Boardlocked plays
 
-Simply, you move one chunk then complete one task before you can move again. Movement is adjacent to the chunk you're currently standing on, meaning the chunks north, south, east or west. Chunks with no completeable goals turn into free spaces, and whenever you're next to a free space you will also roll the chunks adjacent to that free space.
+Simply, you move one chunk then complete one task before you can move again. Movement is adjacent to the chunk you're currently standing on. Chunks with no completeable goals turn into free spaces, and whenever you're next to a free space you will also roll the chunks adjacent to that free space.
 
 The tasks are similar to those you would expect from chunklocked, I.e. get a new BiS, skilling activity, collection log, quests and such.
 
