@@ -23,6 +23,86 @@
     const itemSourceAllowed = (annotations, itemName, source) =>
         !own(annotations?.unavailableItemSources?.[canonicalItemKey(itemName)], String(source));
     const comparableItemKey = name => canonicalItemKey(name).replaceAll('#', '/').trim().toLowerCase();
+    const equipmentNumber = (item, key) => Number(item?.[key]) || 0;
+    const equipmentDefenceTotal = item => ['defence_crush', 'defence_magic', 'defence_ranged', 'defence_slash', 'defence_stab']
+        .reduce((sum, key) => sum + equipmentNumber(item, key), 0);
+    const equipmentMeleeDefence = item => ['defence_crush', 'defence_slash', 'defence_stab']
+        .reduce((sum, key) => sum + equipmentNumber(item, key), 0);
+    const equipmentMeleeAttack = item => ['attack_crush', 'attack_slash', 'attack_stab']
+        .reduce((sum, key) => sum + equipmentNumber(item, key), 0);
+    const equipmentBestMeleeAttack = item => Math.max(...['attack_crush', 'attack_slash', 'attack_stab']
+        .map(key => equipmentNumber(item, key)));
+    const COMBAT_BIS_ROLES = ['Stab Tank', 'Slash Tank', 'Crush Tank', 'Ranged Tank', 'Magic Tank', 'Melee Tank',
+        'Stab Flinch', 'Slash Flinch', 'Crush Flinch', 'Melee', 'Stab', 'Slash', 'Crush', 'Ranged', 'Magic', 'Prayer', 'Flinch'];
+    function combatRolesFromBisReason(reason) {
+        const parts = stripMarkup(reason).replace(/[\u200b-\u200d\uFEFF]/g, '').split('/')
+            .map(value => value.trim()).filter(Boolean), roles = [];
+        for (const part of parts) {
+            const role = COMBAT_BIS_ROLES.find(value => part === value || part.startsWith(value + ' '));
+            if (role && !roles.includes(role)) roles.push(role);
+        }
+        return roles;
+    }
+    function equipmentRoleScore(item, role) {
+        if (!item) return null;
+        const slot = item.slot, weapon = ['weapon', '2h'].includes(slot) && equipmentNumber(item, 'attack_speed') > 0;
+        const strength = equipmentNumber(item, 'melee_strength'), speed = equipmentNumber(item, 'attack_speed');
+        const style = role.startsWith('Stab') ? 'stab' : role.startsWith('Slash') ? 'slash' :
+            role.startsWith('Crush') ? 'crush' : null;
+        if (role.endsWith(' Tank')) {
+            if (role === 'Melee Tank') return equipmentMeleeDefence(item);
+            return equipmentNumber(item, role === 'Ranged Tank' ? 'defence_ranged' : role === 'Magic Tank' ?
+                'defence_magic' : 'defence_' + style);
+        }
+        if (role === 'Prayer') return equipmentNumber(item, 'prayer');
+        if (role === 'Flinch' || role.endsWith(' Flinch')) {
+            const attack = style ? equipmentNumber(item, 'attack_' + style) : equipmentBestMeleeAttack(item);
+            return attack + strength;
+        }
+        if (role === 'Melee' || ['Stab', 'Slash', 'Crush'].includes(role)) {
+            const attack = style ? equipmentNumber(item, 'attack_' + style) : equipmentBestMeleeAttack(item);
+            if (weapon) return speed > 0 ? (attack + strength + 64) / speed : null;
+            const attackTotal = style ? attack : equipmentMeleeAttack(item);
+            return 100000 * strength + 1000 * attackTotal + equipmentDefenceTotal(item);
+        }
+        if (role === 'Ranged') {
+            // Ammo availability is run-specific. For weapons, only accept a
+            // candidate that is no slower and no worse in either ranged stat;
+            // the pairwise comparison below handles this conservative vector.
+            if (weapon) return { speed, attack: equipmentNumber(item, 'attack_ranged'),
+                strength: equipmentNumber(item, 'ranged_strength') };
+            return 100000 * equipmentNumber(item, 'ranged_strength') +
+                1000 * equipmentNumber(item, 'attack_ranged') + equipmentDefenceTotal(item);
+        }
+        if (role === 'Magic') {
+            return 100000 * equipmentNumber(item, 'magic_damage') +
+                1000 * equipmentNumber(item, 'attack_magic') + equipmentDefenceTotal(item);
+        }
+        return null;
+    }
+    function roleScoreAtLeast(candidate, target) {
+        if (candidate == null || target == null) return false;
+        if (typeof candidate === 'object' || typeof target === 'object') return typeof candidate === 'object' &&
+            typeof target === 'object' && candidate.speed <= target.speed && candidate.attack >= target.attack &&
+            candidate.strength >= target.strength;
+        return candidate >= target;
+    }
+    function equipmentRequirementsMet(item, state) {
+        return Object.entries(item?.requirements || {}).every(([skill, level]) =>
+            skill !== 'Combat' && Number.isFinite(state?.actualLevels?.[skill]) && state.actualLevels[skill] >= Number(level));
+    }
+    function equipmentDominatesTask(data, task, candidateName, state = null, confirmedEquipped = false) {
+        const target = data?.equipment?.[task?.equipmentName], candidate = data?.equipment?.[candidateName];
+        if (!target || !candidate || candidateName === task.equipmentName || candidate.slot !== target.slot) return false;
+        if (!confirmedEquipped && !equipmentRequirementsMet(candidate, state)) return false;
+        const roles = combatRolesFromBisReason(task.bisReason);
+        return roles.length > 0 && roles.every(role =>
+            roleScoreAtLeast(equipmentRoleScore(candidate, role), equipmentRoleScore(target, role)));
+    }
+    function equipmentReplacementOptions(data, task) {
+        return Object.keys(data?.equipment || {}).filter(item =>
+            equipmentDominatesTask(data, task, item, null, true)).sort((left, right) => left.localeCompare(right));
+    }
     const enablerTaskId = itemKey => 'bl_enabler_item_' + encodeURIComponent(canonicalItemKey(itemKey));
     const enablerItemFromTaskId = id => {
         const prefixes = ['bl_enabler_item_', 'r' + 'l_enabler_item_'];
@@ -608,7 +688,9 @@
             const key = comparableItemKey(item), existing = result.get(key);
             result.set(key, { item: canonicalItemKey(item), confirmedEquipped: !!confirmedEquipped || !!existing?.confirmedEquipped });
         };
-        for (const [item, owned] of Object.entries(legacy.manualEquipment || {})) if (owned) add(item);
+        for (const [item, owned] of Object.entries(legacy.manualEquipment || {})) if (owned) {
+            add(item, typeof owned === 'object' && owned.confirmedEquipped === true);
+        }
         for (const item of Object.keys(state?.acquiredEnablers || {})) add(item);
         for (const storeName of ['completedChallenges', 'checkedChallenges', 'checkedAllTasks']) {
             for (const [skill, entries] of Object.entries(legacy[storeName] || {})) for (const [key, flag] of Object.entries(entries || {})) {
@@ -620,6 +702,12 @@
             }
         }
         return result;
+    }
+    function superiorEquipmentCompletion(task, completedItems, data, state = null) {
+        if (task?.taskClass !== 'bis' || !task.equipmentName || !task.confirmsEquipped) return null;
+        for (const evidence of completedItems.values()) if (equipmentDominatesTask(data, task, evidence.item, state,
+            evidence.confirmedEquipped)) return evidence.item;
+        return null;
     }
     function impliedEquipmentCompletion(task, completedItems, state = null) {
         const levelTooLow = task.advancesSkillProgression && Number.isFinite(task.level) &&
@@ -833,7 +921,7 @@
                 whyWouldBeIneligible: [...(task.whyWouldBeIneligible || []), 'no dependent task is in the current progression window'] };
         });
     }
-    function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks, ids = {}) {
+    function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks, ids = {}, data = null) {
         const completedItems = completedEquipmentItems(legacy, state, ids);
         const adapted = tasks.map(task => {
             const origins = own(state.originOverrides, task.taskId) ? state.originOverrides[task.taskId].map(value => ({
@@ -848,7 +936,9 @@
                 .filter(origin => !(origin.sourceType === 'monsters' && blockedBossSet.has(origin.sourceName)))
                 .filter(origin => locationAvailable(origin, unlocked, sections, manualSections));
             const impliedByItem = impliedEquipmentCompletion(task, completedItems, state);
-            const completed = isComplete(task, legacy, state) || !!impliedByItem, backlogged = isBacklogged(task, legacy);
+            const impliedByBetterEquipment = superiorEquipmentCompletion(task, completedItems, data, state);
+            const completed = isComplete(task, legacy, state) || !!impliedByItem || !!impliedByBetterEquipment,
+                backlogged = isBacklogged(task, legacy);
             const highWater = state.progressionHighWater?.[task.skill] ?? 0;
             const ceiling = task.advancesSkillProgression ? progressionCeiling(catalog, task.skill, highWater,
                 state.actualLevels?.[task.skill] || 1) : null;
@@ -856,7 +946,9 @@
             const progressionBlocked = !!task.advancesSkillProgression && task.level > ceiling;
             return { ...task, origins, activeOrigins, blockedBossSources, bossDeferred, activeSlayerTrainingOrigins,
                 slayerTrainingAlternative: !!task.slayerTrainingAlternative && activeSlayerTrainingOrigins.length > 0,
-                completed, implicitlyCompleted: !!impliedByItem, completionEvidenceItem: impliedByItem,
+                completed, implicitlyCompleted: !!impliedByItem || !!impliedByBetterEquipment,
+                completionEvidenceItem: impliedByBetterEquipment || impliedByItem,
+                superiorEquipmentCompletion: !!impliedByBetterEquipment,
                 backlogged, superseded,
                 progressionBlocked, progressionHighWater: task.advancesSkillProgression ? highWater : null,
                 progressionCeiling: ceiling,
@@ -2408,7 +2500,8 @@
         canonicalItemKey, itemSourceAllowed, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, resourceRepresentativeMetadata,
-        equipmentObjectiveAlternatives, isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
+        equipmentObjectiveAlternatives, equipmentDominatesTask, equipmentReplacementOptions, superiorEquipmentCompletion,
+        isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         actualCombatLevel, setSlayerMasterState, setBossBlocked, slayerProgressionModel,

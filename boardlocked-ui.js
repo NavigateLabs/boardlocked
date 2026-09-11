@@ -396,7 +396,7 @@
         if (catalogData !== chunkInfo) { catalogData = chunkInfo; catalog = R.buildTaskCatalog(chunkInfo, tasksMap); }
         state = R.reconcileProgression(state, catalog, legacy(), tasksMap);
         const oldDormant = new Set(pool.dormant);
-        tasks = R.adaptTasks(rawTasks, legacy(), state, tempChunks.unlocked || {}, sections, manualSections, catalog, tasksMap);
+        tasks = R.adaptTasks(rawTasks, legacy(), state, tempChunks.unlocked || {}, sections, manualSections, catalog, tasksMap, chunkInfo);
         const previousCandidateCount = state.currentVisit?.candidateTaskIds?.length || 0;
         state = R.addCatchUpTasksToCurrentVisit(state, tasks);
         const catchUpAdded = (state.currentVisit?.candidateTaskIds?.length || 0) > previousCandidateCount;
@@ -673,6 +673,27 @@
         onLegacyChange(); setData();
     }
 
+    function completeWithBetterEquipment(task, requestedName) {
+        if (!canEdit() || !task?.equipmentName) return;
+        const wanted = String(requestedName || '').trim().toLowerCase();
+        const candidate = Object.keys(chunkInfo.equipment || {}).find(name => name.toLowerCase() === wanted);
+        if (!candidate) return notice('Choose an equipment item from the list.');
+        if (!R.equipmentDominatesTask(chunkInfo, task, candidate, state, true)) {
+            return notice(candidate + ' does not cover every combat role in this equipment goal.');
+        }
+        const timestamp = new Date().toISOString();
+        manualEquipment[candidate] = { confirmedEquipped: true, recordedAt: timestamp,
+            replacementForTaskId: task.taskId, replacementForItem: task.equipmentName };
+        for (const [skill, level] of Object.entries(chunkInfo.equipment[candidate].requirements || {})) {
+            if (R.SKILLS.includes(skill)) state.actualLevels[skill] = Math.max(state.actualLevels[skill] || 1, Number(level) || 1);
+        }
+        state.adminHistory.push({ timestamp, action: 'complete_with_equivalent_or_better_equipment',
+            taskId: task.taskId, requiredItem: task.equipmentName, equippedItem: candidate });
+        message = candidate + ' satisfies the ' + task.equipmentName + ' goal and is now your recorded equipment.';
+        forceUpdatePluginOutput = true;
+        onLegacyChange(); setData();
+    }
+
     function removeEnabler(itemKey) {
         if (!canEdit()) return;
         delete state.acquiredEnablers[itemKey];
@@ -919,6 +940,21 @@
                 whyWouldBeIneligible: task.whyWouldBeIneligible || [],
                 progressionRole: task.advancesSkillProgression ? 'rolling-level-progression' : 'independent'
             }, null, 2), { className: 'bl-task-debug' }));
+            if (task.taskClass === 'bis' && task.equipmentName && task.confirmsEquipped) {
+                const alternatives = R.equipmentReplacementOptions(chunkInfo, task);
+                if (alternatives.length) {
+                    const replacement = element('div', null, { className: 'bl-equipment-replacement' });
+                    replacement.append(element('small', 'Already equipped an equivalent or better item? Record the item you actually used.'));
+                    const input = element('input', null, { type: 'text', placeholder: 'Equipment name',
+                        'aria-label': 'Equivalent or better item used for ' + task.equipmentName });
+                    const listId = 'bl-equipment-options-' + task.taskId.replace(/[^a-z0-9_-]/gi, '-');
+                    input.setAttribute('list', listId);
+                    const choices = element('datalist', null, { id: listId });
+                    for (const item of alternatives) choices.append(element('option', null, { value: item }));
+                    const use = button('Use this item', () => completeWithBetterEquipment(task, input.value));
+                    replacement.append(input, choices, use); tools.append(replacement);
+                }
+            }
             tools.append(button('Inspect', () => inspectTask(task)));
             if (chunkInfo.challenges?.[task.skill]?.[task.name]) tools.append(button('Details', () => {
                 setPanelOpen(false);

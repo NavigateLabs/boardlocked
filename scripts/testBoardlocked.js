@@ -1394,6 +1394,38 @@ test('equipment collapsing is local to a tile and a completed specific item perm
     assert.equal(result.completionEvidenceItem, 'Steel scimitar');
 });
 
+test('confirmed equivalent-or-better equipment satisfies every covered BiS role without using item tiers', () => {
+    const combinedRoles = 'Ranged Tank/' + '\u200b' + 'Melee Tank/' + '\u200b' + 'Melee BiS body';
+    const target = { taskId: 'steel-body', name: 'Obtain a ~|steel platebody|~',
+        displayName: '[' + combinedRoles + '] Obtain and wear a steel platebody',
+        skill: 'BiS', taskClass: 'bis', equipmentName: 'Steel platebody', confirmsEquipped: true,
+        bisReason: combinedRoles, origins: [origin('1000')], available: true };
+    assert.equal(R.equipmentDominatesTask(chunkData, target, 'Rune platebody', fresh(), true), true);
+    assert.equal(R.equipmentDominatesTask(chunkData, target, 'Iron platebody', fresh(), true), false,
+        'a lower-tier name is irrelevant when its role scores are worse');
+    assert.equal(R.equipmentDominatesTask(chunkData, target, 'Green d\'hide body', fresh(), true), false,
+        'passing the first listed role cannot hide a loss in a later role');
+    assert.equal(R.equipmentDominatesTask(chunkData, target, 'Blue wizard robe', fresh(), true), false,
+        'an item that improves Magic but loses either named tank role cannot replace the combined objective');
+    assert.ok(R.equipmentReplacementOptions(chunkData, target).includes('Rune platebody'));
+
+    let legacy = { manualEquipment: { 'Rune platebody': true } };
+    let result = R.adaptTasks([target], legacy, fresh(), geo, {}, {}, [target], {}, chunkData)[0];
+    assert.equal(result.completed, false, 'an old ownership-only record does not prove a level-40 item was worn at Defence 1');
+
+    legacy = { manualEquipment: { 'Rune platebody': { confirmedEquipped: true } } };
+    result = R.adaptTasks([target], legacy, fresh(), geo, {}, {}, [target], {}, chunkData)[0];
+    assert.equal(result.completed, true);
+    assert.equal(result.implicitlyCompleted, true);
+    assert.equal(result.superiorEquipmentCompletion, true);
+    assert.equal(result.completionEvidenceItem, 'Rune platebody');
+
+    const levelled = fresh(); levelled.actualLevels.Defence = 40;
+    result = R.adaptTasks([target], { manualEquipment: { 'Rune platebody': true } }, levelled,
+        geo, {}, {}, [target], {}, chunkData)[0];
+    assert.equal(result.completed, true, 'known levels can verify an older ownership-only equipment record');
+});
+
 test('live acceptance worker output offers axe Enablers and blocks concrete gathering actions', () => {
     const request = usePreset(makeRequest(['6198', '5942', '6454', '6197']), 'Boardlocked Chunker');
     request.boardlocked.state.actualLevels.Attack = 99; request.boardlocked.state.actualLevels.Woodcutting = 99;
