@@ -87,6 +87,12 @@
             candidate.strength >= target.strength;
         return candidate >= target;
     }
+    function roleScoreBetter(candidate, target) {
+        if (!roleScoreAtLeast(candidate, target)) return false;
+        if (typeof candidate === 'object') return candidate.speed < target.speed || candidate.attack > target.attack ||
+            candidate.strength > target.strength;
+        return candidate > target;
+    }
     function equipmentRequirementsMet(item, state) {
         return Object.entries(item?.requirements || {}).every(([skill, level]) =>
             skill !== 'Combat' && Number.isFinite(state?.actualLevels?.[skill]) && state.actualLevels[skill] >= Number(level));
@@ -99,9 +105,41 @@
         return roles.length > 0 && roles.every(role =>
             roleScoreAtLeast(equipmentRoleScore(candidate, role), equipmentRoleScore(target, role)));
     }
-    function equipmentReplacementOptions(data, task) {
+    function equipmentImprovesCurrentBis(data, task, candidateName, completedItems, state = null, confirmedEquipped = false) {
+        const target = data?.equipment?.[task?.equipmentName], candidate = data?.equipment?.[candidateName];
+        if (!target || !candidate || candidate.slot !== target.slot) return false;
+        if (!confirmedEquipped && !equipmentRequirementsMet(candidate, state)) return false;
+        const roles = combatRolesFromBisReason(task.bisReason);
+        if (!roles.length) return false;
+        const priorItems = [...completedItems.values()].filter(evidence =>
+            comparableItemKey(evidence.item) !== comparableItemKey(candidateName) &&
+            data.equipment?.[evidence.item]?.slot === candidate.slot &&
+            (evidence.confirmedEquipped || equipmentRequirementsMet(data.equipment[evidence.item], state)));
+        return roles.every(role => {
+            const candidateScore = equipmentRoleScore(candidate, role);
+            const emptyScore = typeof candidateScore === 'object' ? { speed: Infinity, attack: 0, strength: 0 } : 0;
+            const baselines = priorItems.map(evidence => equipmentRoleScore(data.equipment[evidence.item], role))
+                .filter(score => score != null);
+            return (baselines.length ? baselines : [emptyScore]).every(score => roleScoreBetter(candidateScore, score));
+        });
+    }
+    function equipmentCompletesUpgradeTask(data, task, candidateName, legacy = {}, state = null, confirmedEquipped = false,
+        knownCompletedItems = null) {
+        const candidate = data?.equipment?.[candidateName], target = data?.equipment?.[task?.equipmentName];
+        if (!candidate || !target || candidate.slot !== target.slot) return false;
+        const completedItems = knownCompletedItems || completedEquipmentItems(legacy, state);
+        const evidence = completedItems.get(comparableItemKey(candidateName));
+        if (evidence?.replacementForTaskIds?.includes(task.taskId)) return true;
+        if (candidateName === task.equipmentName) return confirmedEquipped || equipmentRequirementsMet(candidate, state);
+        if (equipmentDominatesTask(data, task, candidateName, state, confirmedEquipped)) return true;
+        if (evidence) return false;
+        return equipmentImprovesCurrentBis(data, task, candidateName, completedItems, state, confirmedEquipped);
+    }
+    function equipmentReplacementOptions(data, task, legacy = {}, state = null) {
+        const completedItems = completedEquipmentItems(legacy, state);
         return Object.keys(data?.equipment || {}).filter(item =>
-            equipmentDominatesTask(data, task, item, null, true)).sort((left, right) => left.localeCompare(right));
+            item !== task.equipmentName && equipmentCompletesUpgradeTask(data, task, item, legacy, state, true, completedItems))
+            .sort((left, right) => left.localeCompare(right));
     }
     const enablerTaskId = itemKey => 'bl_enabler_item_' + encodeURIComponent(canonicalItemKey(itemKey));
     const enablerItemFromTaskId = id => {
@@ -683,13 +721,17 @@
     }
     function completedEquipmentItems(legacy = {}, state = null, ids = {}) {
         const result = new Map(), reverseIds = new Map(Object.entries(ids || {}).map(([name, id]) => [String(id), name]));
-        const add = (item, confirmedEquipped = false) => {
+        const add = (item, confirmedEquipped = false, replacementForTaskIds = []) => {
             if (!item) return;
             const key = comparableItemKey(item), existing = result.get(key);
-            result.set(key, { item: canonicalItemKey(item), confirmedEquipped: !!confirmedEquipped || !!existing?.confirmedEquipped });
+            result.set(key, { item: canonicalItemKey(item), confirmedEquipped: !!confirmedEquipped || !!existing?.confirmedEquipped,
+                replacementForTaskIds: [...new Set([...(existing?.replacementForTaskIds || []), ...replacementForTaskIds])] });
         };
         for (const [item, owned] of Object.entries(legacy.manualEquipment || {})) if (owned) {
-            add(item, typeof owned === 'object' && owned.confirmedEquipped === true);
+            const replacementIds = typeof owned === 'object' ? [
+                ...(owned.replacementForTaskIds || []), owned.replacementForTaskId
+            ].filter(Boolean) : [];
+            add(item, typeof owned === 'object' && owned.confirmedEquipped === true, replacementIds);
         }
         for (const item of Object.keys(state?.acquiredEnablers || {})) add(item);
         for (const storeName of ['completedChallenges', 'checkedChallenges', 'checkedAllTasks']) {
@@ -705,8 +747,12 @@
     }
     function superiorEquipmentCompletion(task, completedItems, data, state = null) {
         if (task?.taskClass !== 'bis' || !task.equipmentName || !task.confirmsEquipped) return null;
-        for (const evidence of completedItems.values()) if (equipmentDominatesTask(data, task, evidence.item, state,
-            evidence.confirmedEquipped)) return evidence.item;
+        for (const evidence of completedItems.values()) {
+            if (evidence.replacementForTaskIds?.includes(task.taskId) ||
+                equipmentDominatesTask(data, task, evidence.item, state, evidence.confirmedEquipped)) {
+                return evidence.item;
+            }
+        }
         return null;
     }
     function impliedEquipmentCompletion(task, completedItems, state = null) {
@@ -2500,7 +2546,8 @@
         canonicalItemKey, itemSourceAllowed, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, resourceRepresentativeMetadata,
-        equipmentObjectiveAlternatives, equipmentDominatesTask, equipmentReplacementOptions, superiorEquipmentCompletion,
+        equipmentObjectiveAlternatives, equipmentDominatesTask, equipmentImprovesCurrentBis,
+        equipmentCompletesUpgradeTask, equipmentReplacementOptions, superiorEquipmentCompletion,
         isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,

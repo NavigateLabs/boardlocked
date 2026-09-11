@@ -19,7 +19,7 @@ Simply, you move one chunk then complete one task before you can move again. Mov
 
 The tasks are similar to those you would expect from chunklocked, I.e. get a new BiS, skilling activity, collection log, quests and such.
 
-For equipment goals, an item you have actually equipped also counts for an earlier goal when it uses the same slot and is at least as good for every listed combat role. Use **Details & options** on the goal to record the item you equipped; its requirements are then inferred automatically.
+Equipment goals require a new best-in-slot upgrade for every combat role listed on the goal. The named item is one available option: a weaker item also counts when it is still an upgrade over your previous best, and an equal or stronger item counts too. Use **Details & options** to record a different item you equipped; its requirements are inferred automatically.
 
 You have access to everything in previously unlocked chunks, and can freely re-enter areas you have previously been to. However you must focus on your task. I.e. if you need to get woodcutting to lvl 60 to cut yew, that should be the goal you focus on in your unlocked chunks and therfore you shouldn't go train thieving.
 

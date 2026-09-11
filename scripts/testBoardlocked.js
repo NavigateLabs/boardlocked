@@ -1394,7 +1394,7 @@ test('equipment collapsing is local to a tile and a completed specific item perm
     assert.equal(result.completionEvidenceItem, 'Steel scimitar');
 });
 
-test('confirmed equivalent-or-better equipment satisfies every covered BiS role without using item tiers', () => {
+test('a newly equipped BiS upgrade can satisfy a named item above or below it without using item tiers', () => {
     const combinedRoles = 'Ranged Tank/' + '\u200b' + 'Melee Tank/' + '\u200b' + 'Melee BiS body';
     const target = { taskId: 'steel-body', name: 'Obtain a ~|steel platebody|~',
         displayName: '[' + combinedRoles + '] Obtain and wear a steel platebody',
@@ -1407,10 +1407,26 @@ test('confirmed equivalent-or-better equipment satisfies every covered BiS role 
         'passing the first listed role cannot hide a loss in a later role');
     assert.equal(R.equipmentDominatesTask(chunkData, target, 'Blue wizard robe', fresh(), true), false,
         'an item that improves Magic but loses either named tank role cannot replace the combined objective');
-    assert.ok(R.equipmentReplacementOptions(chunkData, target).includes('Rune platebody'));
+    assert.equal(R.equipmentCompletesUpgradeTask(chunkData, target, 'Bronze platebody', {}, fresh(), true), true,
+        'with no previous body BiS, even the bronze body is a genuine upgrade in every listed role');
+    const bronzeBaseline = { completedChallenges: { BiS: { 'Obtain a ~|bronze platebody|~': true } } };
+    assert.equal(R.equipmentCompletesUpgradeTask(chunkData, target, 'Iron platebody', bronzeBaseline, fresh(), true), true,
+        'an item below the named target counts when it improves every listed role over the previous BiS');
+    assert.equal(R.equipmentCompletesUpgradeTask(chunkData, target, 'Bronze platebody', bronzeBaseline, fresh(), true), false,
+        'equipment that was already the current BiS is not a new upgrade');
+    assert.equal(R.equipmentCompletesUpgradeTask(chunkData, target, 'Blue wizard robe', bronzeBaseline, fresh(), true), false);
+    const choices = R.equipmentReplacementOptions(chunkData, target, bronzeBaseline, fresh());
+    assert.ok(choices.includes('Iron platebody')); assert.ok(choices.includes('Rune platebody'));
+    assert.ok(!choices.includes('Bronze platebody'));
 
-    let legacy = { manualEquipment: { 'Rune platebody': true } };
+    let legacy = { ...bronzeBaseline, manualEquipment: { 'Iron platebody': { confirmedEquipped: true,
+        replacementForTaskIds: ['steel-body'] } } };
     let result = R.adaptTasks([target], legacy, fresh(), geo, {}, {}, [target], {}, chunkData)[0];
+    assert.equal(result.completed, true);
+    assert.equal(result.completionEvidenceItem, 'Iron platebody');
+
+    legacy = { manualEquipment: { 'Rune platebody': true } };
+    result = R.adaptTasks([target], legacy, fresh(), geo, {}, {}, [target], {}, chunkData)[0];
     assert.equal(result.completed, false, 'an old ownership-only record does not prove a level-40 item was worn at Defence 1');
 
     legacy = { manualEquipment: { 'Rune platebody': { confirmedEquipped: true } } };
