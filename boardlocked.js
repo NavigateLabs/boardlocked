@@ -899,11 +899,12 @@
         const match = /^Clue scroll \((beginner|easy|medium|hard|elite|master)\)$/.exec(origin?.sourceName || '');
         return match?.[1] || null;
     }
-    function clueTaskPresentations(task, activeClueOriginFilter = null) {
+    function clueTaskPresentations(task, activeOriginFilter = null) {
         if (task?.skill !== 'BiS' || task.clueReward || task.completed || task.eligible === false) return [task];
         const activeClueOrigins = (task.activeOrigins || []).filter(origin => clueTierFromOrigin(origin) &&
-            (!activeClueOriginFilter || activeClueOriginFilter(origin, task)));
-        const activeOrdinaryOrigins = (task.activeOrigins || []).filter(origin => !clueTierFromOrigin(origin));
+            (!activeOriginFilter || activeOriginFilter(origin, task)));
+        const activeOrdinaryOrigins = (task.activeOrigins || []).filter(origin => !clueTierFromOrigin(origin) &&
+            (!activeOriginFilter || activeOriginFilter(origin, task)));
         if (!activeClueOrigins.length) return [task];
         const allClueOrigins = (task.origins || []).filter(clueTierFromOrigin);
         const allOrdinaryOrigins = (task.origins || []).filter(origin => !clueTierFromOrigin(origin));
@@ -917,8 +918,8 @@
             [{ ...task, origins: allOrdinaryOrigins, activeOrigins: activeOrdinaryOrigins }, ...cluePresentations] :
             cluePresentations;
     }
-    function clueTaskListPresentations(tasks = [], activeClueOriginFilter = null) {
-        const presentations = tasks.flatMap(task => clueTaskPresentations(task, activeClueOriginFilter));
+    function clueTaskListPresentations(tasks = [], activeOriginFilter = null) {
+        const presentations = tasks.flatMap(task => clueTaskPresentations(task, activeOriginFilter));
         const clueBis = new Set(presentations.filter(task => task.skill === 'BiS' && task.clueReward?.itemKey)
             .map(task => task.clueReward.tier + '|' + comparableItemKey(task.clueReward.itemKey)));
         return presentations.filter(task => !(task.taskClass === 'collection' && task.skill !== 'BiS' &&

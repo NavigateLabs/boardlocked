@@ -505,13 +505,13 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=25/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=74/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl50/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl50/);
+    assert.match(html, /boardlocked\.js\?v=75/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl51/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl51/);
     assert.match(worker, /boardlocked-data\.js\?v=25/);
-    assert.match(worker, /boardlocked\.js\?v=74/);
+    assert.match(worker, /boardlocked\.js\?v=75/);
     assert.match(worker, /boardlocked-worker\.js\?v=27/);
-    assert.match(html, /boardlocked-ui\.js\?v=92/);
+    assert.match(html, /boardlocked-ui\.js\?v=93/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -722,6 +722,8 @@ test('visit rows retain their snapshotted group when later rules add clue proven
         candidateOrigin => R.originMatchesVisit(candidateOrigin, { locationId: '2000', arrivalSections: [] }));
     assert.equal(clueVisitPresentations.some(task => task.clueReward?.tier === 'medium'), true,
         'the same mixed-source BiS retains its clue presentation at the actual clue-source visit');
+    assert.equal(clueVisitPresentations.some(task => !task.clueReward), false,
+        'an ordinary source in another unlocked tile must not add an ordinary row to the clue-source visit');
 });
 test('resolved visits hide alternatives invalidated by newer source rules', () => {
     const visit = { status: 'resolved', resolution: 'task_completed', resolvedTaskId: 'done' };
@@ -3230,7 +3232,7 @@ test('clue UI groups reward goals and keeps each tier lock independent', () => {
     assert.match(ui, /Choose automatic unlock tile/);
     assert.match(ui, /function handleClueTargetTileClick\(locationId\)/);
     assert.match(index, /handleClueTargetTileClick/);
-    assert.match(ui, /R\.clueTaskListPresentations\(list, clueOriginFilter\)/,
+    assert.match(ui, /R\.clueTaskListPresentations\(list, visitOriginFilter\)/,
         'mixed-source BiS goals use clue presentations only at the current clue-source visit');
     assert.match(ui, /I received a Master clue from a casket/);
     assert.match(ui, /I received a ' \+ label \+ ' clue incidentally/,
