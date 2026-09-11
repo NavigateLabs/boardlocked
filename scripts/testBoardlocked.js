@@ -355,14 +355,20 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     const ui = fs.readFileSync(path.join(root, 'boardlocked-ui.js'), 'utf8');
     const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
+    const worker = fs.readFileSync(path.join(root, 'worker.js'), 'utf8');
     assert.match(ui, /payload\.sourceStateVersion = parsed\.boardlockedState\?\.version/,
         'normalizing the browser vault must not erase the version used to decide migrations');
     assert.match(ui, /latestNoTaskVisit[\s\S]*sourceVersion < R\.VERSION/,
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl20/);
-    assert.match(html, /boardlocked\.js\?v=51/);
+    assert.match(html, /boardlocked-data\.js\?v=16/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl21/);
+    assert.match(html, /boardlocked\.js\?v=52/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl32/g);
+    assert.match(worker, /boardlocked-data\.js\?v=16/);
+    assert.match(worker, /boardlocked\.js\?v=52/);
+    assert.match(worker, /boardlocked-worker\.js\?v=17/);
     assert.match(html, /boardlocked-ui\.js\?v=70/);
     assert.match(html, /boardlocked\.css\?v=18/);
 });
@@ -1415,10 +1421,13 @@ test('live acceptance worker output offers axe Enablers and blocks concrete gath
     assert.ok(!tasks.some(task => task.accessResult?.forestry && task.eligible));
 });
 
-test('Shipwreck Cove offers the small net before shrimp and defers the higher-level big net', () => {
+test('Shipwreck Cove ignores its unusable small-net pickup', () => {
     const spawns = chunkData.chunks['6195'].Sections['1'].Spawn;
     assert.equal(spawns['Small fishing net'], 1);
     assert.equal(spawns['Big fishing net'], 1);
+    assert.equal(R.itemSourceAllowed(annotations, 'Small fishing net', '6195-1'), false);
+    assert.equal(R.itemSourceAllowed(annotations, 'Small fishing net', 'another-source'), true,
+        'the exclusion applies only to the unusable pickup');
 
     const request = usePreset(makeRequest(['6195']), 'Boardlocked Chunker');
     request.manualSections = { '6195': { '1': true } };
@@ -1431,27 +1440,9 @@ test('Shipwreck Cove offers the small net before shrimp and defers the higher-le
     let tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
         result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
     const smallNet = tasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Small fishing net');
-    const bigNet = tasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Big fishing net');
     const shrimps = tasks.find(task => task.name === 'Catch ~|raw shrimps|~');
-    const offcuts = tasks.find(task => task.name === 'Cut raw fish into ~|fish offcuts|~');
-    const leatherBoots = tasks.find(task => task.skill === 'BiS' && task.equipmentName === 'Leather boots');
-    const leatherGloves = tasks.find(task => task.skill === 'BiS' && task.equipmentName === 'Leather gloves');
-    assert.equal(smallNet?.eligible, true, 'the level-one fishing route first offers its required net');
-    assert.ok(smallNet.requiredBy.length > 0);
-    assert.ok(smallNet.requiredBy.every(dependency => !dependency.requiresSpecificItem || dependency.itemKey === 'Small fishing net'));
-    assert.equal(bigNet?.eligible, false, 'a tool used only by later Fishing tasks waits for that progression window');
-    assert.equal(bigNet?.enablerProgressionDeferred, true);
-    assert.equal(shrimps?.progressionBlocked, false);
-    assert.equal(shrimps?.eligible, false);
-    assert.match(shrimps?.eligibilityReason || '', /Small fishing net/);
-    assert.equal(offcuts?.eligible, false, 'processing fish waits until an accessible raw-fish milestone is completed');
-    assert.equal(offcuts?.resourceMilestoneBlocked, true);
-    assert.match(offcuts?.eligibilityReason || '', /Catch raw shrimps/);
-    for (const equipment of [leatherBoots, leatherGloves]) {
-        assert.equal(equipment?.eligible, false, equipment?.equipmentName);
-        assert.equal(equipment?.available, false, equipment?.equipmentName);
-        assert.match(equipment?.eligibilityReason || '', /Big fishing net/);
-    }
+    assert.ok(!smallNet || !smallNet.eligible, 'the unusable pickup cannot create an Obtain task');
+    assert.ok(!shrimps || !shrimps.eligible, 'shrimp fishing stays unavailable without a valid small net');
 
     let imported = R.startVisit(request.boardlocked.state,
         { kind: 'frontier', locationId: '6195', metadata: { entrySections: ['1'] } });
@@ -1459,26 +1450,54 @@ test('Shipwreck Cove offers the small net before shrimp and defers the higher-le
     assert.equal(imported.currentVisit.resolution, 'no_tasks');
     imported = R.recalculateCurrentVisit(imported, 'new fishing rules', undefined, { reopenNoTasks: true });
     imported = R.snapshotVisit(imported, tasks);
-    assert.equal(imported.currentVisit.status, 'task_required');
-    assert.ok(imported.currentVisit.candidateTaskIds.includes(smallNet.taskId),
-        'an upgraded free Shipwreck Cove visit discovers its currently actionable net task');
-    assert.ok(!imported.currentVisit.candidateTaskIds.includes(offcuts.taskId));
-    assert.ok(!imported.currentVisit.candidateTaskIds.includes(leatherBoots.taskId));
-    assert.ok(!imported.currentVisit.candidateTaskIds.includes(leatherGloves.taskId));
+    assert.ok(!imported.currentVisit.candidateTaskIds.includes(R.enablerTaskId('Small fishing net')),
+        'an upgraded visit does not revive the invalid pickup as an encounter');
 
-    request.boardlocked.state.acquiredEnablers['Small fishing net'] = { manual: true };
-    result = runWorker(request).result;
-    tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
-        result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
-    assert.equal(tasks.find(task => task.name === 'Catch ~|raw shrimps|~')?.eligible, true,
-        'registering the net exposes the concrete level-one fishing action');
-    assert.equal(tasks.find(task => task.name === 'Cut raw fish into ~|fish offcuts|~')?.eligible, false,
-        'owning the net alone does not claim that raw fish have been caught');
-    assert.ok(!tasks.some(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Small fishing net' && task.eligible));
+    const validRequest = usePreset(makeRequest(['6195', '12849']), 'Boardlocked Chunker');
+    validRequest.manualSections = { '6195': { '1': true }, '12849': { '1': true } };
+    validRequest.boardlocked.state.progressionHighWater.Cooking = 13;
+    validRequest.boardlocked.state.progressionInitialized = true;
+    validRequest.boardlocked.state.actualLevels.Cooking = 13;
+    validRequest.boardlocked.state.acquiredEnablers.Knife = { manual: true };
+    let validResult = runWorker(validRequest).result;
+    let validTasks = R.adaptTasks(validResult.tasks, {}, validRequest.boardlocked.state, validRequest.chunks,
+        validResult.sections, validRequest.manualSections, catalog, validRequest.boardlocked.tasksMap);
+    const validNet = validTasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Small fishing net');
+    assert.equal(validNet?.eligible, true, 'the Fishing Tutor remains a valid small-net source');
+    assert.ok(validNet.activeOrigins.some(origin => origin.chunkId === '12849'));
+    assert.ok(!validNet.activeOrigins.some(origin => origin.chunkId === '6195'),
+        'the unusable wreck pickup is absent even when another source enables the item');
 
-    const caughtTasks = R.adaptTasks(result.tasks,
-        { checkedAllTasks: { Fishing: { 'Catch ~|raw shrimps|~': true } } }, request.boardlocked.state,
-        request.chunks, result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
+    validRequest.boardlocked.state.acquiredEnablers['Small fishing net'] = { manual: true };
+    validResult = runWorker(validRequest).result;
+    validTasks = R.adaptTasks(validResult.tasks, {}, validRequest.boardlocked.state, validRequest.chunks,
+        validResult.sections, validRequest.manualSections, catalog, validRequest.boardlocked.tasksMap);
+    assert.equal(validTasks.find(task => task.name === 'Catch ~|raw shrimps|~')?.eligible, true,
+        'a net obtained from a different valid source exposes the concrete fishing action');
+    const availableBigNet = validTasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Big fishing net');
+    assert.ok(!availableBigNet || !availableBigNet.eligible,
+        'a tool used only by later Fishing tasks waits for that progression window');
+    const availableOffcuts = validTasks.find(task => task.name === 'Cut raw fish into ~|fish offcuts|~');
+    const availableLeatherBoots = validTasks.find(task => task.skill === 'BiS' && task.equipmentName === 'Leather boots');
+    const availableLeatherGloves = validTasks.find(task => task.skill === 'BiS' && task.equipmentName === 'Leather gloves');
+    assert.ok(!availableOffcuts || !availableOffcuts.eligible,
+        'processing fish waits until an accessible raw-fish milestone is completed');
+    if (availableOffcuts) {
+        assert.equal(availableOffcuts.resourceMilestoneBlocked, true);
+        assert.match(availableOffcuts.eligibilityReason || '', /Catch raw shrimps/);
+    }
+    for (const equipment of [availableLeatherBoots, availableLeatherGloves]) {
+        assert.ok(!equipment || !equipment.eligible, equipment?.equipmentName);
+        if (equipment) {
+            assert.equal(equipment.available, false, equipment.equipmentName);
+            assert.match(equipment.eligibilityReason || '', /Big fishing net/);
+        }
+    }
+    assert.ok(!validTasks.some(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Small fishing net' && task.eligible));
+
+    const caughtTasks = R.adaptTasks(validResult.tasks,
+        { checkedAllTasks: { Fishing: { 'Catch ~|raw shrimps|~': true } } }, validRequest.boardlocked.state,
+        validRequest.chunks, validResult.sections, validRequest.manualSections, catalog, validRequest.boardlocked.tasksMap);
     assert.equal(caughtTasks.find(task => task.name === 'Cut raw fish into ~|fish offcuts|~')?.eligible, true,
         'completing the raw-fish milestone exposes fish processing');
 });

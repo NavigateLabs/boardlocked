@@ -3731,7 +3731,7 @@ let calcCurrentChallengesCanvas = function(useOld, proceed, fromLoadData, inputT
         setCalculating('.panel-active', useOld);
         setCurrentChallenges(['No tasks currently backlogged.'], ['No tasks currently completed.'], true, true);
         myWorker.terminate();
-        myWorker = new Worker("./worker.js?v=6.9.66-bl31");
+        myWorker = new Worker("./worker.js?v=6.9.66-bl32");
         myWorker.onmessage = workerOnMessage;
         const request = currentWorkerRequest(tempSections);
         myWorker.postMessage(request);
@@ -4105,8 +4105,8 @@ $(document).ready(function() {
 // ------------------------------------------------------------
 
 // Recieve message from worker
-let myWorker = new Worker("./worker.js?v=6.9.66-bl31");
-let myWorker2 = new Worker("./worker.js?v=6.9.66-bl31");
+let myWorker = new Worker("./worker.js?v=6.9.66-bl32");
+let myWorker2 = new Worker("./worker.js?v=6.9.66-bl32");
 let workerOnMessage = function(e) {
     if (e.data.type === 'reload') {
         window.location.reload();
@@ -7279,7 +7279,7 @@ let calcFutureChallenges = function() {
     }
     tempSections = combineJSONs(tempSections, manualSections);
     myWorker2.terminate();
-    myWorker2 = new Worker("./worker.js?v=6.9.66-bl31");
+    myWorker2 = new Worker("./worker.js?v=6.9.66-bl32");
     myWorker2.onmessage = workerOnMessage;
     myWorker2.postMessage({
         type: 'future',

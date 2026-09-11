@@ -144,6 +144,13 @@
                 Object.freeze({ skill: 'Smithing', outputIncludes: 'keel parts', family: 'ship-parts' })
             ])
         }),
+        unavailableItemSources: Object.freeze({
+            // Although the wreck visually contains this item, accounts cannot
+            // take it. Keep every other small-net source available.
+            'Small fishing net': Object.freeze({
+                '6195-1': 'The wrecked-boat pickup cannot be taken.'
+            })
+        }),
         travelConnections: Object.freeze([
             Object.freeze({
                 id: 'achilka-rowboat',

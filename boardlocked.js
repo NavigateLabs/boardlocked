@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 34;
+    const VERSION = 35;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -20,6 +20,8 @@
     const displayName = name => String(name).replace(/[~|*]/g, '');
     const stripMarkup = value => String(value || '').replace(/<[^>]*>/g, '').replace(/\u200b/g, '').trim();
     const canonicalItemKey = name => String(name || '').replaceAll('*', '');
+    const itemSourceAllowed = (annotations, itemName, source) =>
+        !own(annotations?.unavailableItemSources?.[canonicalItemKey(itemName)], String(source));
     const comparableItemKey = name => canonicalItemKey(name).replaceAll('#', '/').trim().toLowerCase();
     const enablerTaskId = itemKey => 'bl_enabler_item_' + encodeURIComponent(canonicalItemKey(itemKey));
     const enablerItemFromTaskId = id => {
@@ -1748,13 +1750,16 @@
                 return parsed && parsed.chunkId === o.chunkId && (!parsed.sectionId || parsed.sectionId === o.sectionId);
             })));
         }
+        const itemSourceEntries = name => Object.entries(base.items?.[canonicalItemKey(name)] ||
+            base.items?.[canonicalItemKey(name) + '*'] || {}).filter(([source]) =>
+            itemSourceAllowed(annotations, name, source));
         function item(name, visiting) {
             name = name.replaceAll('*', '');
             const key = 'item:' + name;
             if (visiting.has(key)) return [];
             if (sourceCache.has(key)) return sourceCache.get(key);
             const next = new Set(visiting).add(key);
-            const origins = Object.entries(base.items?.[name] || base.items?.[name + '*'] || {}).flatMap(([source, type]) => {
+            const origins = itemSourceEntries(name).flatMap(([source, type]) => {
                 if (String(type).includes('spawn')) return origin(source, 'spawn', name, 'Direct item spawn');
                 if (type === 'shop' && base.shops?.[source]) return fixed('shops', source);
                 if (String(type).includes('drop')) return acquisitionOrigins(name, source, fixed('monsters', source));
@@ -1823,7 +1828,7 @@
             if (visiting.has(key)) return [];
             if (resourceRequirementCache.has(key)) return resourceRequirementCache.get(key);
             const next = new Set(visiting).add(key), paths = [];
-            for (const [source, type] of Object.entries(base.items?.[name] || base.items?.[name + '*'] || {})) {
+            for (const [source, type] of itemSourceEntries(name)) {
                 let directOrigins = [];
                 if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', name, 'Direct item spawn');
                 else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
@@ -1862,7 +1867,7 @@
                 const producers = new Map();
                 for (const itemName of expand(raw, codes.itemsPlus).map(canonicalItemKey)) {
                     const resource = itemName.replaceAll('*', '');
-                    for (const [source, type] of Object.entries(base.items?.[resource] || base.items?.[resource + '*'] || {})) {
+                    for (const [source, type] of itemSourceEntries(resource)) {
                         let directOrigins = [];
                         if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', resource, 'Direct item spawn');
                         else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
@@ -1912,7 +1917,7 @@
             name = name.replaceAll('*', '');
             if (name === forestry.kitItem || visiting.has(name)) return false;
             if (forestryItemCache.has(name)) return forestryItemCache.get(name);
-            const sources = Object.keys(base.items?.[name] || base.items?.[name + '*'] || {});
+            const sources = itemSourceEntries(name).map(([source]) => source);
             if (!sources.length) return false;
             const next = new Set(visiting).add(name);
             const result = sources.every(source => {
@@ -1961,7 +1966,7 @@
             const next = new Set(visiting).add(cacheKey);
             const origins = expand(rawItem, codes.itemsPlus).flatMap(expandedItem => {
                 const itemName = canonicalItemKey(expandedItem);
-                return Object.entries(base.items?.[itemName] || base.items?.[itemName + '*'] || {}).flatMap(([source, type]) => {
+                return itemSourceEntries(itemName).flatMap(([source, type]) => {
                     let directOrigins = [];
                     if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', itemName, 'Direct item spawn');
                     else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
@@ -2147,7 +2152,7 @@
                     persistentEnablers.every(requirement => requirement.satisfied) && (!forestryStatus || forestryStatus.satisfied) };
         }
         function itemAcquisitionStatus(itemName) {
-            const paths = Object.entries(base.items?.[itemName] || base.items?.[itemName + '*'] || {})
+            const paths = itemSourceEntries(itemName)
                 .map(([source, type]) => acquisitionPath(itemName, source, type)).filter(Boolean);
             const availablePaths = paths.filter(path => path.available);
             const missingMilestones = [...new Map(paths.flatMap(path => path.resourceMilestones || []).filter(dependency => !dependency.satisfied)
@@ -2400,7 +2405,7 @@
             enablerCatalog, enablerAmbiguities: enablerModel.ambiguous };
     }
     return { VERSION, STARTING_SECTION_POLICY, SKILLS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
-        canonicalItemKey, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
+        canonicalItemKey, itemSourceAllowed, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, taskMetadata, resourceRepresentativeMetadata,
         equipmentObjectiveAlternatives, isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,

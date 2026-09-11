@@ -60,6 +60,9 @@ function blFilterSources(base) {
         }
     }
     for (const [name, sources] of Object.entries(base.items)) {
+        for (const source of Object.keys(sources)) {
+            if (!Boardlocked.itemSourceAllowed(BoardlockedData, name, source)) delete sources[source];
+        }
         if (Object.entries(sources).some(([source, kind]) => kind === 'shop' ? base.shops[source] :
             kind.includes('spawn') ? blLocationAllowed(source) : kind.includes('drop') ? base.monsters[source] : source === 'Manually Added Equipment')) {
             blPresentItems.add(name.replace(/\*.*$/, ''));
