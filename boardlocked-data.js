@@ -220,6 +220,38 @@
                 })
             ])
         }),
+        recipeSupply: Object.freeze({
+            // Cooking and Crafting objectives must follow a deliberate supply
+            // route. Focused activities may provide ingredients at a lower rate
+            // than ordinary monster drops because the player can repeat the
+            // activity specifically for that resource.
+            skills: Object.freeze(['Cooking', 'Crafting']),
+            commonMonsterChance: 1 / 4,
+            focusedActivityChance: 1 / 20,
+            rareFallbackRatio: 1 / 2,
+            itemAliases: Object.freeze({
+                // The upstream recipe uses one b, while Hunter produces the
+                // correctly named item.
+                'Raw wild kebit': 'Raw wild kebbit',
+                'Slimy eel': 'Cooked slimy eel',
+                'Karambwanji': 'Raw karambwanji',
+                'Karambwan': 'Cooked karambwan',
+                'Curry leaves': 'Curry leaf',
+                'BLessed wyrm bones': 'Blessed wyrm bones',
+                'Ball of wall': 'Ball of wool'
+            }),
+            inputCorrections: Object.freeze({
+                // This partial-product row otherwise consumes its own output.
+                'Make a ~|part wild pie (raw chompy)|~': Object.freeze({
+                    'Part wild pie (raw chompy)*': 'Part wild pie (raw bear meat)*'
+                })
+            }),
+            additionalOutputs: Object.freeze({
+                // The upstream row represents every recoloured cape but omits
+                // Output because there are several possible results.
+                'Dye a ~|cape|~': Object.freeze(['Cape[+]'])
+            })
+        }),
         unavailableItemSources: Object.freeze({
             // Although the wreck visually contains this item, accounts cannot
             // take it. Keep every other small-net source available.

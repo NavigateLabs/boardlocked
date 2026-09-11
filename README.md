@@ -73,6 +73,15 @@ node scripts/runBoardlockedTests.js
 Set `BOARDLOCKED_TEST_WORKERS` to use a different worker count. Run
 `node --test scripts/testBoardlocked.js` when a single-process test trace is useful.
 
+Audit every Cooking and Crafting input and its accepted or rejected sources:
+
+```powershell
+node scripts/auditRecipeSupply.js --json
+```
+
+Without `--json`, the command prints a short coverage summary and exits with an
+error if any recipe input group has no complete source chain.
+
 
 ## Credits
 

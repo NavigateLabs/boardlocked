@@ -24,6 +24,7 @@ function blInitialize(request) {
     blClueRewards = null;
     blClueEquipmentTiers = new Map();
     if (!blContext) return;
+    Boardlocked.applyRecipeSupplyAliases(chunkInfo, BoardlockedData);
     blClueRewards = Boardlocked.clueRewardCatalog(chunkInfo, blLegacyProgress(), blContext.state, blContext.tasksMap);
     const collectionRewardKeys = new Set(blClueRewards.rewards.map(reward => reward.key));
     for (const [tier, itemNames] of Object.entries(BoardlockedData.clues?.equipmentRewardsByTier || {})) {

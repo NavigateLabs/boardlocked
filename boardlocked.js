@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 44;
+    const VERSION = 45;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -2151,6 +2151,195 @@
         return groups[name] || [name];
     }
 
+    function supplyChance(raw) {
+        const value = String(raw ?? '').split('@')[0].replaceAll('~', '').replaceAll(',', '').trim();
+        if (/^always$/i.test(value)) return 1;
+        const fraction = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(value);
+        if (fraction) return Number(fraction[1]) / Number(fraction[2]);
+        const percent = /^(\d+(?:\.\d+)?)%$/.exec(value);
+        return percent ? Number(percent[1]) / 100 : null;
+    }
+
+    function recipeSupplyCatalog(data = {}, annotations = {}) {
+        const enabled = !!annotations.recipeSupply, config = annotations.recipeSupply || {};
+        const trackedSkills = new Set(enabled ? config.skills || ['Cooking', 'Crafting'] : []);
+        const aliases = config.itemAliases || {}, groups = data.codeItems?.itemsPlus || {};
+        const commonMonsterChance = Number(config.commonMonsterChance ?? 1 / 4);
+        const focusedActivityChance = Number(config.focusedActivityChance ?? 1 / 20);
+        const rareFallbackRatio = Number(config.rareFallbackRatio ?? 1 / 2);
+        const canonical = value => {
+            const key = canonicalItemKey(value).trim();
+            return aliases[key] || key;
+        };
+        const candidates = new Map(), producerInputs = new Map(), recipes = [];
+        const add = (itemName, source) => {
+            const itemKey = canonical(itemName);
+            if (!itemKey) return;
+            const list = candidates.get(itemKey) || [];
+            const identity = [source.kind, source.sourceName, source.sourceType].join(':');
+            const existing = list.find(value => value.identity === identity);
+            if (!existing) list.push({ ...source, identity });
+            else if (Number.isFinite(source.chance) && (!Number.isFinite(existing.chance) || source.chance > existing.chance)) {
+                existing.chance = source.chance;
+            }
+            candidates.set(itemKey, list);
+        };
+        const expanded = raw => expand(raw, groups).map(canonical);
+        const taskInputs = (name, meta) => (meta.Items || []).map(raw => config.inputCorrections?.[name]?.[raw] || raw);
+        const bestChance = quantities => Math.max(-1, ...Object.values(quantities || {}).map(supplyChance).filter(Number.isFinite));
+        const challengePools = new Map();
+        for (const [skill, tasks] of Object.entries(data.challenges || {})) for (const [name, meta] of Object.entries(tasks || {})) {
+            const declaredOutputs = [...(meta.Output ? [meta.Output] : []), ...(config.additionalOutputs?.[name] || [])];
+            if (declaredOutputs.length) {
+                for (const output of declaredOutputs.flatMap(expanded)) add(output, { kind: 'action', sourceName: name,
+                    sourceType: (meta.Secondary || meta.ForcedSecondary ? 'secondary-' : 'primary-') + skill,
+                    chance: 1, preferred: !(meta.Secondary || meta.ForcedSecondary), reason: 'Produced directly by an action' });
+                if (meta.Output) {
+                    const poolKey = skill + ':' + canonicalItemKey(meta.Output);
+                    const list = challengePools.get(poolKey) || [];
+                    list.push({ skill, name, meta }); challengePools.set(poolKey, list);
+                }
+                producerInputs.set(name, taskInputs(name, meta).map(raw => expanded(raw)));
+            }
+            for (const reward of Array.isArray(meta.Reward) ? meta.Reward : []) {
+                if (typeof reward === 'string') for (const output of expanded(reward)) add(output, { kind: 'reward', sourceName: name,
+                    sourceType: 'primary-' + skill, chance: 1, preferred: true, reason: 'Guaranteed task or quest reward' });
+            }
+            if (trackedSkills.has(skill)) recipes.push({ skill, name,
+                inputs: taskInputs(name, meta).map(raw => ({ raw, consumable: raw.includes('*'), alternatives: expanded(raw) })) });
+            if (['bis', 'collection'].includes(taskMetadata(name, skill, meta).taskClass) &&
+                meta.Items?.length === 1 && !meta.Items[0].includes('*')) {
+                for (const itemName of expanded(meta.Items[0])) add(itemName, { kind: 'registered', sourceName: name,
+                    sourceSkill: skill, sourceType: 'registered', chance: 1, preferred: true,
+                    reason: 'Registered equipment or collection reward' });
+            }
+        }
+        for (const [shop, stock] of Object.entries(data.shopItems || {})) for (const itemName of Object.keys(stock || {})) {
+            add(itemName, { kind: 'shop', sourceName: shop, sourceType: 'shop', chance: 1, preferred: true,
+                reason: 'Normal shop stock' });
+        }
+        for (const [tier, itemNames] of Object.entries(annotations.clues?.equipmentRewardsByTier || {})) {
+            for (const itemName of itemNames) add(itemName, { kind: 'clue', sourceName: 'Clue scroll (' + tier + ')',
+                sourceType: 'clue-reward', chance: null, preferred: true, reason: 'Clue reward from its normal tier' });
+        }
+        for (const [chunkId, chunk] of Object.entries(data.chunks || {})) {
+            for (const [sectionId, contents] of [['', chunk], ...Object.entries(chunk.Sections || {})]) {
+                for (const [itemName, count] of Object.entries(contents.Spawn || {})) add(itemName, { kind: 'spawn',
+                    sourceName: chunkId + (sectionId ? '-' + sectionId : ''), sourceType: 'spawn', chance: 1,
+                    count: Number(count || 0), preferred: true, reason: 'Ground item spawn' });
+            }
+        }
+        const addDrop = (itemName, monster, chance) => add(itemName, { kind: 'monster', sourceName: monster,
+            sourceType: chance >= commonMonsterChance ? 'primary-drop' : 'secondary-drop', chance,
+            preferred: Number.isFinite(chance) && chance >= commonMonsterChance,
+            reason: Number.isFinite(chance) && chance >= commonMonsterChance ? 'Common monster drop' : 'Rare monster drop' });
+        for (const [monster, drops] of Object.entries(data.drops || {})) for (const [dropName, quantities] of Object.entries(drops || {})) {
+            const outerChance = bestChance(quantities), table = data.codeItems?.dropTables?.[dropName];
+            if (table) {
+                for (const [itemName, tableRate] of Object.entries(table)) {
+                    const innerChance = supplyChance(tableRate);
+                    addDrop(itemName, monster, Number.isFinite(outerChance) && Number.isFinite(innerChance) ? outerChance * innerChance : null);
+                }
+            } else addDrop(dropName, monster, outerChance < 0 ? null : outerChance);
+        }
+        for (const [skill, pools] of Object.entries(data.skillItems || {})) for (const [pool, items] of Object.entries(pools || {})) {
+            const producers = challengePools.get(skill + ':' + canonicalItemKey(pool)) || [];
+            for (const [rawItemName, quantities] of Object.entries(items || {})) for (const producer of producers) {
+                const outerValue = bestChance(quantities), outerChance = outerValue < 0 ? null : outerValue;
+                const table = data.codeItems?.dropTables?.[rawItemName];
+                const outputs = table ? Object.entries(table).map(([itemName, rate]) => {
+                    const innerChance = supplyChance(rate);
+                    return [itemName, Number.isFinite(outerChance) && Number.isFinite(innerChance) ? outerChance * innerChance : null];
+                }) : [[rawItemName, outerChance]];
+                for (const [itemName, chance] of outputs) {
+                    const preferred = !(producer.meta.Secondary || producer.meta.ForcedSecondary) &&
+                        Number.isFinite(chance) && chance >= focusedActivityChance;
+                    add(itemName, { kind: 'activity', sourceName: producer.name,
+                        sourceType: preferred ? 'primary-' + skill : 'secondary-' + skill, chance, preferred,
+                        reason: preferred ? 'Repeatable focused activity' : 'Incidental activity reward' });
+                }
+            }
+        }
+        const ingredients = {};
+        const directItems = new Set(recipes.flatMap(recipe => recipe.inputs.flatMap(input => input.alternatives)));
+        const usedItems = new Set(directItems), pending = [...usedItems];
+        while (pending.length) {
+            const itemKey = pending.pop();
+            for (const source of candidates.get(itemKey) || []) for (const input of producerInputs.get(source.sourceName) || []) {
+                for (const dependency of input) if (!usedItems.has(dependency)) {
+                    usedItems.add(dependency); pending.push(dependency);
+                }
+            }
+        }
+        for (const itemKey of [...usedItems].sort((a, b) => a.localeCompare(b))) {
+            const sources = candidates.get(itemKey) || [];
+            const registered = sources.filter(source => source.kind === 'registered');
+            const ordinary = sources.filter(source => source.kind !== 'registered');
+            const preferred = ordinary.filter(source => source.preferred);
+            let approved = preferred;
+            if (!approved.length && ordinary.length) {
+                const numeric = ordinary.filter(source => Number.isFinite(source.chance));
+                if (numeric.length) {
+                    const best = Math.max(...numeric.map(source => source.chance));
+                    approved = numeric.filter(source => source.chance >= best * rareFallbackRatio)
+                        .map(source => ({ ...source, reason: 'Best available rare source' }));
+                } else approved = ordinary.map(source => ({ ...source, reason: 'Only defined source' }));
+            }
+            approved = [...approved, ...registered];
+            const approvedKeys = new Set(approved.map(source => source.identity));
+            ingredients[itemKey] = { itemKey, sources: sources.map(source => ({ ...source,
+                approved: approvedKeys.has(source.identity) })), approvedSources: [...approvedKeys] };
+        }
+        const sourceAllowed = (itemName, sourceName, sourceType) => {
+            if (!enabled) return true;
+            const item = ingredients[canonical(itemName)];
+            if (!item) return false;
+            return item.sources.some(source => source.approved && source.sourceName === sourceName &&
+                (source.sourceType === sourceType || source.kind === 'spawn' && String(sourceType).includes('spawn') ||
+                    source.kind === 'monster' && String(sourceType).includes('drop') ||
+                    source.kind === 'clue' && sourceType === 'clue-reward' ||
+                    ['action', 'activity', 'reward'].includes(source.kind) && sourceType !== 'shop' &&
+                        !String(sourceType).includes('drop') && !String(sourceType).includes('spawn')));
+        };
+        const globalSupplyCache = new Map();
+        const globallySupplied = (itemName, visiting = new Set()) => {
+            const itemKey = canonical(itemName);
+            if (globalSupplyCache.has(itemKey)) return globalSupplyCache.get(itemKey);
+            if (visiting.has(itemKey)) return false;
+            const next = new Set(visiting).add(itemKey), item = ingredients[itemKey];
+            const result = !!item && item.sources.some(source => {
+                if (!source.approved) return false;
+                const inputs = producerInputs.get(source.sourceName);
+                return !inputs || inputs.every(alternatives => alternatives.some(input => globallySupplied(input, next)));
+            });
+            if (result || visiting.size === 0) globalSupplyCache.set(itemKey, result);
+            return result;
+        };
+        for (const item of Object.values(ingredients)) item.globallySupplied = globallySupplied(item.itemKey);
+        return { enabled, skills: [...trackedSkills], aliases: { ...aliases }, ingredients, recipes,
+            directItems: [...directItems], producerInputs, canonical, sourceAllowed, globallySupplied };
+    }
+
+    function applyRecipeSupplyAliases(data = {}, annotations = {}) {
+        const aliases = annotations.recipeSupply?.itemAliases || {};
+        for (const members of Object.values(data.codeItems?.itemsPlus || {})) {
+            if (Array.isArray(members)) for (let index = 0; index < members.length; index++) {
+                members[index] = aliases[members[index]] || members[index];
+            }
+        }
+        for (const skill of annotations.recipeSupply?.skills || ['Cooking', 'Crafting']) {
+            for (const [name, meta] of Object.entries(data.challenges?.[skill] || {})) {
+                if (!Array.isArray(meta.Items)) continue;
+                meta.Items = meta.Items.map(raw => annotations.recipeSupply?.inputCorrections?.[name]?.[raw] || raw).map(raw => {
+                    const suffix = raw.endsWith('*') ? '*' : '';
+                    const name = suffix ? raw.slice(0, -1) : raw;
+                    return (aliases[name] || name) + suffix;
+                });
+            }
+        }
+        return data;
+    }
+
     function buildEnablerModel(data, annotations = {}) {
         const codes = data.codeItems || {}, groups = codes.itemsPlus || {}, levels = data.toolLevels || {};
         const config = annotations.persistentEnablers || {};
@@ -2474,6 +2663,8 @@
         for (const category of ['Quest', 'Diary', 'Extra', 'BiS', ...SKILLS, 'Nonskill']) {
             for (const name of Object.keys(data.challenges[category] || {})) if (!knownNames.has(name)) knownNames.set(name, category);
         }
+        const recipeSupply = recipeSupplyCatalog(data, annotations);
+        const recipeSupplySkills = new Set(recipeSupply.skills);
         const knownSkillLevel = skill => Math.max(1, Number(state.actualLevels?.[skill] || 1),
             Number(state.progressionHighWater?.[skill] || 0));
         const skillCeiling = skill => progressionCeiling(taskCatalog, skill,
@@ -2998,19 +3189,51 @@
         // those caches so normal task construction applies the level and training gates.
         sourceCache.clear(); originCache.clear(); dependencyDiagnostics.clear();
         const ordinaryGoalSupplyCache = new Map();
-        function ordinaryGoalItemAvailable(raw, visiting = new Set()) {
+        function reasonableRecipeItemOrigins(raw, visiting = new Set()) {
+            return uniqueOrigins(expand(raw, codes.itemsPlus).flatMap(rawName => {
+                const itemName = canonicalItemKey(rawName), key = 'recipe-origin:' + comparableItemKey(itemName);
+                if (visiting.has(key)) return [];
+                const next = new Set(visiting).add(key);
+                return itemSourceEntries(itemName).flatMap(([source, type]) => {
+                    if (!recipeSupply.sourceAllowed(itemName, source, type)) return [];
+                    if (String(type).includes('spawn')) return origin(source, 'spawn', itemName, 'Direct item spawn');
+                    if (type === 'shop' && base.shops?.[source]) return fixed('shops', source);
+                    if (String(type).includes('drop')) return acquisitionOrigins(itemName, source, fixed('monsters', source));
+                    const direct = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
+                    if (direct.length) return direct;
+                    const producerSkill = knownNames.get(source), producerMeta = data.challenges?.[producerSkill]?.[source];
+                    if (!producerMeta || !taskLevelReadiness(source, producerSkill, producerMeta).allowed ||
+                        !declaredSkillReadiness(producerMeta).allowed) return [];
+                    const reusable = (producerMeta.Items || []).filter(item => !item.includes('*'));
+                    if (!reusable.every(item => itemRequirementReadiness(item, next).allowed)) return [];
+                    const consumed = (producerMeta.Items || []).filter(item => item.includes('*'));
+                    if (!consumed.every(item => ordinaryGoalItemAvailable(item, next, true))) return [];
+                    const hasFixedAnchor = !!(producerMeta.Chunks?.length || producerMeta.NPCs?.length ||
+                        producerMeta.Monsters?.length || producerMeta.Objects?.length || producerMeta.Mix?.length);
+                    return !hasFixedAnchor && consumed.length === 1 ? reasonableRecipeItemOrigins(consumed[0], next) :
+                        taskOrigins(source, producerSkill, next);
+                });
+            }));
+        }
+        function ordinaryGoalItemAvailable(raw, visiting = new Set(), enforceRecipeSources = false) {
             const alternatives = expand(raw, codes.itemsPlus).map(canonicalItemKey);
             return alternatives.some(itemName => {
-                const key = comparableItemKey(itemName);
+                const key = (enforceRecipeSources ? 'recipe:' : 'ordinary:') + comparableItemKey(itemName);
                 if (ordinaryGoalSupplyCache.has(key)) return ordinaryGoalSupplyCache.get(key);
                 if (visiting.has(key)) return false;
                 const next = new Set(visiting).add(key);
-                const available = itemSourceEntries(itemName).some(([source, type]) => {
+                const registered = enforceRecipeSources &&
+                    (recipeSupply.ingredients[recipeSupply.canonical(itemName)]?.sources || []).some(source =>
+                        source.approved && source.kind === 'registered' && isComplete({ name: source.sourceName,
+                            skill: source.sourceSkill, taskId: taskId(source.sourceName, source.sourceSkill, ids) }, legacy, state));
+                const available = registered || itemSourceEntries(itemName).some(([source, type]) => {
+                    if (enforceRecipeSources && !recipeSupply.sourceAllowed(itemName, source, type)) return false;
                     if (String(type).includes('spawn')) return origin(source, 'spawn', itemName, 'Direct item spawn').length > 0;
                     if (type === 'shop' && base.shops?.[source]) return fixed('shops', source).length > 0;
                     if (String(type).includes('drop')) {
                         const origins = acquisitionOrigins(itemName, source, fixed('monsters', source));
                         if (!origins.length) return false;
+                        if (enforceRecipeSources) return true;
                         if (encounterDetails[source]?.sourceTypes?.includes('monsters')) return true;
                         const chance = dropChance(source, itemName);
                         return chance === null || chance >= TRAINING_DROP_RATE;
@@ -3022,26 +3245,27 @@
                     const reusable = (producerMeta.Items || []).filter(item => !item.includes('*'));
                     if (!reusable.every(item => itemRequirementReadiness(item, next).allowed)) return false;
                     return (producerMeta.Items || []).filter(item => item.includes('*'))
-                        .every(item => ordinaryGoalItemAvailable(item, next));
+                        .every(item => ordinaryGoalItemAvailable(item, next, enforceRecipeSources));
                 });
                 ordinaryGoalSupplyCache.set(key, available);
                 return available;
             });
         }
-        function progressionSupplyReadiness(meta, taskClass, advancesSkillProgression, forestBound = false) {
-            // A level-one objective may introduce a skill through a one-off
-            // resource. Later ordinary milestones cannot be introduced by a
-            // low-rate incidental monster drop anywhere in their input chain.
-            // Ground spawns and intended production sources stay usable. Reward objectives are
-            // classified separately, so rare BiS and Collection Log drops stay
-            // available without becoming training supplies.
-            if (taskClass !== 'skill_progression' || !advancesSkillProgression || Number(meta.Level || 1) <= 1 || forestBound) {
+        function progressionSupplyReadiness(skill, meta, taskClass, advancesSkillProgression, forestBound = false) {
+            // Cooking and Crafting recipes use reviewed ingredient paths at every
+            // level. Other skills keep the level-one introduction rule, while
+            // later milestones reject low-rate incidental drops in their inputs.
+            // Reward objectives are classified separately, so rare BiS and
+            // Collection Log drops stay available without becoming training supplies.
+            const recipe = recipeSupplySkills.has(skill) && (meta.Items || []).some(raw => raw.includes('*'));
+            if (forestBound || (!recipe && (taskClass !== 'skill_progression' || !advancesSkillProgression ||
+                Number(meta.Level || 1) <= 1))) {
                 return { allowed: true, blocks: [] };
             }
             const blocks = (meta.Items || []).filter(raw => raw.includes('*')).flatMap(raw => {
-                if (ordinaryGoalItemAvailable(raw)) return [];
+                if (ordinaryGoalItemAvailable(raw, new Set(), recipeSupplySkills.has(skill))) return [];
                 const itemName = canonicalItemKey(raw).replaceAll('*', '');
-                return [{ item: itemName, reason: 'Only a low-rate monster drop supplies ' + itemName }];
+                return [{ item: itemName, reason: 'No reasonable primary source supplies ' + itemName }];
             });
             return { allowed: blocks.length === 0,
                 blocks: [...new Map(blocks.map(block => [block.reason, block])).values()] };
@@ -3318,10 +3542,19 @@
                 record.displayName = '[' + record.bisReason + '] ' + record.displayName;
             }
             if (SKILLS.includes(requirementSkill)) {
+                const recipeConsumables = recipeSupplySkills.has(requirementSkill) ?
+                    (requirementMeta.Items || []).filter(raw => raw.includes('*')) : [];
+                const portableObjects = codes.boardlockedPortableObjects || ['Cooking object[+]'];
+                const recipeHasFixedAnchor = !!(requirementMeta.Chunks?.length || requirementMeta.NPCs?.length ||
+                    requirementMeta.Monsters?.length || requirementMeta.Mix?.length ||
+                    (requirementMeta.Objects?.length && !requirementMeta.Objects.every(object => portableObjects.includes(object))));
+                if (recipeConsumables.length === 1 && !recipeHasFixedAnchor) {
+                    record.origins = reasonableRecipeItemOrigins(recipeConsumables[0]);
+                }
                 const levelReadiness = taskLevelReadiness(name, requirementSkill, requirementMeta);
                 const declaredReadiness = declaredSkillReadiness(requirementMeta);
                 const inputReadiness = taskInputReadiness(name, requirementSkill, requirementMeta);
-                const supplyReadiness = progressionSupplyReadiness(requirementMeta, record.taskClass,
+                const supplyReadiness = progressionSupplyReadiness(requirementSkill, requirementMeta, record.taskClass,
                     record.advancesSkillProgression, forestBound);
                 const dependencyReadiness = !declaredReadiness.allowed ? declaredReadiness :
                     !levelReadiness.allowed && levelReadiness.reason.startsWith('No repeatable ') ? levelReadiness : null;
@@ -3543,7 +3776,8 @@
             enablerCatalog, enablerAmbiguities: enablerModel.ambiguous, clueStatus };
     }
     return { VERSION, STARTING_SECTION_POLICY, SKILLS, CLUE_TIERS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
-        canonicalItemKey, itemSourceAllowed, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
+        canonicalItemKey, itemSourceAllowed, recipeSupplyCatalog, applyRecipeSupplyAliases,
+        enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, completedQuestProgress, taskMetadata, resourceRepresentativeMetadata,
         equipmentObjectiveAlternatives, equipmentDominatesTask, superiorEquipmentCompletion,

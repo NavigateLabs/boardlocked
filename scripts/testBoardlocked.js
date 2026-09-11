@@ -502,16 +502,16 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=23/);
+    assert.match(html, /boardlocked-data\.js\?v=24/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl31/);
-    assert.match(html, /boardlocked\.js\?v=69/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl45/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl45/);
-    assert.match(worker, /boardlocked-data\.js\?v=23/);
-    assert.match(worker, /boardlocked\.js\?v=69/);
-    assert.match(worker, /boardlocked-worker\.js\?v=25/);
-    assert.match(html, /boardlocked-ui\.js\?v=87/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
+    assert.match(html, /boardlocked\.js\?v=70/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl46/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl46/);
+    assert.match(worker, /boardlocked-data\.js\?v=24/);
+    assert.match(worker, /boardlocked\.js\?v=70/);
+    assert.match(worker, /boardlocked-worker\.js\?v=26/);
+    assert.match(html, /boardlocked-ui\.js\?v=88/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -2014,7 +2014,7 @@ test('later ordinary skill goals reject low-rate monster drops anywhere in their
     let tasks = R.buildTasks(fixture).tasks;
     const rare = tasks.find(task => task.name === 'Headache');
     assert.equal(rare.available, false);
-    assert.match(rare.accessResult.reason, /Only a low-rate monster drop supplies Pastry dough/);
+    assert.match(rare.accessResult.reason, /No reasonable primary source supplies Pastry dough/);
     assert.equal(tasks.find(task => task.name === 'Starter').available, true,
         'the sustainable starter still establishes ordinary Cooking training');
 
@@ -2036,9 +2036,91 @@ test('real worker: Imp flour cannot unlock the later mud-pie goal', () => {
     const tasks = runWorker(request).result.tasks;
     const mudPie = tasks.find(task => task.name === 'Bake a ~|mud pie|~');
     assert.equal(mudPie.available, false);
-    assert.match(mudPie.accessResult.reason, /low-rate monster drop supplies Pastry dough/);
-    assert.equal(tasks.find(task => task.name === 'Bake a loaf of ~|bread|~').available, true,
-        'the existing level-one one-off exception remains intact');
+    assert.match(mudPie.accessResult.reason, /No reasonable primary source supplies Pastry dough/);
+    assert.equal(tasks.find(task => task.name === 'Bake a loaf of ~|bread|~').available, false,
+        'a level-one recipe cannot use the same incidental Imp flour loophole');
+});
+
+test('every Cooking and Crafting recipe input has a reviewed primary supply route', () => {
+    const catalog = R.recipeSupplyCatalog(chunkData, annotations);
+    for (const skill of ['Cooking', 'Crafting']) {
+        const recipes = catalog.recipes.filter(recipe => recipe.skill === skill);
+        assert.ok(recipes.length > 200, skill + ' audit unexpectedly lost most recipes');
+        for (const recipe of recipes) for (const input of recipe.inputs) {
+            assert.ok(input.alternatives.some(item => catalog.globallySupplied(item)),
+                `${skill}: ${recipe.name} has no primary source for ${input.raw}`);
+        }
+    }
+    const approved = (item, source) => catalog.ingredients[item].sources
+        .some(candidate => candidate.sourceName === source && candidate.approved);
+    assert.equal(approved('Pot of flour', 'Imp'), false, 'incidental Imp flour is not a recipe source');
+    assert.equal(approved('Raw chicken', 'Imp'), false, 'incidental Imp chicken is not a recipe source');
+    assert.equal(approved('Raw chicken', 'Chicken'), true);
+    assert.equal(approved('Uncut opal', 'Pan at a ~|panning point|~'), true,
+        'focused activities can be reasonable even below the monster-drop threshold');
+    assert.equal(approved('Uncut opal', 'Casket (Reward pool) loot*'), false);
+    assert.equal(approved('Smouldering stone', 'Slay ~|Cerberus|~ alt'), true,
+        'the intended rare source remains usable');
+    assert.equal(approved('Smouldering stone', 'Hellhound'), false,
+        'a much worse incidental source cannot stand in for the intended source');
+    assert.equal(approved('Eternal gem', '(Slayer) Obtain an ~|eternal gem|~'), true,
+        'a registered collection reward can feed its later recipe');
+    assert.ok(catalog.ingredients['Raw wild kebbit']);
+    assert.equal(catalog.ingredients['Raw wild kebit'], undefined);
+});
+
+test('recipe supply filtering rejects incidental outputs and keeps every approved alternative origin', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges = {
+        Cooking: { Cook: { Items: ['Ingredient*'], Objects: ['Cooking object[+]'], Level: 1,
+            Primary: true, Output: 'Meal' } },
+        Fishing: { Incidental: { Objects: ['Fishing spot'], Output: 'Junk', Secondary: true } },
+        Nonskill: { Intended: { Objects: ['Primary source'], Output: 'Ingredient' } },
+        Extra: {}, Quest: {}, Diary: {}
+    };
+    fixture.data.skillItems = { Fishing: { Junk: { Ingredient: { 1: '1/2' } } } };
+    fixture.data.drops = {};
+    fixture.data.chunks = {};
+    fixture.base = { objects: { 'Fishing spot': { '1000': true } }, monsters: {}, npcs: {}, shops: {},
+        items: { Ingredient: { Incidental: 'secondary-Fishing' } } };
+    fixture.valids = { Cooking: { Cook: 1 }, Fishing: { Incidental: 1 }, Nonskill: { Intended: true } };
+    fixture.ids = { Cook: 'cook', Incidental: 'incidental', Intended: 'intended' };
+    fixture.annotations = annotations;
+    let cooked = R.buildTasks(fixture).tasks.find(task => task.name === 'Cook');
+    assert.equal(cooked.available, false);
+    assert.match(cooked.accessResult.reason, /No reasonable primary source supplies Ingredient/);
+
+    fixture.base.objects['Primary source'] = { '2000': true };
+    fixture.base.items.Ingredient.Intended = 'primary-Nonskill';
+    cooked = R.buildTasks(fixture).tasks.find(task => task.name === 'Cook');
+    assert.equal(cooked.available, true);
+    assert.deepEqual(cooked.origins.map(source => source.sourceName), ['Primary source']);
+});
+
+test('rare-only recipe ingredients use the best source family without leaking inferior drops', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges = { Cooking: { Cook: { Items: ['Rare part*'], Objects: ['Cooking object[+]'],
+        Level: 1, Primary: true, Output: 'Meal' } }, Extra: {}, Quest: {}, Diary: {} };
+    fixture.data.drops = { Boss: { 'Rare part': { 1: '1/100' } }, Rat: { 'Rare part': { 1: '1/10000' } } };
+    fixture.data.chunks = {};
+    fixture.base = { objects: {}, npcs: {}, shops: {}, monsters: { Boss: { '1000': true }, Rat: { '2000': true } },
+        items: { 'Rare part': { Boss: 'secondary-drop', Rat: 'secondary-drop' } } };
+    fixture.valids = { Cooking: { Cook: 1 } };
+    fixture.ids = { Cook: 'cook' };
+    fixture.annotations = annotations;
+    let cooked = R.buildTasks(fixture).tasks.find(task => task.name === 'Cook');
+    assert.equal(cooked.available, true);
+    assert.deepEqual(cooked.origins.map(source => source.sourceName), ['Boss']);
+
+    delete fixture.base.monsters.Boss;
+    cooked = R.buildTasks(fixture).tasks.find(task => task.name === 'Cook');
+    assert.equal(cooked.available, false);
+});
+
+test('recipe aliases repair upstream ingredient spelling before worker calculation', () => {
+    const data = R.copy(chunkData);
+    R.applyRecipeSupplyAliases(data, annotations);
+    assert.deepEqual(data.challenges.Cooking['Cook a ~|cooked wild kebbit|~'].Items, ['Raw wild kebbit*']);
 });
 
 test('rare supplies remain valid for reward goals and registered encounter activities', () => {
@@ -3584,8 +3666,8 @@ test('real worker: competitive encounter readiness covers every Gemstone Crab re
     const crabOnlyIds = new Set(open.filter(task => task.encounterSources?.includes('Gemstone Crab') &&
         task.origins.every(origin => origin.sourceName === 'Gemstone Crab')).map(task => task.taskId));
     assert.ok(blocked.filter(task => crabOnlyIds.has(task.taskId)).every(task => !task.eligible && task.encounterDeferred));
-    assert.ok(crabTasks.some(task => task.activeOrigins.length && !task.encounterDeferred),
-        'a task with an independent non-crab source keeps that route');
+    assert.ok(crabTasks.every(task => !task.activeOrigins.length && task.encounterDeferred),
+        'the 1/1000 incidental topaz source cannot keep a recipe active after the crab is deferred');
 });
 test('real worker: collection completion is ordinary snapshot completion and rates are not a cutoff', () => {
     const request = makeRequest(['5942']); request.chunkInfo.drops['Moss giant']['Curved bone']['1'] = '1/999999999';
