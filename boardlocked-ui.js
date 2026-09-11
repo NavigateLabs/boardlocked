@@ -14,6 +14,7 @@
     let pool = R.derivePool([], {}, [], null), travelGraph = null, signature = '', previousUnlocked = null;
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
     let pickingStartingTile = false, selectedStartingCandidate = null;
+    let focusedPanelDetails = null;
     let panel = null, message = '', dataReady = false;
     let loadFailure = false, recoveredBrowserBackup = false, browserVaultError = null;
     let catalog = [], catalogData = null, setupLocations = [];
@@ -207,6 +208,13 @@
     }
     function setPanelOpen(open) {
         if (!panel) return;
+        if (!open && focusedPanelDetails) {
+            const marker = focusedPanelDetails.boardlockedPlaceholder;
+            if (marker?.parentNode) marker.parentNode.insertBefore(focusedPanelDetails, marker.nextSibling);
+            marker?.remove();
+            delete focusedPanelDetails.boardlockedPlaceholder;
+            focusedPanelDetails = null;
+        }
         if (!open && pickingStartingTile) {
             pickingStartingTile = false;
             selectedStartingCandidate = null;
@@ -442,7 +450,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl34');
+        worker = new Worker('./worker.js?v=6.9.66-bl35');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1510,12 +1518,31 @@
     window.boardlockedController = { enabled, notice, calculate, invalidate, onLegacyChange, roll, allowRelock, drawOverlay, bootstrapLocal,
         handleStartingTileClick,
         isFrontierCandidate: id => pool.candidates.some(candidate => candidate.kind === 'frontier' && candidate.locationId === String(id)),
+        skillProgress: skill => R.completedSkillProgress(catalog, skill, legacy(), state, tasksMap),
         open: () => {
             setPanelOpen(true);
             document.getElementById('bl-origin-overrides').value = JSON.stringify(state.originOverrides, null, 2);
             document.getElementById('bl-access-overrides').value = JSON.stringify(state.accessOverrides, null, 2);
             rebuild(); render();
             document.getElementById('bl-close')?.focus();
+        },
+        close: () => setPanelOpen(false),
+        openSection: section => {
+            setPanelOpen(true); rebuild(); render();
+            const summaryIds = { slayer: 'bl-slayer-master-summary' };
+            const summary = document.getElementById(summaryIds[section]), details = summary?.parentElement;
+            const content = document.getElementById('bl-mode-content');
+            if (details && content && details !== focusedPanelDetails) {
+                if (focusedPanelDetails) setPanelOpen(false);
+                const marker = document.createComment('Boardlocked section position');
+                details.parentNode.insertBefore(marker, details);
+                details.boardlockedPlaceholder = marker;
+                content.prepend(details);
+                focusedPanelDetails = details;
+            }
+            if (details) details.open = true;
+            if (panel) panel.scrollTop = 0;
+            summary?.focus();
         },
         debug: () => ({ state: R.copy(state), pool: R.copy(pool), tasks: R.copy(tasks), progressionHighWater: { ...state.progressionHighWater },
             startingPicker: { active: pickingStartingTile, selected: R.copy(selectedStartingCandidate) },

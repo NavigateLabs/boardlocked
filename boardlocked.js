@@ -739,6 +739,23 @@
         }
         return result;
     }
+    function completedSkillProgress(catalog, skill, legacy = {}, state = null, ids = {}) {
+        if (!SKILLS.includes(skill)) return { skill, level: 0, taskId: null, name: null, displayName: null };
+        const done = completionIds(legacy, ids), completedItems = completedEquipmentItems(legacy, state, ids);
+        const cleared = catalog.filter(task => task.skill === skill && task.advancesSkillProgression &&
+            (done.has(task.taskId) || done.has(task.name) || impliedEquipmentCompletion(task, completedItems, state)))
+            .sort((left, right) => right.level - left.level ||
+                (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER) ||
+                left.displayName.localeCompare(right.displayName));
+        const task = cleared[0];
+        return { skill, level: task?.level || 0, taskId: task?.taskId || null, name: task?.name || null,
+            displayName: task?.displayName || null };
+    }
+    function trainingMethodsAtOrBelow(methods = {}, highestCompletedLevel = 0) {
+        const limit = Number(highestCompletedLevel) || 0;
+        return Object.fromEntries(Object.entries(methods).filter(([, level]) =>
+            Number.isFinite(Number(level)) && Number(level) <= limit));
+    }
     function initializeProgression(state, catalog, legacy = {}, ids = {}, force = false) {
         const next = { ...state, progressionHighWater: { ...state.progressionHighWater } };
         if (force || !state.progressionInitialized) {
@@ -2702,7 +2719,8 @@
         equipmentObjectiveAlternatives, equipmentDominatesTask, superiorEquipmentCompletion,
         isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
-        deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
+        deriveProgressionHighWater, completedSkillProgress, trainingMethodsAtOrBelow,
+        initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         actualCombatLevel, setSlayerMasterState, setBossBlocked, slayerProgressionModel,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,

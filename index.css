@@ -809,56 +809,55 @@ button.menu2 {
     cursor: not-allowed;
 }
 
-.highest {
-    background-color: rgb(255, 50, 150);
-    width: min(8vw, 125px);
-    height: 100%;
-    font-size: min(1.2vw, 20px);
-    color: white;
-    display: inline;
-    border-width: 1px 1px 1px 1px;
-    border-style: solid;
-    border-color: black;
-    outline: none;
-    -webkit-transition-duration: 0.4s;
-    transition-duration: 0.4s;
-    cursor: pointer;
-    margin: auto;
+.progress-nav {
+    display: inline-flex;
+    align-items: stretch;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--color9);
+    border-radius: 8px;
+    background-color: var(--color2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .28);
     pointer-events: auto;
 }
 
-.highest:hover {
-    background-color: rgb(225, 25, 125);
-}
-
-.highest:active {
-    background-color: rgb(200, 75, 175);
-}
-
-.highest2 {
-    background-color: rgb(100, 100, 225);
-    width: min(8vw, 125px);
-    height: 100%;
-    font-size: min(1.2vw, 20px);
-    color: white;
-    display: inline;
-    border-width: 1px 1px 1px 1px;
-    border-style: solid;
-    border-color: black;
-    outline: none;
-    -webkit-transition-duration: 0.4s;
-    transition-duration: 0.4s;
+.progress-nav-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 30px;
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--colorText);
+    font-size: clamp(12px, 1.1vw, 16px);
+    font-weight: 600;
+    white-space: nowrap;
     cursor: pointer;
-    margin: auto;
-    pointer-events: auto;
+    transition: background-color .15s ease, box-shadow .15s ease;
 }
 
-.highest2:hover {
-    background-color: rgb(75, 75, 200);
+.progress-nav-item:hover {
+    background-color: var(--color3);
 }
 
-.highest2:active {
-    background-color: rgb(125, 125, 175);
+.progress-nav-item:focus-visible {
+    outline: 2px solid var(--colorLink);
+    outline-offset: -2px;
+}
+
+.progress-nav-item:active {
+    background-color: var(--color8);
+}
+
+@media (max-width: 850px) {
+    .progress-nav-item {
+        gap: 4px;
+        padding-inline: 7px;
+        font-size: 12px;
+    }
 }
 
 .icon-lock {
@@ -7038,6 +7037,14 @@ input#searchChunks {
     height: unset !important;
 }
 
+.methods-topbar.boardlocked-methods {
+    height: 13%;
+}
+
+.methods-topbar.boardlocked-methods + .methods-data {
+    height: 87%;
+}
+
 .methods-topbar > .yellow {
     color: rgb(200, 200, 0);
 }
@@ -7048,6 +7055,12 @@ input#searchChunks {
 
 .methods-topbar > .manual-close {
     font-size: 16px;
+}
+
+.methods-level-cap {
+    display: block;
+    font-size: 14px;
+    font-weight: normal;
 }
 
 .methods-data {

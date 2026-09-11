@@ -105,7 +105,7 @@ let filterByCheckedEquipment = false;                                           
 let filterByCheckedSources = false;                                             // Are we filtering sources by checked only
 let filterByCheckedMonsters = false;                                            // Are we filtering monsters by checked only
 let filterByUnlockedManualAreas = false;                                        // Are we filtering manual areas by unlocked only
-let filterByObtainedBiS = false;                                                // Are we filtering bis by obtained only
+let filterByObtainedBiS = BOARDLOCKED_FORK;                                     // Boardlocked BIS is proven by completed tasks
 let extraOutputItems = {};                                                      // List of extra items obtainable from skill output
 let baseChunkData = {};                                                         // Chunk data global list
 
@@ -982,7 +982,7 @@ let settingNames = {
     "recent": "<b class='noscroll'>[Recent Chunks]</b> The recent chunks panel shows you the 5 most recently rolled chunks on your map, the dates you rolled them, how long it's been (in days) since your last roll, and more",
     "info": "<b class='noscroll'>[Chunk Info]</b> The chunk info panel shows you an array of information on every chunk in the game (monsters, npcs, item spawns, shops, and more). Hint: Right-click a chunk to bring up info on that chunk",
     "chunkTasks": "<b class='noscroll'>[Chunk Tasks]</b> The chunk tasks panel shows you an automatically made list of active tasks you need to do to finish your chunk. This is essential for any Chunker to keep track of what needs to get done",
-    "topButtons": "<b class='noscroll'>[Current BIS & Activity Info]</b> These buttons allow access to many miscellaneous pieces of information and crucial functionality for locking slayer and seeing best-in-slot gear",
+    "topButtons": "<b class='noscroll'>[Progress shortcuts]</b> Open completed-task BiS, skill levels and training methods, Slayer masters, or clue progress directly from the map",
     "completedTaskColor": "Change the color of checked-off chunk tasks",
     "completedTaskStrikethrough": "Cross-off chunk tasks as you complete them",
     "randomStartAlways": "Change the 'Pick Chunk' button to always be a 'Random Start' button; every chunk roll picks a random walkable chunk (that isn't already unlocked)",
@@ -990,7 +990,7 @@ let settingNames = {
     "defaultStickerColor": "Change the default color of chunk stickers",
     "cinematicRoll": "Enable fancier rolling of chunks",
     "taskSidebar": "Expand the task panel into a large sidebar, to show more tasks at once",
-    "allTasks": "Generate a list of all intermediate-level skill tasks to be shown in the Activity Info window",
+    "allTasks": "Generate a list of all intermediate-level skill tasks in the progress window",
     "hideChecked": "Automatically hide checked-off tasks from the Active Chunk Tasks panel, with a button at the top of the panel to temporarily show the checked-off tasks",
     "ids": "Show an overlay of Chunk IDs for each chunk",
     "startingChunk": "Starting Chunk",
@@ -3731,7 +3731,7 @@ let calcCurrentChallengesCanvas = function(useOld, proceed, fromLoadData, inputT
         setCalculating('.panel-active', useOld);
         setCurrentChallenges(['No tasks currently backlogged.'], ['No tasks currently completed.'], true, true);
         myWorker.terminate();
-        myWorker = new Worker("./worker.js?v=6.9.66-bl34");
+        myWorker = new Worker("./worker.js?v=6.9.66-bl35");
         myWorker.onmessage = workerOnMessage;
         const request = currentWorkerRequest(tempSections);
         myWorker.postMessage(request);
@@ -4105,8 +4105,8 @@ $(document).ready(function() {
 // ------------------------------------------------------------
 
 // Recieve message from worker
-let myWorker = new Worker("./worker.js?v=6.9.66-bl34");
-let myWorker2 = new Worker("./worker.js?v=6.9.66-bl34");
+let myWorker = new Worker("./worker.js?v=6.9.66-bl35");
+let myWorker2 = new Worker("./worker.js?v=6.9.66-bl35");
 let workerOnMessage = function(e) {
     if (e.data.type === 'reload') {
         window.location.reload();
@@ -7279,7 +7279,7 @@ let calcFutureChallenges = function() {
     }
     tempSections = combineJSONs(tempSections, manualSections);
     myWorker2.terminate();
-    myWorker2 = new Worker("./worker.js?v=6.9.66-bl34");
+    myWorker2 = new Worker("./worker.js?v=6.9.66-bl35");
     myWorker2.onmessage = workerOnMessage;
     myWorker2.postMessage({
         type: 'future',
@@ -9500,9 +9500,38 @@ let searchDetailsSorterChange = function() {
     openSearchDetails(...searchDetailsParams);
 }
 
+let boardlockedSkillProgress = function(skill) {
+    if (!BOARDLOCKED_FORK || !window.boardlockedController?.skillProgress) {
+        return { skill, level: 0, taskId: null, name: null, displayName: null };
+    }
+    return window.boardlockedController.skillProgress(skill);
+}
+
+let boardlockedTrainingMethods = function(skill) {
+    const methods = checkPrimaryMethod(skill, globalValids, baseChunkData, true);
+    if (!BOARDLOCKED_FORK) return methods;
+    return Boardlocked.trainingMethodsAtOrBelow(methods, boardlockedSkillProgress(skill).level);
+}
+
+let openProgressView = function(tab) {
+    BOARDLOCKED_FORK && window.boardlockedController?.close?.();
+    highestTab2 = tab;
+    openHighest2();
+}
+
+let openBoardlockedSlayer = function() {
+    if (BOARDLOCKED_FORK && window.boardlockedController?.openSection) {
+        onMobile && hideMobileMenu();
+        window.boardlockedController.openSection('slayer');
+        return;
+    }
+    openProgressView('Slayer');
+}
+
 // Opens the highest modal
 let openHighest = function() {
     if (!inEntry && !importMenuOpen && !manualModalOpen && !detailsModalOpen && !notesModalOpen && !highscoreMenuOpen && !helpMenuOpen) {
+        BOARDLOCKED_FORK && window.boardlockedController?.close?.();
         onMobile && hideMobileMenu();
         modal.generate('highestModal', onMobile);
         highestModalOpen = true;
@@ -9544,7 +9573,7 @@ let openHighest = function() {
         combatStyles.forEach((combatStyle) => {
             let prayerBonus = 0;
             $('.highest-title').append(`<div class='noscroll style-button ${combatStyle.replaceAll(' ', '_')}-button' onclick='switchHighestTab("${combatStyle.replaceAll(' ', '_')}")' title='${combatStyle}'><span class='noscroll'><img class='noscroll slot-icon' src='./resources/${combatStyle.replaceAll(' ', '_')}_combat.png' /></span></div>`);
-            $('.highest-data').append(`<div class='noscroll style-body ${combatStyle.replaceAll(' ', '_')}-body'><div class='highest-subtitle noscroll'>${combatStyle}${combatStyle === 'Prayer' ? ` <span class="prayer-bonus">(<img class='noscroll slot-icon' src='./resources/Prayer_combat.png' /> +<span class="prayer-bonus-inner">${prayerBonus}</span>)</span>` : ''}${(testMode || !(viewOnly || inEntry || locked)) && combatStyle !== 'Skills' && combatStyle !== 'Slayer' ? `<div class='noscroll'><span class='noscroll addEquipment' onclick='addEquipment()'>Add additional equipment</span></div>` : ''}<div class='show-completed-btn noscroll'><input type="checkbox" onclick="changeBiSFilterBy()" ${filterByObtainedBiS ? 'checked' : ''} />Only show already obtained items</div></div></div>`);
+            $('.highest-data').append(`<div class='noscroll style-body ${combatStyle.replaceAll(' ', '_')}-body'><div class='highest-subtitle noscroll'>${combatStyle}${combatStyle === 'Prayer' ? ` <span class="prayer-bonus">(<img class='noscroll slot-icon' src='./resources/Prayer_combat.png' /> +<span class="prayer-bonus-inner">${prayerBonus}</span>)</span>` : ''}${(testMode || !(viewOnly || inEntry || locked)) && combatStyle !== 'Skills' && combatStyle !== 'Slayer' ? `<div class='noscroll'><span class='noscroll addEquipment' onclick='addEquipment()'>Add additional equipment</span></div>` : ''}${BOARDLOCKED_FORK ? '' : `<div class='show-completed-btn noscroll'><input type="checkbox" onclick="changeBiSFilterBy()" ${filterByObtainedBiS ? 'checked' : ''} />Only show already obtained items</div>`}</div></div>`);
             let veracs = {"Verac's helm": true, "Verac's brassard": true, "Verac's plateskirt": true, "Verac's flail": true, "Amulet of the damned (full)": true};
             slots.forEach((slot) => {
                 if (highestOverallLocal.hasOwnProperty(combatStyle.replaceAll(' ', '_') + '-' + slot.toLowerCase()) && highestOverallLocal[combatStyle.replaceAll(' ', '_') + '-' + slot.toLowerCase()] !== 'N/A') {
@@ -9582,6 +9611,10 @@ let openHighest = function() {
 
 // Toggle filtering of bis by obtained-only
 let changeBiSFilterBy = function() {
+    if (BOARDLOCKED_FORK) {
+        filterByObtainedBiS = true;
+        return;
+    }
     filterByObtainedBiS = !filterByObtainedBiS;
     openHighest();
 }
@@ -9653,7 +9686,8 @@ let openHighest2 = function(notScrollTop) {
         if (rules['Show Skill Tasks']) {
             combatStyles.push('Skills');
             skillNames.forEach((skill) => {
-                primarySkill[skill] = checkPrimaryMethod(skill, globalValids, baseChunkData);
+                primarySkill[skill] = BOARDLOCKED_FORK ? Object.keys(boardlockedTrainingMethods(skill)).length > 0 :
+                    checkPrimaryMethod(skill, globalValids, baseChunkData);
             });
         }
         combatStyles.push('Quests');
@@ -9668,11 +9702,19 @@ let openHighest2 = function(notScrollTop) {
         $('.highest2-data').empty();
         combatStyles.forEach((combatStyle) => {
             $('.highest2-title').append(`<div class='noscroll style-button ${combatStyle.replaceAll(' ', '_')}-button' onclick='switchHighest2Tab("${combatStyle.replaceAll(' ', '_')}")' title='${combatStyle}'><span class='noscroll'><img class='noscroll slot-icon' src='./resources/${combatStyle.replaceAll(' ', '_')}_combat.png' /></span></div>`);
-            $('.highest2-data').append(`<div class='noscroll style-body ${combatStyle.replaceAll(' ', '_')}-body'><div class='highest-subtitle noscroll'>${combatStyle}</div></div>`);
+            const sectionTitle = BOARDLOCKED_FORK && combatStyle === 'Skills' ? 'Levels &amp; Training Methods' : combatStyle;
+            $('.highest2-data').append(`<div class='noscroll style-body ${combatStyle.replaceAll(' ', '_')}-body'><div class='highest-subtitle noscroll'>${sectionTitle}</div></div>`);
             if (combatStyle === 'Skills') {
                 $(`.${combatStyle.replaceAll(' ', '_')}-body`).append(`<div class='noscroll qps'>Quest Points: ${questPointTotal}</div>`);
-                $(`.${combatStyle.replaceAll(' ', '_')}-body`).append(`<div class='noscroll row row-header'><span class='noscroll icon-table-header'>Skill</span><span class='noscroll text-table-header${settings['allTasks'] ? ' narrow' : ''}'>Highest Task</span><span class='noscroll button-table-header ${onMobile ? 'mobile' : ''}'>Skill Training</span>${settings['allTasks'] ? `<span class='noscroll button2-table-header'>All Tasks</span>` : ''}</div>`);
+                const showAllTasksColumn = !BOARDLOCKED_FORK && settings['allTasks'];
+                $(`.${combatStyle.replaceAll(' ', '_')}-body`).append(`<div class='noscroll row row-header'><span class='noscroll icon-table-header'>Skill</span><span class='noscroll text-table-header${showAllTasksColumn ? ' narrow' : ''}'>${BOARDLOCKED_FORK ? 'Highest Completed Task' : 'Highest Task'}</span><span class='noscroll button-table-header ${onMobile ? 'mobile' : ''}'>Training Methods</span>${showAllTasksColumn ? `<span class='noscroll button2-table-header'>All Tasks</span>` : ''}</div>`);
                 skillNames.filter(skill => { return skill !== 'Combat' }).sort().forEach((skill) => {
+                    if (BOARDLOCKED_FORK) {
+                        const progress = boardlockedSkillProgress(skill);
+                        const taskLabel = progress.name ? `<b class="noscroll">[${progress.level}]</b> ${progress.displayName} <span class="task-info" onclick="showDetails('${encodeRFC5987ValueChars(progress.name)}', '${skill}', '')"><i class="info-icon fa-solid fa-info-circle"></i></span>` : 'None';
+                        $(`.${combatStyle.replaceAll(' ', '_')}-body`).append(`<div class='noscroll row'><span class='noscroll skill-icon-wrapper'><img class='noscroll skill-icon' src='./resources/${skill}_skill.png' title='${skill}' /></span><span class='noscroll skill-text'>${taskLabel}</span><span class='noscroll skill-button ${onMobile ? 'mobile' : ''} ${primarySkill[skill] ? 'active' : ''}'>${primarySkill[skill] ? `<div class='noscroll methods-button' onclick='viewPrimaryMethodsOrTasks("${skill}", false)'>View Methods</div>` : `<div class='noscroll'>None</div>`}</span></div>`);
+                        return;
+                    }
                     let skillTask = highestOverall[skill];
                     let boost = 0;
                     if (!!highestOverall[skill] && highestOverall[skill].match(/\{[0-9]+\}/g)) {
@@ -9682,8 +9724,10 @@ let openHighest2 = function(notScrollTop) {
                     let completedNum = checkedAllTasks.hasOwnProperty(skill) && globalValids.hasOwnProperty(skill) ? Math.min(Object.keys(checkedAllTasks[skill]).filter(task => globalValids[skill].hasOwnProperty(task) && (!backlog.hasOwnProperty(skill) || !backlog[skill].hasOwnProperty(task))).length, Object.keys(globalValids[skill]).filter(task => !backlog.hasOwnProperty(skill) || !backlog[skill].hasOwnProperty(task)).length) : 0;
                     $(`.${combatStyle.replaceAll(' ', '_')}-body`).append(`<div class='noscroll row'><span class='noscroll skill-icon-wrapper'><img class='noscroll skill-icon' src='./resources/${skill}_skill.png' title='${skill}' /></span><span class='noscroll skill-text${settings['allTasks'] ? ' narrow' : ''}'>${(testMode || !(viewOnly || inEntry || locked)) ? `<span class='noscroll edit-highest' onclick='openPassiveModal("${skill}")'><i class="noscroll fa-solid fa-edit"></i></span>` : ''}${(!!skillTask ? '<b class="noscroll">[' + (boost > 0 ? (chunkInfo['challenges'][skill][skillTask]['Level'] - boost) + '] (+' + boost + ')' : chunkInfo['challenges'][skill][skillTask]['Level'] + ']') + '</b> ' : '') + (skillTask || 'None').replaceAll('~', '').replaceAll('|', '')} ${skillTask ? `<span class="task-info" onclick="showDetails('${encodeRFC5987ValueChars(skillTask)}', '${skill}', '')"><i class="info-icon fa-solid fa-info-circle"></i></span>` : ''}</span><span class='noscroll skill-button ${onMobile ? 'mobile' : ''} ${(primarySkill[skill] ? 'active' : '')}'>${primarySkill[skill] ? `<div class='noscroll methods-button' onclick='viewPrimaryMethodsOrTasks("${skill}", false)'>View Methods</div></span>` : `<div class='noscroll'>None</div></span>`}${settings['allTasks'] ? `<span class='noscroll skill-button2 ${(!!globalValids[skill] && Object.keys(globalValids[skill]).filter(task => !backlog.hasOwnProperty(skill) || !backlog[skill].hasOwnProperty(task)).length > 0 ? 'active' : '')}'>${!!globalValids[skill] && Object.keys(globalValids[skill]).filter(task => !backlog.hasOwnProperty(skill) || !backlog[skill].hasOwnProperty(task)).length > 0 ? `<div class='noscroll tasks-button ${skill}-tasks-button ${Object.keys(globalValids[skill]).filter(task => !backlog.hasOwnProperty(skill) || !backlog[skill].hasOwnProperty(task)).length > completedNum ? 'yellow' : 'green'}' onclick='viewPrimaryMethodsOrTasks("${skill}", true)'>Tasks <span class='noscroll'>(${completedNum}/${Object.keys(globalValids[skill]).filter(task => !backlog.hasOwnProperty(skill) || !backlog[skill].hasOwnProperty(task)).length})</span></div>` : `<div class='noscroll'>None</div>`}` : ''}${(testMode || !(viewOnly || inEntry || locked)) ? `<span class='noscroll manualprimary-highest' onclick='openManualPrimaryContextMenu("${skill}")'><i class="noscroll fa-solid fa-cogs"></i></span>` : ''}</span></div>`);
                 });
-                (testMode || !(viewOnly || inEntry || locked)) ? $(`.skill-button, .skill-button2, .button2-table-header`).addClass('extra-gear-room') : $(`.skill-button, .skill-button2, .button2-table-header`).removeClass('extra-gear-room');
-                settings['allTasks'] && $(`.skill-button`).removeClass('extra-gear-room');
+                if (!BOARDLOCKED_FORK) {
+                    (testMode || !(viewOnly || inEntry || locked)) ? $(`.skill-button, .skill-button2, .button2-table-header`).addClass('extra-gear-room') : $(`.skill-button, .skill-button2, .button2-table-header`).removeClass('extra-gear-room');
+                    settings['allTasks'] && $(`.skill-button`).removeClass('extra-gear-room');
+                }
             } else if (combatStyle === 'Slayer') {
                 $(`.${combatStyle.replaceAll(' ', '_')}-body`).append(`<div class='slayer-section slayer-section-1'></div>`);
                 let tooltipBase = `<span class="slayerlock-question">Slayer Locking <i class="fa-solid fa-question-circle question-help"></i></span>`;
@@ -10621,9 +10665,10 @@ let viewPrimaryMethodsOrTasks = function(skill, showTasks) {
             $('.methods-data').append(`<div class='noscroll skill-method'><span><input class="noscroll" ${checkedAllTasks[skill] && checkedAllTasks[skill][task] && "checked"} ${(!testMode && (viewOnly || inEntry || locked)) ? "disabled" : ''} type="checkbox" onclick="checkOffAllTask('${skill}', '${encodeRFC5987ValueChars(task)}')" /></span><span class='skill-method-text'>[${globalValids[skill][task]}]: ${task.includes('~') ? `${task.replaceAll('*', '').split('~')[0]}<a class='link noscroll' href="${"https://oldschool.runescape.wiki/w/" + encodeForUrl((task.replaceAll('*', '').split('|')[1]))}" target="_blank">${task.replaceAll('*', '').split('~')[1].split('|').join('')}</a>${task.replaceAll('*', '').split('~')[2]}` : `${task.replaceAll('~', '').replaceAll('|', '').replaceAll('*', '')}`} ${chunkInfo['challenges'][skill].hasOwnProperty(task) ? `<span class='noscroll details-info' onclick="showDetails('${encodeRFC5987ValueChars(task)}', '${skill}', '')"><i class="challenge-icon fa-solid fa-info-circle noscroll"></i></span></span>` : ''}</div>`);
         });
     } else {
-        $('.methods-topbar').removeClass('show-tasks');
-        $('.methods-topbar').html(`<i class="manual-close pic fa-solid fa-times noscrollhard" onclick="closeMethods()"></i>`);
-        let methods = checkPrimaryMethod(skill, globalValids, baseChunkData, true);
+        $('.methods-topbar').removeClass('show-tasks').toggleClass('boardlocked-methods', BOARDLOCKED_FORK);
+        const completedLevel = BOARDLOCKED_FORK ? boardlockedSkillProgress(skill).level : null;
+        $('.methods-topbar').html(`${BOARDLOCKED_FORK ? `<span>${skill} training methods</span><small class="methods-level-cap">At or below completed task level ${completedLevel}</small>` : ''}<i class="manual-close pic fa-solid fa-times noscrollhard" onclick="closeMethods()"></i>`);
+        let methods = BOARDLOCKED_FORK ? boardlockedTrainingMethods(skill) : checkPrimaryMethod(skill, globalValids, baseChunkData, true);
         Object.keys(methods).sort(function(a, b) { return methods[a] - methods[b] }).forEach((method) => {
             $('.methods-data').append(`<div class='noscroll skill-method ${!(!testMode && (viewOnly || inEntry || locked)) ? 'with-burger' : ''}'><span>[${methods[method]}]: ${method.includes('~') ? `${method.replaceAll('*', '').split('~')[0]}<a class='link noscroll' href="${"https://oldschool.runescape.wiki/w/" + encodeForUrl((method.replaceAll('*', '').split('|')[1]))}" target="_blank">${method.replaceAll('*', '').split('~')[1].split('|').join('')}</a>${method.replaceAll('*', '').split('~')[2]}` : `${method.replaceAll('~', '').replaceAll('|', '').replaceAll('*', '')}`} ${chunkInfo['challenges'][skill].hasOwnProperty(method) ? `<span class='noscroll details-info' onclick="showDetails('${encodeRFC5987ValueChars(method)}', '${skill}', '')"><i class="challenge-icon fa-solid fa-info-circle noscroll"></i></span><span class="burger noscroll${!testMode && (viewOnly || inEntry || locked) ? ' hidden-burger' : ''}" onclick="openTrainingMethodsContextMenu('${encodeRFC5987ValueChars(method)}', '${skill}')"><i class="fa-solid fa-sliders-h noscroll"></i></span></span>` : ''}</div>`);
         });

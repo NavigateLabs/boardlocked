@@ -363,13 +363,15 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-data\.js\?v=16/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl23/);
-    assert.match(html, /boardlocked\.js\?v=54/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl34/g);
+    assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl24/);
+    assert.match(html, /boardlocked\.js\?v=55/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl35/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl35/);
     assert.match(worker, /boardlocked-data\.js\?v=16/);
-    assert.match(worker, /boardlocked\.js\?v=54/);
+    assert.match(worker, /boardlocked\.js\?v=55/);
     assert.match(worker, /boardlocked-worker\.js\?v=19/);
-    assert.match(html, /boardlocked-ui\.js\?v=73/);
+    assert.match(html, /boardlocked-ui\.js\?v=74/);
     assert.match(html, /boardlocked\.css\?v=20/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -927,6 +929,40 @@ test('completing a skill task advances an exact high-water mark and opens only t
     assert.equal(tasks.find(t => t.name === 'Bread').eligible, false);
     assert.equal(tasks.find(t => t.name === 'Higher').eligible, true);
     assert.equal(R.derivePool([], geo, tasks).byLocation['1000'].includes('chicken'), false);
+});
+
+test('progress panels derive levels and training methods from completed tasks only', () => {
+    const f = progressionFixture();
+    let progress = R.completedSkillProgress(f.catalog, 'Cooking',
+        { checkedAllTasks: { Cooking: { Chicken: true } } }, fresh(), f.ids);
+    assert.deepEqual(progress, { skill: 'Cooking', level: 1, taskId: 'chicken', name: 'Chicken', displayName: 'Chicken' });
+    progress = R.completedSkillProgress(f.catalog, 'Cooking',
+        { completedChallenges: { Cooking: { fish: true } } }, fresh(), f.ids);
+    assert.equal(progress.level, 20);
+    assert.equal(progress.name, 'Fish');
+    assert.deepEqual(R.completedSkillProgress(f.catalog, 'Cooking', {}, fresh(), f.ids),
+        { skill: 'Cooking', level: 0, taskId: null, name: null, displayName: null });
+
+    const methods = { Chicken: 1, Bread: 5, Pie: 10, Fish: 20, Invalid: 'unknown' };
+    assert.deepEqual(R.trainingMethodsAtOrBelow(methods, 10), { Chicken: 1, Bread: 5, Pie: 10 });
+    assert.deepEqual(R.trainingMethodsAtOrBelow(methods, 0), {});
+});
+
+test('Boardlocked progress navigation uses completed evidence and clear destinations', () => {
+    const root = path.join(__dirname, '..');
+    const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
+    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const ui = fs.readFileSync(path.join(root, 'boardlocked-ui.js'), 'utf8');
+    assert.match(index, /filterByObtainedBiS = BOARDLOCKED_FORK/);
+    assert.match(index, /BOARDLOCKED_FORK \? '' : `<div class='show-completed-btn/,
+        'the obtained-only BIS control remains fixed and hidden in Boardlocked');
+    assert.match(index, /Boardlocked\.trainingMethodsAtOrBelow\(methods, boardlockedSkillProgress\(skill\)\.level\)/);
+    assert.match(index, /Highest Completed Task/);
+    assert.match(index, /At or below completed task level/);
+    assert.match(ui, /skillProgress: skill => R\.completedSkillProgress/);
+    assert.match(ui, /openSection: section =>/);
+    for (const label of ['BiS', 'Levels &amp; Training', 'Slayer', 'Clues']) assert.match(html, new RegExp('>' + label + '<'));
+    assert.doesNotMatch(html.match(/<div class='menu6'>[\s\S]*?<\/div>\s*<div class='menu7'>/)[0], /Activity Info|Current BIS/);
 });
 
 test('a skill begins with level-one methods, then opens its full forward window', () => {

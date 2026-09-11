@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <head>
-  <link rel="stylesheet" href="./index.css?v=6.9.66" />
+  <link rel="stylesheet" href="./index.css?v=6.9.66-bl1" />
   <meta charset="UTF-8">
   <meta name="description" content="Boardlocked is a local-first chunk progression mode for Old School RuneScape.">
   <meta name="author" content="NavigateLabs">
@@ -55,9 +55,9 @@
   <script src="./tooltip.js?v=6.9.66"></script>
   <script src="./modal.js?v=6.9.66-bl1"></script>
   <script src="./boardlocked-data.js?v=16"></script>
-  <script src="./boardlocked.js?v=54"></script>
-  <script src="./index.js?v=6.9.66-bl23"></script>
-  <script src="./boardlocked-ui.js?v=73"></script>
+  <script src="./boardlocked.js?v=55"></script>
+  <script src="./index.js?v=6.9.66-bl24"></script>
+  <script src="./boardlocked-ui.js?v=74"></script>
   <link rel="stylesheet" href="./boardlocked.css?v=20">
   <ul class='active-context-menu'>
     <li onclick="switchActiveContext(event, 'backlog')">Backlog</li>
@@ -182,8 +182,12 @@
     </div>
   </div>
   <div class='menu6'>
-    <button class='highest' onclick="openHighest()">Current BIS</button>
-    <button class='highest2' onclick="openHighest2()">Activity Info</button>
+    <nav class='progress-nav' aria-label="Boardlocked progress">
+      <button type="button" class='progress-nav-item' onclick="openHighest()" title="Best equipment from completed tasks"><i class="fa-solid fa-shield-alt" aria-hidden="true"></i><span>BiS</span></button>
+      <button type="button" class='progress-nav-item' onclick="openProgressView('Skills')" title="Completed skill tasks and available training methods"><i class="fa-solid fa-chart-bar" aria-hidden="true"></i><span>Levels &amp; Training</span></button>
+      <button type="button" class='progress-nav-item' onclick="openBoardlockedSlayer()" title="Slayer master access"><i class="fa-solid fa-skull-crossbones" aria-hidden="true"></i><span>Slayer</span></button>
+      <button type="button" class='progress-nav-item' onclick="openProgressView('Clues')" title="Clue progress and accessible steps"><i class="fa-solid fa-scroll" aria-hidden="true"></i><span>Clues</span></button>
+    </nav>
   </div>
   <div class='menu7'>
     <div id='recentChunksTitle' class='text'><b>Recently Unlocked</b></div>
@@ -277,8 +281,10 @@
   <div class='menu13'>
     <div>
       <div class='mobile-item-header noscroll'>Select Option</div>
-      <div class='mobile-item noscroll' onclick="openHighest2()">Activity Info</div>
-      <div class='mobile-item noscroll' onclick="openHighest()">Current BIS</div>
+      <div class='mobile-item noscroll' onclick="openHighest()">Best in slot</div>
+      <div class='mobile-item noscroll' onclick="openProgressView('Skills')">Levels &amp; training methods</div>
+      <div class='mobile-item noscroll' onclick="openBoardlockedSlayer()">Slayer</div>
+      <div class='mobile-item noscroll' onclick="openProgressView('Clues')">Clues</div>
       <div class='mobile-item noscroll' onclick="openSearch()">Search Within My Chunks</div>
       <div class='mobile-item noscroll open-manual-outer-container' onclick="openManualAddOuter()">Manually Add To My Chunks</div>
       <div class='mobile-item noscroll' onclick="showOverlays()">Show Overlays</div>
