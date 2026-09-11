@@ -21,7 +21,7 @@ Simply, you move one chunk then complete one task before you can move again. Mov
 
 The tasks are similar to those you would expect from chunklocked, I.e. get a new BiS, skilling activity, collection log, quests and such.
 
-Every obtainable equipment item that improves your current best-in-slot gear appears as its own goal. This includes intermediate upgrades, so a shop with several better platebodies shows each one and you're free to choose. With mobs, if you're looking for a certain drop and incidentally complete another task, that chunk is now complete. You must check off the other task you completed and move on, the same goes for activities which drop multiple collection log items, or can complete multiple tasks.
+Every obtainable equipment item that improves your current best-in-slot gear appears as its own goal. This includes intermediate upgrades, so a shop with several better platebodies shows each one and you're free to choose. With mobs, if you're looking for a certain drop and incidentally complete another task, that chunk is now complete. You must check off the other task you completed and move on, the same goes for activities which drop multiple items with their own task.
 
 You have access to everything in previously unlocked chunks, and can freely re-enter areas you have previously been to. However you must focus on your task. I.e. if you need to get woodcutting to lvl 60 to cut yew, that should be the goal you focus on in your unlocked chunks and therfore you shouldn't go train thieving.
 
