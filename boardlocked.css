@@ -56,6 +56,12 @@
 #bl-panel .bl-start-picker[hidden] { display: none !important; }
 #bl-panel .bl-start-picker p { margin: 0 0 7px; }
 #bl-panel .bl-start-choice { min-height: 20px; font-size: 12px; }
+#bl-panel .bl-start-section-choice { margin: 7px 0 10px; }
+#bl-panel .bl-start-section-choice[hidden] { display: none !important; }
+#bl-panel .bl-start-section-choice > small { display: block; margin: 4px 0; opacity: .8; }
+#bl-panel .bl-start-section-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+#bl-panel .bl-start-section-buttons button { flex: 1 1 82px; padding: 5px 7px; font-size: 12px; }
+#bl-panel .bl-start-section-buttons button.is-selected { color: #fff; background: #176c54; border-color: #176c54; }
 #bl-panel .bl-start-picker-actions { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
 body.bl-start-picking #canvas { cursor: crosshair !important; }
 #bl-panel .bl-toolbar { display: flex; flex-wrap: wrap; gap: 8px; }

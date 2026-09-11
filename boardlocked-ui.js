@@ -17,7 +17,7 @@
     let pool = R.derivePool([], {}, [], null), travelGraph = null, signature = '', previousUnlocked = null;
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
     let manualStartingPool = { ids: [], groups: [], groupByLocation: {} };
-    let pickingStartingTile = false, selectedStartingCandidate = null;
+    let pickingStartingTile = false, selectedStartingLocationId = null, selectedStartingCandidate = null;
     let focusedPanelDetails = null;
     let panel = null, message = '', dataReady = false;
     let loadFailure = false, recoveredBrowserBackup = false, browserVaultError = null;
@@ -223,6 +223,7 @@
         if (!open) panel.classList.remove('bl-section-focus');
         if (!open && pickingStartingTile) {
             pickingStartingTile = false;
+            selectedStartingLocationId = null;
             selectedStartingCandidate = null;
             document.body.classList.remove('bl-start-picking');
             if (typeof drawCanvas === 'function') drawCanvas();
@@ -427,7 +428,10 @@
             BoardlockedData.travelConnections);
         pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, travelGraph, state.travelAnchor, state.travelAnchorSections);
         const selectedPool = pickingStartingTile ? manualStartingPool : startingPool;
-        if (selectedStartingCandidate && !selectedPool.ids?.includes(selectedStartingCandidate.locationId)) selectedStartingCandidate = null;
+        if (selectedStartingLocationId && !selectedPool.ids?.includes(selectedStartingLocationId)) {
+            selectedStartingLocationId = null;
+            selectedStartingCandidate = null;
+        }
         if (hasStarted()) syncDisplayedFrontier(pool.candidates.filter(candidate => candidate.kind === 'frontier')
             .map(candidate => candidate.locationId));
         else syncDisplayedFrontier([]);
@@ -460,7 +464,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl42');
+        worker = new Worker('./worker.js?v=6.9.66-bl43');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -567,6 +571,7 @@
         const candidate = !hasStarted() ? R.chooseStartingCandidate(pool.candidates, startingPool) : R.chooseCandidate(pool.candidates);
         if (!candidate) return notice('There is nowhere to roll from this tile. Check its open routes, tasks, and blacklisted tiles.');
         pickingStartingTile = false;
+        selectedStartingLocationId = null;
         selectedStartingCandidate = null;
         begin(candidate);
     }
@@ -579,12 +584,14 @@
             tempChunks.blacklisted || {});
         if (!manualStartingPool.ids.length) return notice('There are no land tiles available.');
         pickingStartingTile = true;
+        selectedStartingLocationId = null;
         selectedStartingCandidate = null;
         message = '';
         render(); drawCanvas();
     }
     function cancelPickingTile() {
         pickingStartingTile = false;
+        selectedStartingLocationId = null;
         selectedStartingCandidate = null;
         message = '';
         render(); drawCanvas();
@@ -601,10 +608,24 @@
             notice('Choose a land tile on the map.');
             return true;
         }
-        selectedStartingCandidate = R.chooseStartingCandidate([{ kind: 'frontier', locationId: id }], manualStartingPool);
+        selectedStartingLocationId = id;
+        selectedStartingCandidate = null;
+        const sectionGroups = manualStartingPool.arrivalSectionGroupsByLocation?.[id] || [[]];
+        if (sectionGroups.length === 1) {
+            selectedStartingCandidate = R.startingCandidateForRegion({ kind: 'frontier', locationId: id }, manualStartingPool, 0);
+        }
         message = '';
         render(); drawCanvas();
         return true;
+    }
+    function selectStartingSection(sectionIndex) {
+        if (!pickingStartingTile || hasStarted() || !selectedStartingLocationId) return;
+        const groups = manualStartingPool.arrivalSectionGroupsByLocation?.[selectedStartingLocationId] || [];
+        if (!Number.isInteger(sectionIndex) || !groups[sectionIndex]) return notice('Choose one of the available starting areas.');
+        selectedStartingCandidate = R.startingCandidateForRegion(
+            { kind: 'frontier', locationId: selectedStartingLocationId }, manualStartingPool, sectionIndex);
+        message = '';
+        render(); drawCanvas();
     }
     function confirmStartingTile() {
         if (!pickingStartingTile || hasStarted() || !selectedStartingCandidate) return;
@@ -615,6 +636,7 @@
         manualStartingPool = R.deriveManualStartingPool(chunkInfo, BoardlockedData, state.actualLevels,
             tempChunks.blacklisted || {});
         if (!manualStartingPool.ids.includes(selected.locationId)) {
+            selectedStartingLocationId = null;
             selectedStartingCandidate = null;
             notice('That tile is no longer available. Choose another land tile.');
             drawCanvas();
@@ -623,6 +645,7 @@
         const candidate = { kind: 'frontier', locationId: selected.locationId, metadata: { ...(selected.metadata || {}) } };
         applyStartingRequirements(candidate.metadata.startRequirements);
         pickingStartingTile = false;
+        selectedStartingLocationId = null;
         selectedStartingCandidate = null;
         begin(candidate);
     }
@@ -890,6 +913,7 @@
     }
     function setInitializationOption(key, checked) {
         if (!canEdit() || hasStarted() || !R.own(state.initialization, key)) return;
+        selectedStartingLocationId = null;
         selectedStartingCandidate = null;
         state.initialization[key] = checked;
         const questChanged = syncInitializationCompletions(true);
@@ -1406,7 +1430,7 @@
         document.getElementById('bl-reset').disabled = !canEdit();
         document.getElementById('bl-preset-status').textContent = 'Rules: ' + activeRulePreset();
         const started = hasStarted();
-        if (started) { pickingStartingTile = false; selectedStartingCandidate = null; }
+        if (started) { pickingStartingTile = false; selectedStartingLocationId = null; selectedStartingCandidate = null; }
         document.body.classList.toggle('bl-start-picking', pickingStartingTile && !started);
         const startSetup = document.getElementById('bl-start-setup');
         startSetup.hidden = started;
@@ -1446,6 +1470,26 @@
         const startConfirmButton = document.getElementById('bl-start-confirm');
         startConfirmButton.disabled = !selectedStartingCandidate || busy || !!error || !dataReady || !canEdit();
         const startChoice = document.getElementById('bl-start-choice');
+        const sectionChoice = document.getElementById('bl-start-section-choice');
+        const selectableSectionGroups = selectedStartingLocationId ?
+            manualStartingPool.arrivalSectionGroupsByLocation?.[selectedStartingLocationId] || [] : [];
+        sectionChoice.replaceChildren();
+        sectionChoice.hidden = selectableSectionGroups.length <= 1;
+        if (!sectionChoice.hidden) {
+            sectionChoice.append(element('small', 'Choose where inside this tile to start:'));
+            const buttons = element('div', null, { className: 'bl-start-section-buttons' });
+            for (let index = 0; index < selectableSectionGroups.length; index++) {
+                const group = selectableSectionGroups[index];
+                const areaButton = button((group.length === 1 ? 'Area ' : 'Areas ') +
+                    (group.length ? group.join(' + ') : 'whole tile'), () => selectStartingSection(index));
+                const selected = selectedStartingCandidate?.metadata?.startRegionIndex === index;
+                areaButton.className = selected ? 'is-selected' : '';
+                areaButton.setAttribute('aria-pressed', String(selected));
+                buttons.append(areaButton);
+            }
+            sectionChoice.append(buttons,
+                element('small', 'You can change the selected area before confirming.'));
+        }
         const selectedRequirements = selectedStartingCandidate?.metadata?.startRequirements || {};
         const requirementParts = [];
         const questNames = new Set((selectedRequirements.tasks || []).filter(task => task.skill === 'Quest')
@@ -1455,10 +1499,11 @@
         if (levelNames.length) requirementParts.push(levelNames.join(', '));
         if (selectedRequirements.questPoints) requirementParts.push(selectedRequirements.questPoints + ' Quest Points');
         const selectedArea = selectedStartingCandidate?.metadata?.entrySections || [];
-        startChoice.textContent = selectedStartingCandidate ? 'Selected: ' + selectedStartingCandidate.locationId +
-            (label(selectedStartingCandidate.locationId) ? ' — ' + label(selectedStartingCandidate.locationId) : '') +
+        startChoice.textContent = selectedStartingLocationId ? (selectedStartingCandidate ? 'Selected: ' : 'Selected tile: ') +
+            selectedStartingLocationId + (label(selectedStartingLocationId) ? ' — ' + label(selectedStartingLocationId) : '') +
             (selectedArea.length ? ' · Area ' + selectedArea.join(' + ') : '') +
-            (requirementParts.length ? ' · Adds ' + requirementParts.join(' · ') : ' · No added requirements') : 'No tile selected yet.';
+            (selectedStartingCandidate ? (requirementParts.length ? ' · Adds ' + requirementParts.join(' · ') :
+                ' · No added requirements') : ' · Choose an area below') : 'No tile selected yet.';
         $('.pick').prop('disabled', rollButton.disabled).text(rollButton.textContent);
         const visit = state.currentVisit;
         document.getElementById('bl-visit-title').textContent = visit ? '#' + visit.visitNumber + ' · ' + visit.locationId + ' — ' + visit.chunkName :
@@ -1725,7 +1770,7 @@
             for (const id of candidateIds) {
                 const point = convertToXY(id), sizeX = totalZoom * imgW / rowSize, sizeY = totalZoom * imgH / (fullSize / rowSize);
                 const x = dragTotalX + point.x * sizeX, y = dragTotalY + point.y * sizeY;
-                const selected = id === selectedStartingCandidate?.locationId;
+                const selected = id === selectedStartingLocationId;
                 const hovered = id === String(hoveredChunk);
                 if (selected || hovered) {
                     context.fillStyle = selected ? 'rgba(255, 209, 102, .18)' : 'rgba(22, 133, 96, .08)';
@@ -1734,7 +1779,7 @@
                 if (selected) {
                     context.save();
                     context.globalAlpha = .42;
-                    for (const sectionId of selectedStartingCandidate.metadata?.entrySections || []) {
+                    for (const sectionId of selectedStartingCandidate?.metadata?.entrySections || []) {
                         const overlay = sectionOverlay(id, sectionId);
                         if (overlay?.canvas) context.drawImage(overlay.canvas, x + 3, y + 3, sizeX - 6, sizeY - 6);
                     }
@@ -1823,7 +1868,7 @@
             <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds wilderness tiles.</small></span></label>
             </div><p id="bl-start-summary" class="bl-muted"></p>
             <div id="bl-start-actions"><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button><button id="bl-start-pick" class="bl-start-pick" type="button">Pick starting tile</button></div>
-            <div id="bl-start-picker" class="bl-start-picker" hidden><p><strong>Click any land tile on the map.</strong> You can change your pick before confirming. Required quests and skill levels will be added to the run.</p><p id="bl-start-choice" class="bl-start-choice" aria-live="polite"></p><div class="bl-start-picker-actions"><button id="bl-start-confirm" class="bl-primary" type="button">Confirm start</button><button id="bl-start-cancel" type="button">Cancel</button></div></div></section>
+            <div id="bl-start-picker" class="bl-start-picker" hidden><p><strong>Click any land tile on the map.</strong> If it has separate areas, choose where to start before confirming. Required quests and skill levels will be added to the run.</p><p id="bl-start-choice" class="bl-start-choice" aria-live="polite"></p><div id="bl-start-section-choice" class="bl-start-section-choice" hidden></div><div class="bl-start-picker-actions"><button id="bl-start-confirm" class="bl-primary" type="button">Confirm start</button><button id="bl-start-cancel" type="button">Cancel</button></div></div></section>
             <div id="bl-mode-content" hidden>
             <button id="bl-roll" class="bl-primary" type="button">Roll next location</button>
             <button id="bl-sections" type="button" hidden>Choose accessible sections</button>
@@ -1945,7 +1990,8 @@
             summary?.focus();
         },
         debug: () => ({ state: R.copy(state), pool: R.copy(pool), tasks: R.copy(tasks), progressionHighWater: { ...state.progressionHighWater },
-            startingPicker: { active: pickingStartingTile, selected: R.copy(selectedStartingCandidate) },
+            startingPicker: { active: pickingStartingTile, locationId: selectedStartingLocationId,
+                selected: R.copy(selectedStartingCandidate) },
             enablerCatalog: R.copy(enablerCatalog), enablerAmbiguities: R.copy(enablerAmbiguities),
             slayerMasterCatalog: R.copy(slayerMasterCatalog), slayerConfirmation: R.copy(slayerConfirmation),
             clueStatus: R.copy(clueStatus),

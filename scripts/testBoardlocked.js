@@ -391,6 +391,19 @@ test('manual starts allow every land chunk and attach the selected section requi
     assert.ok(!manual.ids.includes('9017'), 'pure ocean chunks remain unavailable');
     assert.deepEqual(manual.arrivalSectionGroupsByLocation['11059'], [['1']],
         'map-plane artefacts are not offered as Fishing Platform starts');
+    assert.deepEqual(manual.arrivalSectionGroupsByLocation['12850'], [['1'], ['2'], ['3']],
+        'manual Lumbridge starts expose its main area and both fenced sections separately');
+    const lumbridgeMain = R.startingCandidateForRegion(
+        { kind: 'frontier', locationId: '12850' }, manual, 0);
+    const lumbridgeFence = R.startingCandidateForRegion(
+        { kind: 'frontier', locationId: '12850' }, manual, 1);
+    assert.deepEqual(lumbridgeMain.metadata.entrySections, ['1']);
+    assert.deepEqual(lumbridgeFence.metadata.entrySections, ['2']);
+    assert.equal(lumbridgeFence.metadata.startRegionIndex, 1);
+    assert.deepEqual(R.startVisit(fresh(), lumbridgeFence).currentVisit.arrivalSections, ['2'],
+        'confirming a manually selected area preserves that exact start section');
+    assert.throws(() => R.startingCandidateForRegion(
+        { kind: 'frontier', locationId: '12850' }, manual, 3), /Starting region is not available/);
 
     const myths = R.chooseStartingCandidate([{ kind: 'frontier', locationId: '9772' }], manual, () => 0);
     assert.ok(myths.metadata.startRequirements.tasks.some(task => task.name === '~|Dragon Slayer II|~ Complete the quest'));
@@ -484,14 +497,14 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=22/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl30/);
-    assert.match(html, /boardlocked\.js\?v=66/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl42/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl42/);
+    assert.match(html, /boardlocked\.js\?v=67/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl43/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl43/);
     assert.match(worker, /boardlocked-data\.js\?v=22/);
-    assert.match(worker, /boardlocked\.js\?v=66/);
+    assert.match(worker, /boardlocked\.js\?v=67/);
     assert.match(worker, /boardlocked-worker\.js\?v=24/);
-    assert.match(html, /boardlocked-ui\.js\?v=83/);
-    assert.match(html, /boardlocked\.css\?v=23/);
+    assert.match(html, /boardlocked-ui\.js\?v=85/);
+    assert.match(html, /boardlocked\.css\?v=24/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -3370,14 +3383,23 @@ test('manual starting-tile selection is staged behind an explicit confirmation',
     const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
     assert.match(ui, /<button id="bl-start-pick"[^>]*>Pick starting tile<\/button>/);
     assert.match(ui, /<button id="bl-start-confirm"[^>]*>Confirm start<\/button>/);
-    assert.match(ui, /Click any land tile on the map\./);
+    assert.match(ui, /If it has separate areas, choose where to start before confirming\./);
     assert.match(ui, /deriveManualStartingPool/);
+    assert.match(ui, /function selectStartingSection\(sectionIndex\)/);
+    assert.match(ui, /startingCandidateForRegion/);
+    assert.match(ui, /id="bl-start-section-choice"/);
+    assert.match(ui, /Choose where inside this tile to start:/);
+    assert.match(ui, /aria-pressed/);
     assert.match(ui, /applyStartingRequirements\(candidate\.metadata\.startRequirements\)/);
     assert.match(ui, /function handleStartingTileClick\(locationId\)/);
     assert.match(index, /handleStartingTileClick\?\.\(chunkId\)/);
     const selectBody = ui.slice(ui.indexOf('function handleStartingTileClick'), ui.indexOf('function confirmStartingTile'));
     assert.doesNotMatch(selectBody, /\bbegin\(|tempChunks\.unlocked|\bsave\(/,
         'selecting a preview must not unlock or persist the tile');
+    assert.doesNotMatch(selectBody, /chooseStartingCandidate/,
+        'manual section selection must not silently use the random automatic-start chooser');
+    assert.match(selectBody, /sectionGroups\.length === 1/,
+        'only a tile with one possible area may select that area automatically');
     const confirmBody = ui.slice(ui.indexOf('function confirmStartingTile'), ui.indexOf('function begin(candidate)'));
     assert.match(confirmBody, /\bbegin\(candidate\)/, 'confirmation commits through the normal visit flow');
     assert.match(ui, /if \(!pickingStartingTile \|\| hasStarted\(\)\) return false;/,

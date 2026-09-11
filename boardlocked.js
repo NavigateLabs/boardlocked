@@ -644,6 +644,24 @@
             arrivalSectionsByLocation, arrivalSectionGroupsByLocation, startRequirementsByLocation };
     }
 
+    function startingCandidateForRegion(candidate, startingPool, sectionIndex) {
+        if (!candidate) return null;
+        const locationId = String(candidate.locationId);
+        const groups = startingPool?.groups || [];
+        const group = groups.find(entry => entry.id === candidate.metadata?.startGroup && entry.locationIds.includes(locationId)) ||
+            groups.find(entry => entry.locationIds.includes(locationId));
+        if (!group) return { ...candidate, metadata: { ...(candidate.metadata || {}) } };
+        const sectionGroups = startingPool.arrivalSectionGroupsByLocation?.[locationId] ||
+            [startingPool.arrivalSectionsByLocation?.[locationId] || []];
+        if (!Number.isInteger(sectionIndex) || sectionIndex < 0 || sectionIndex >= sectionGroups.length) {
+            throw new RangeError('Starting region is not available for this tile');
+        }
+        return { ...candidate, locationId, metadata: { ...(candidate.metadata || {}), startGroup: group.id,
+            startRegionIndex: sectionIndex, arrivalMedium: group.medium, entrySections: [...sectionGroups[sectionIndex]],
+            startRequirements: copy(startingPool.startRequirementsByLocation?.[locationId]?.[sectionIndex] ||
+                { tasks: [], levels: {}, questPoints: 0, combatLevel: 0, totalLevel: 0 }) } };
+    }
+
     // Initial groups receive equal odds, then every tile within the selected
     // group receives equal odds. A disconnected region is chosen only after
     // its tile wins, so tiles with more regions do not gain extra weight.
@@ -662,10 +680,8 @@
         const sectionRoll = sectionGroups.length > 1 ? rng() : 0;
         if (sectionRoll < 0 || sectionRoll >= 1) throw new Error('Random source must return [0, 1)');
         const sectionIndex = Math.floor(sectionRoll * sectionGroups.length);
-        return { ...candidate, metadata: { ...(candidate.metadata || {}), startGroup: group.id,
-            startRegionIndex: sectionIndex, arrivalMedium: group.medium, entrySections: [...sectionGroups[sectionIndex]],
-            startRequirements: copy(startingPool.startRequirementsByLocation?.[candidate.locationId]?.[sectionIndex] ||
-                { tasks: [], levels: {}, questPoints: 0, combatLevel: 0, totalLevel: 0 }) } };
+        return startingCandidateForRegion({ ...candidate,
+            metadata: { ...(candidate.metadata || {}), startGroup: group.id } }, startingPool, sectionIndex);
     }
 
     function sanitizeLegacySnapshot(input = {}, ruleKeys = [], settingKeys = []) {
@@ -3373,7 +3389,8 @@
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,
         migrateStartingSections, directStartingRequirements, mergeStartingRequirements, resolveStartingRequirements,
-        automaticStartingRequirementsAllowed, deriveStartingPool, deriveManualStartingPool, chooseStartingCandidate, canRoll,
+        automaticStartingRequirementsAllowed, deriveStartingPool, deriveManualStartingPool, startingCandidateForRegion,
+        chooseStartingCandidate, canRoll,
         startVisit, slayerMasterConfirmationForVisit, snapshotVisit, addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });
