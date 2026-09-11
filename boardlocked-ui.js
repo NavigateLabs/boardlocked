@@ -844,18 +844,22 @@
             group(a).localeCompare(group(b)) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName))) {
             const category = group(task);
             if (lastCategory !== category) {
-                container.append(element('h4', category));
                 const bosses = bossGroup(task);
                 if (bosses.length) {
-                    const action = element('div', null, { className: 'bl-boss-action' });
+                    const heading = element('div', null, { className: 'bl-boss-heading' });
+                    heading.append(element('h4', category));
                     for (const boss of bosses) {
-                        const defer = button("I can't defeat this boss with my current gear", () => deferBoss(boss));
+                        const defer = element('button', bosses.length === 1 ? "Can't beat it yet?" : "Can't beat " + boss + ' yet?',
+                            { type: 'button', className: 'bl-boss-defer', onclick: () => deferBoss(boss) });
                         defer.setAttribute('aria-label', "I can't defeat " + boss + ' with my current gear');
-                        defer.disabled = !canEdit() || busy; action.append(defer);
+                        defer.disabled = !canEdit() || busy; heading.append(defer);
                     }
-                    container.append(action);
-                } else if (category === 'Slayer training') container.append(element('small',
-                    'Any listed drop obtained while training assignments from your reachable Slayer masters completes this visit.'));
+                    container.append(heading);
+                } else {
+                    container.append(element('h4', category));
+                    if (category === 'Slayer training') container.append(element('small',
+                        'Any listed drop obtained while training assignments from your reachable Slayer masters completes this visit.'));
+                }
                 lastCategory = category;
             }
             const row = element('div', null, { className: 'bl-task' });
