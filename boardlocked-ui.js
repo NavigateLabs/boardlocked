@@ -12,6 +12,8 @@
     let rawTasks = [], tasks = [], sections = {}, diagnostics = [], sourceCounts = {};
     let enablerCatalog = [], enablerAmbiguities = [], slayerMasterCatalog = [], slayerConfirmation = null;
     let slayerLockMapTargets = [];
+    let clueStatus = { tiers: {}, locks: {}, steps: [], rewards: [], cooldown: 0, incidentalClues: {} };
+    let clueLockMapTargets = [];
     let pool = R.derivePool([], {}, [], null), travelGraph = null, signature = '', previousUnlocked = null;
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
     let manualStartingPool = { ids: [], groups: [], groupByLocation: {} };
@@ -290,6 +292,8 @@
         if (key === loadedKey) return;
         worker?.terminate(); worker = null; generation++;
         loadedKey = key; rawTasks = []; tasks = []; sections = {}; signature = ''; previousUnlocked = null;
+        clueStatus = { tiers: {}, locks: {}, steps: [], rewards: [], cooldown: 0, incidentalClues: {} };
+        clueLockMapTargets = [];
         dataReady = false; busy = true; error = ''; message = ''; loadFailure = false;
         try {
             const saved = pendingStoredState || localStorage.getItem(key) || localStorage.getItem(legacyStorageKey());
@@ -366,6 +370,7 @@
             randomLoot, assignedXpRewards, altChallenges, userTasks, manualPrimary,
             settings.optOutSections, settings.optOutSectionsWater, state.actualLevels, state.progressionHighWater,
             state.originOverrides, state.accessOverrides, state.acquiredEnablers, state.blockedEncounters,
+            state.clueLocks, state.clueTaskCooldown, state.incidentalClues,
             state.startingQuestPointFloor]);
     }
     function frontier() {
@@ -455,7 +460,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl39');
+        worker = new Worker('./worker.js?v=6.9.66-bl41');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -481,6 +486,22 @@
                 schedule(); render(); drawCanvas();
                 return;
             }
+            clueStatus = result.clueStatus || clueStatus;
+            clueLockMapTargets = [...new Set(Object.values(clueStatus.locks || {}).flatMap(lock => lock.targets || []))];
+            const resolvedClueLocks = Object.entries(clueStatus.locks || {}).filter(([, lock]) => lock.satisfied);
+            if (resolvedClueLocks.length) {
+                for (const [tier, lock] of resolvedClueLocks) {
+                    state = R.setClueLock(state, tier, null);
+                    state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'auto_unlock_clue_tier',
+                        tier, stepId: lock.step?.stepId || null, stepName: lock.step?.name || null });
+                }
+                clueLockMapTargets = [];
+                message = resolvedClueLocks.map(([tier]) => tier[0].toUpperCase() + tier.slice(1)).join(', ') +
+                    (resolvedClueLocks.length === 1 ? ' clue is' : ' clues are') + ' available again.';
+                busy = false; worker?.terminate(); worker = null;
+                save(); schedule(); render(); drawCanvas();
+                return;
+            }
             rawTasks = result.tasks; sections = result.sections;
             questProgress = result.questProgress || {}; questPointTotal = Number(result.questPointTotal) || 1;
             enablerCatalog = result.enablerCatalog || []; enablerAmbiguities = result.enablerAmbiguities || [];
@@ -499,7 +520,9 @@
             boardlocked: { state: { actualLevels: state.actualLevels, progressionHighWater: state.progressionHighWater,
                     originOverrides: state.originOverrides,
                     accessOverrides: state.accessOverrides, acquiredEnablers: state.acquiredEnablers,
-                    slayerMasters: state.slayerMasters, blockedEncounters: state.blockedEncounters },
+                    slayerMasters: state.slayerMasters, blockedEncounters: state.blockedEncounters,
+                    clueLocks: state.clueLocks, clueTaskCooldown: state.clueTaskCooldown,
+                    incidentalClues: state.incidentalClues },
                 checkedAllTasks, tasksMap, unlocked: tempChunks.unlocked || {} } });
         render();
     }
@@ -701,17 +724,26 @@
         if (!canEdit()) return;
         if (isInitializationTask(task.taskId)) return notice('Account-setup quest steps stay completed for this run.');
         const target = task.skill === 'BiS' ? completedChallenges : checkedAllTasks;
+        const clueKey = task.clueReward?.itemKey ? R.canonicalItemKey(task.clueReward.itemKey)
+            .replaceAll('#', '/').trim().toLowerCase() : null;
+        const clueReward = clueKey ? (clueStatus.rewards || []).find(reward => R.canonicalItemKey(reward.itemKey)
+            .replaceAll('#', '/').trim().toLowerCase() === clueKey) : null;
         // Clear duplicate legacy representations when unchecking this exact atomic ID.
         if (!checked) {
             for (const store of [checkedAllTasks, checkedChallenges, completedChallenges]) {
                 for (const category of Object.keys(store)) for (const name of Object.keys(store[category])) {
                     if (name === task.taskId || R.taskId(name, category, tasksMap) === task.taskId) delete store[category][name];
+                    if (clueReward && category === 'Extra' && (clueReward.equivalentTaskNames.includes(name) ||
+                        clueReward.equivalentTaskIds.includes(R.taskId(name, category, tasksMap)))) delete store[category][name];
                 }
             }
             if (task.equipmentName && manualEquipment[task.equipmentName]) delete manualEquipment[task.equipmentName];
             if (task.taskClass === 'enabler' && task.enablerItemKey) delete state.acquiredEnablers[task.enablerItemKey];
         } else {
             (target[task.skill] ||= {})[task.taskClass === 'enabler' ? task.taskId : task.name] = true;
+            if (clueReward) (checkedAllTasks.Extra ||= {})[clueReward.name] = true;
+            if (task.clueReward && !task.clueReward.incidental) state.clueTaskCooldown = 1;
+            else if (!task.clueReward) state.clueTaskCooldown = 0;
             if (R.SKILLS.includes(task.skill) && Number.isFinite(task.level)) {
                 state.actualLevels[task.skill] = Math.max(state.actualLevels[task.skill] || 1, task.level);
             }
@@ -907,7 +939,6 @@
         debug.scrollIntoView({ block: 'nearest' });
     }
     function taskList(container, list, snapshot = false) {
-        let lastCategory;
         const arrivalSections = new Set(state.currentVisit?.arrivalSections || []);
         const encounterGroup = task => {
             if (!snapshot) return [];
@@ -918,33 +949,9 @@
                 origin.sourceName === encounter && origin.chunkId === state.currentVisit?.locationId &&
                 (!arrivalSections.size || !origin.sectionId || arrivalSections.has(origin.sectionId))));
         };
-        const group = task => encounterGroup(task).join(' / ') || (snapshot && task.slayerTrainingAlternative ? 'Slayer training' : task.skill);
-        for (const task of list.slice().sort((a, b) => Number(!encounterGroup(a).length) - Number(!encounterGroup(b).length) ||
-            group(a).localeCompare(group(b)) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName))) {
-            const category = group(task);
-            if (lastCategory !== category) {
-                const encounters = encounterGroup(task);
-                if (encounters.length) {
-                    const heading = element('div', null, { className: 'bl-boss-heading' });
-                    heading.append(element('h4', category));
-                    for (const encounter of encounters) {
-                        const info = task.encounterDetails?.[encounter] || encounterInfo(encounter);
-                        const label = encounters.length > 1 && info.kind === 'boss' ?
-                            "I can't defeat " + encounter + ' with my current gear' : info.deferLabel;
-                        const defer = element('button', label,
-                            { type: 'button', className: 'bl-boss-defer', onclick: () => deferEncounter(encounter) });
-                        defer.setAttribute('aria-label', label.replace('this boss', encounter));
-                        defer.title = 'Hide goals from this encounter until you reactivate it';
-                        defer.disabled = !canEdit() || busy; heading.append(defer);
-                    }
-                    container.append(heading);
-                } else {
-                    container.append(element('h4', category));
-                    if (category === 'Slayer training') container.append(element('small',
-                        'Any listed drop obtained while training assignments from your reachable Slayer masters completes this visit.'));
-                }
-                lastCategory = category;
-            }
+        const group = task => encounterGroup(task).join(' / ') || (snapshot && task.slayerTrainingAlternative ? 'Slayer training' :
+            task.clueReward ? 'Clue rewards' : task.skill);
+        const taskRow = task => {
             const row = element('div', null, { className: 'bl-task' });
             const checkLabel = element('label');
             const checkbox = element('input', null, { type: 'checkbox', 'aria-label': 'Complete ' + task.displayName });
@@ -978,6 +985,7 @@
                 capabilities: task.capabilities || [],
                 provesAcquiredItemKeys: task.provesAcquiredItemKeys || [],
                 skillingBis: task.skillingBis || null,
+                clueReward: task.clueReward || null,
                 accessResult: task.accessResult || null,
                 eligible: !!task.eligible,
                 eligibilityReason: task.eligibilityReason || '',
@@ -991,7 +999,54 @@
             }));
             const backlogButton = button(task.backlogged ? 'Unbacklog' : 'Backlog', () => backlogTask(task));
             backlogButton.disabled = !canEdit(); tools.append(backlogButton);
-            row.append(tools); container.append(row);
+            row.append(tools);
+            return row;
+        };
+        const ordered = list.slice().sort((a, b) => Number(!encounterGroup(a).length) - Number(!encounterGroup(b).length) ||
+            group(a).localeCompare(group(b)) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName));
+        const categories = new Map();
+        for (const task of ordered) {
+            const category = group(task);
+            if (!categories.has(category)) categories.set(category, []);
+            categories.get(category).push(task);
+        }
+        for (const [category, categoryTasks] of categories) {
+            const encounters = encounterGroup(categoryTasks[0]);
+            if (encounters.length) {
+                const heading = element('div', null, { className: 'bl-boss-heading' });
+                heading.append(element('h4', category));
+                for (const encounter of encounters) {
+                    const info = categoryTasks[0].encounterDetails?.[encounter] || encounterInfo(encounter);
+                    const label = encounters.length > 1 && info.kind === 'boss' ?
+                        "I can't defeat " + encounter + ' with my current gear' : info.deferLabel;
+                    const defer = element('button', label,
+                        { type: 'button', className: 'bl-boss-defer', onclick: () => deferEncounter(encounter) });
+                    defer.setAttribute('aria-label', label.replace('this boss', encounter));
+                    defer.title = 'Hide goals from this encounter until you reactivate it';
+                    defer.disabled = !canEdit() || busy; heading.append(defer);
+                }
+                container.append(heading);
+            } else {
+                container.append(element('h4', category));
+                if (category === 'Slayer training') container.append(element('small',
+                    'Any listed drop obtained while training assignments from your reachable Slayer masters completes this visit.'));
+            }
+            const clueGroups = new Map();
+            for (const task of categoryTasks) {
+                if (!task.clueReward) { container.append(taskRow(task)); continue; }
+                const tier = task.clueReward.tier;
+                if (!clueGroups.has(tier)) clueGroups.set(tier, []);
+                clueGroups.get(tier).push(task);
+            }
+            for (const tier of R.CLUE_TIERS) if (clueGroups.has(tier)) {
+                const clueTasks = clueGroups.get(tier);
+                const details = element('details', null, { className: 'bl-clue-task-group' });
+                details.append(element('summary', tier[0].toUpperCase() + tier.slice(1) + ' clue rewards · ' +
+                    clueTasks.length + (clueTasks.length === 1 ? ' goal' : ' goals')));
+                const content = element('div', null, { className: 'bl-clue-task-list' });
+                clueTasks.forEach(task => content.append(taskRow(task)));
+                details.append(content); container.append(details);
+            }
         }
     }
     function renderEnablers() {
@@ -1175,6 +1230,148 @@
         }
         if (!records.length) list.append(element('p', 'No Slayer masters are present in the task data.'));
     }
+    const clueTierLabel = tier => tier[0].toUpperCase() + tier.slice(1);
+    function clueSourceAtCurrentVisit(tier) {
+        const visit = state.currentVisit, origins = clueStatus.tiers?.[tier]?.sourceOrigins || [];
+        if (!visit) return false;
+        const arrivals = new Set(visit.arrivalSections || []);
+        return origins.some(origin => origin.chunkId === visit.locationId &&
+            (!arrivals.size || !origin.sectionId || arrivals.has(origin.sectionId)));
+    }
+    function changeClueLock(tier, step = null, action = null) {
+        if (!canEdit() || busy || !R.CLUE_TIERS.includes(tier)) return;
+        const previous = state.clueLocks?.[tier] || null;
+        const restoreCurrent = !step && clueSourceAtCurrentVisit(tier) && state.currentVisit &&
+            (!R.canRoll(state) || state.currentVisit.resolution === 'no_tasks');
+        state = R.setClueLock(state, tier, step);
+        state.adminHistory.push({ timestamp: new Date().toISOString(),
+            action: action || (step ? 'lock_clue_tier' : 'unlock_clue_tier'), tier,
+            stepId: step?.stepId || previous?.stepId || null, stepName: step?.name || previous?.name || null });
+        if (step && state.currentVisit && !R.canRoll(state)) state = R.recalculateCurrentVisit(state,
+            'Player blocked the current ' + tier + ' clue step');
+        else if (restoreCurrent) state = R.recalculateCurrentVisit(state,
+            'Player reactivated ' + tier + ' clues', undefined, { reopenNoTasks: true });
+        message = step ? clueTierLabel(tier) + ' clue rewards are blocked until this step becomes possible.' :
+            restoreCurrent ? clueTierLabel(tier) + ' clue rewards are being restored to this visit.' :
+                clueTierLabel(tier) + ' clue rewards are available again.';
+        save(); schedule(); render();
+    }
+    function saveClueLock(tier) {
+        const select = document.getElementById('bl-clue-step-' + tier);
+        const step = (clueStatus.steps || []).find(candidate => candidate.tier === tier && candidate.stepId === select?.value);
+        if (!step) return notice('Choose the clue step you cannot complete.');
+        changeClueLock(tier, step);
+    }
+    function changeIncidentalMaster(delta) {
+        if (!canEdit() || busy) return;
+        const count = Math.max(0, Number(state.incidentalClues?.master) || 0) + delta;
+        state = R.setIncidentalClueCount(state, 'master', count);
+        state.adminHistory.push({ timestamp: new Date().toISOString(),
+            action: delta > 0 ? 'register_incidental_master_clue' : 'finish_incidental_master_clue', count });
+        message = delta > 0 ? 'Incidental Master clue recorded. Its rewards can be registered below without adding Master goals to this tile.' :
+            'Incidental Master clue resolved.';
+        save(); render();
+    }
+    function incidentalRewardTask(reward) {
+        const calculated = tasks.find(task => task.taskId === reward.taskId);
+        if (calculated) return { ...calculated, eligible: true, eligibilityReason: '',
+            clueReward: { ...(calculated.clueReward || {}), tier: 'master', itemKey: reward.itemKey, incidental: true } };
+        return { taskId: reward.taskId, name: reward.name, displayName: R.displayName(reward.name), skill: 'Extra',
+            taskClass: 'collection', category: 'Collection Log', completed: reward.completed, eligible: true,
+            clueReward: { tier: 'master', itemKey: reward.itemKey, incidental: true }, origins: [], activeOrigins: [] };
+    }
+    function renderClues() {
+        const summary = document.getElementById('bl-clue-summary'), list = document.getElementById('bl-clue-tiers');
+        if (!summary || !list) return;
+        const statuses = R.CLUE_TIERS.map(tier => clueStatus.tiers?.[tier]).filter(Boolean);
+        const active = statuses.filter(status => status.generating).length;
+        const blocked = statuses.filter(status => status.blocked).length;
+        const waiting = statuses.some(status => status.repeatableSource && state.clueTaskCooldown);
+        summary.textContent = 'Clues' + (blocked ? ' · ' + blocked + ' blocked' : active ? ' · ' + active + ' active' :
+            waiting ? ' · waiting' : '');
+        list.replaceChildren();
+        if (state.clueTaskCooldown) list.append(element('p',
+            'Complete one non-clue goal before another clue reward goal can appear.', { className: 'bl-clue-cooldown' }));
+        for (const tier of R.CLUE_TIERS) {
+            const status = clueStatus.tiers?.[tier];
+            if (!status) continue;
+            const row = element('section', null, { className: 'bl-clue-tier' });
+            const heading = element('div', null, { className: 'bl-clue-tier-heading' });
+            let stateLabel = status.complete ? 'Complete' : status.blocked ? 'Blocked' : status.generating ? 'Active' :
+                status.repeatableSource && state.clueTaskCooldown ? 'Waiting' : 'No source';
+            heading.append(element('strong', clueTierLabel(tier)), element('span', stateLabel,
+                { className: 'bl-clue-state is-' + stateLabel.toLowerCase().replace(' ', '-') }));
+            row.append(heading, element('small', status.completed + ' of ' + status.total + ' rewards obtained'));
+            if (status.complete) {
+                row.append(element('small', ['easy', 'medium', 'hard', 'elite'].includes(tier) ?
+                    'This tier now counts as a freely obtainable Watson input.' : 'This tier no longer generates reward goals.'));
+            } else if (status.blocked) {
+                const lock = status.lock;
+                row.append(element('small', lock?.step?.name || state.clueLocks?.[tier]?.name || 'Saved clue step', { className: 'bl-clue-step-name' }));
+                if (lock?.step?.requirements) {
+                    const req = lock.step.requirements, parts = [
+                        ...Object.entries(req.skills || {}).map(([skill, level]) => skill + ' ' + level),
+                        ...(req.items || []).map(R.displayName), ...(req.chunks || []).map(chunk => 'area ' + chunk),
+                        ...(req.npcs || []).map(R.displayName), ...(req.monsters || []).map(R.displayName),
+                        ...(req.objects || []).map(R.displayName), ...Object.keys(req.tasks || {}).map(R.displayName),
+                        ...(req.questPoints ? [req.questPoints + ' Quest Points'] : []),
+                        ...(req.combatLevel ? ['Combat level ' + req.combatLevel] : [])
+                    ];
+                    if (parts.length) row.append(element('small', 'Needs: ' + parts.join(' · '), { className: 'bl-clue-requirements' }));
+                }
+                const actions = element('div', null, { className: 'bl-toolbar bl-clue-actions' });
+                const unlock = button('I can complete this step now', () => changeClueLock(tier));
+                unlock.disabled = !canEdit() || busy; actions.append(unlock);
+                if (lock?.selfCycle) {
+                    const discard = button('Discard this deadlocked clue', () => changeClueLock(tier, null, 'discard_deadlocked_clue'));
+                    discard.title = 'Available only because this step requires an unowned reward from its own clue tier';
+                    discard.disabled = !canEdit() || busy; actions.append(discard);
+                    row.append(element('small', 'This step requires an unowned reward from the same clue tier, so the no-discard rule would make the run permanently stuck.'));
+                }
+                row.append(actions);
+            } else {
+                const locations = new Set((status.sourceOrigins || []).map(origin => origin.chunkId));
+                row.append(element('small', status.generating ? locations.size + (locations.size === 1 ? ' unlocked source tile' : ' unlocked source tiles') +
+                    ' can generate this tier’s reward goals.' : status.repeatableSource && state.clueTaskCooldown ?
+                    'An unlocked source will generate reward goals again after the next non-clue goal.' : tier === 'master' ?
+                    'Master clue goals require Watson and completed easy, medium, hard, and elite reward pools.' :
+                    'No usable source for this clue tier is in the unlocked area.'));
+                if (status.repeatableSource || Number(state.incidentalClues?.[tier]) > 0) {
+                    const editor = element('details', null, { className: 'bl-clue-lock-editor' });
+                    editor.append(element('summary', "I can't complete my current clue step"));
+                    const select = element('select', null, { id: 'bl-clue-step-' + tier,
+                        'aria-label': 'Blocked ' + tier + ' clue step' });
+                    select.append(element('option', 'Choose the step…', { value: '' }));
+                    for (const step of (clueStatus.steps || []).filter(step => step.tier === tier)) {
+                        select.append(element('option', step.name, { value: step.stepId }));
+                    }
+                    const saveButton = button('Block this clue tier', () => saveClueLock(tier));
+                    saveButton.disabled = !canEdit() || busy;
+                    editor.append(select, saveButton); row.append(editor);
+                }
+            }
+            if (tier === 'master' && !status.generating && !status.complete) {
+                const incidentalCount = Number(state.incidentalClues?.master) || 0;
+                const received = button('I received a Master clue from a casket', () => changeIncidentalMaster(1));
+                received.className = 'bl-clue-incidental'; received.disabled = !canEdit() || busy; row.append(received);
+                if (incidentalCount) {
+                    const incidental = element('details', null, { className: 'bl-clue-incidental-rewards' });
+                    incidental.append(element('summary', 'Record rewards from ' + incidentalCount +
+                        (incidentalCount === 1 ? ' incidental Master clue' : ' incidental Master clues')));
+                    const rewards = element('div', null, { className: 'bl-clue-checks' });
+                    for (const reward of (clueStatus.rewards || []).filter(reward => reward.ownerTier === 'master')) {
+                        const task = incidentalRewardTask(reward), check = element('input', null, { type: 'checkbox' });
+                        check.checked = !!task.completed; check.disabled = !canEdit() || busy;
+                        check.onchange = () => complete(task, check.checked);
+                        const label = element('label'); label.append(check, element('span', reward.itemKey)); rewards.append(label);
+                    }
+                    const finish = button('Finish one incidental Master clue', () => changeIncidentalMaster(-1));
+                    finish.disabled = !canEdit() || busy; incidental.append(rewards, finish); row.append(incidental);
+                }
+            }
+            list.append(row);
+        }
+    }
     function renderBlockedEncounters() {
         const summary = document.getElementById('bl-blocked-boss-summary');
         const list = document.getElementById('bl-blocked-bosses');
@@ -1221,6 +1418,7 @@
         document.getElementById('bl-sections').hidden = !busy || globalSectionsValid;
         renderEnablers();
         renderSlayerMasters();
+        renderClues();
         renderBlockedEncounters();
         document.getElementById('bl-setup-status').textContent = setupLocations.map(id => id + ': ' + (busy ? 'calculating' : pool.live.includes(id) ?
             'encounter (' + pool.byLocation[id].length + ' eligible tasks)' : 'free travel tile')).join('\n');
@@ -1358,7 +1556,9 @@
         if (!container || !container.parentElement.open) return;
         const query = document.getElementById('bl-task-search').value.toLowerCase();
         const history = document.getElementById('bl-show-earlier').checked;
-        const filtered = tasks.filter(t => !(t.encounterDeferred || t.bossDeferred) && (history || (!t.superseded && !t.completed && !t.redundant)) &&
+        const filtered = tasks.filter(t => !(t.encounterDeferred || t.bossDeferred) &&
+            (!t.clueReward || t.eligible || (history && t.completed)) &&
+            (history || (!t.superseded && !t.completed && !t.redundant)) &&
             (t.taskId + ' ' + t.displayName + ' ' + t.skill + ' ' + t.origins.map(o => o.chunkId).join(' ')).toLowerCase().includes(query));
         container.replaceChildren();
         taskList(container, filtered.slice(0, 150));
@@ -1586,6 +1786,19 @@
             context.drawImage(osrsStickers.slayer, x, y, iconSize, iconSize);
             context.restore();
         }
+        if (clueLockMapTargets.length && osrsStickers?.clue) for (const id of clueLockMapTargets) {
+            const point = convertToXY(id), sizeX = totalZoom * imgW / rowSize, sizeY = totalZoom * imgH / (fullSize / rowSize);
+            if (Math.min(sizeX, sizeY) < 24) continue;
+            const iconSize = Math.min(sizeX, sizeY) * .3;
+            const x = dragTotalX + (point.x + .06) * sizeX, y = dragTotalY + (point.y + .06) * sizeY;
+            context.save();
+            context.fillStyle = 'rgba(20, 24, 23, .82)';
+            context.beginPath();
+            context.arc(x + iconSize / 2, y + iconSize / 2, iconSize * .58, 0, Math.PI * 2);
+            context.fill();
+            context.drawImage(osrsStickers.clue, x, y, iconSize, iconSize);
+            context.restore();
+        }
         context.restore();
     }
     function mount() {
@@ -1619,6 +1832,7 @@
             <div class="bl-slayer-overview"><div><strong id="bl-slayer-lock-state" class="bl-slayer-state"></strong><small id="bl-slayer-lock-detail"></small></div></div>
             <details class="bl-slayer-lock-editor"><summary>Change Slayer lock</summary><label>Status<select id="bl-slayer-lock-select"><option value="unlocked">Unlocked</option><option value="locked">Locked</option></select></label><div id="bl-slayer-lock-fields"><label>Slayer master<select id="bl-slayer-lock-master"></select></label><label>Blocked assignment<select id="bl-slayer-lock-task"></select></label><label>Current Slayer level<input id="bl-slayer-lock-level" type="number" min="1" max="99"></label></div><button id="bl-slayer-lock-save" type="button">Save Slayer lock</button></details>
             <div class="bl-slayer-list-heading"><h4>Slayer masters</h4><span id="bl-slayer-master-count" class="bl-muted"></span></div><p class="bl-muted">A master is available when their location and required quests are unlocked, and you have confirmed any Combat requirement.</p><div id="bl-slayer-masters"></div></details>
+            <details class="bl-clue-panel"><summary id="bl-clue-summary">Clues</summary><p class="bl-muted">Each tier tracks its own reward pool and blocked step. Reward goals appear on unlocked tiles with a usable clue source.</p><div id="bl-clue-tiers"></div></details>
             <details><summary id="bl-blocked-boss-summary">Encounters waiting for better gear</summary><p>Goals from an encounter can wait until you decide your equipment is ready.</p><div id="bl-blocked-bosses"></div></details>
             <details><summary id="bl-task-count">Other tasks &amp; progress</summary><p>Record past goals, quests, and permanent unlocks here. Routine training does not complete the current visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
             <details><summary>Diagnostics and overrides</summary>
@@ -1706,7 +1920,7 @@
         close: () => setPanelOpen(false),
         openSection: section => {
             setPanelOpen(true); rebuild(); render();
-            const summaryIds = { slayer: 'bl-slayer-master-summary' };
+            const summaryIds = { slayer: 'bl-slayer-master-summary', clues: 'bl-clue-summary' };
             const summary = document.getElementById(summaryIds[section]), details = summary?.parentElement;
             const content = document.getElementById('bl-mode-content');
             if (details && content && details !== focusedPanelDetails) {
@@ -1727,6 +1941,7 @@
             startingPicker: { active: pickingStartingTile, selected: R.copy(selectedStartingCandidate) },
             enablerCatalog: R.copy(enablerCatalog), enablerAmbiguities: R.copy(enablerAmbiguities),
             slayerMasterCatalog: R.copy(slayerMasterCatalog), slayerConfirmation: R.copy(slayerConfirmation),
+            clueStatus: R.copy(clueStatus),
             blockedEncounters: R.copy(state.blockedEncounters),
             rulePreset: activeRulePreset(), diagnostics: R.copy(diagnostics), sourceCounts, busy, error, generation }),
         inspectTask: id => tasks.find(task => task.taskId === id),

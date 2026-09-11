@@ -272,6 +272,16 @@
                 })
             })
         }),
+        clues: Object.freeze({
+            tiers: Object.freeze(['beginner', 'easy', 'medium', 'hard', 'elite', 'master']),
+            // A reward shared between tiers belongs to the highest listed tier.
+            // Master clues from lower-tier caskets remain player-registered,
+            // one-off opportunities and never become map task sources.
+            overlapOwner: 'highest-tier',
+            masterPersistentSource: 'Watson',
+            masterInputs: Object.freeze(['easy', 'medium', 'hard', 'elite']),
+            cooldownAfterReward: 1
+        }),
         persistentEnablers: Object.freeze({
             // codeItems.tools is mostly reusable implements, but these entries are
             // consumed inputs. The upstream data has no persistence flag for them.

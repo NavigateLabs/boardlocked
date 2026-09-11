@@ -3732,7 +3732,7 @@ let calcCurrentChallengesCanvas = function(useOld, proceed, fromLoadData, inputT
         setCalculating('.panel-active', useOld);
         setCurrentChallenges(['No tasks currently backlogged.'], ['No tasks currently completed.'], true, true);
         myWorker.terminate();
-        myWorker = new Worker("./worker.js?v=6.9.66-bl39");
+        myWorker = new Worker("./worker.js?v=6.9.66-bl41");
         myWorker.onmessage = workerOnMessage;
         const request = currentWorkerRequest(tempSections);
         myWorker.postMessage(request);
@@ -4106,8 +4106,8 @@ $(document).ready(function() {
 // ------------------------------------------------------------
 
 // Recieve message from worker
-let myWorker = new Worker("./worker.js?v=6.9.66-bl39");
-let myWorker2 = new Worker("./worker.js?v=6.9.66-bl39");
+let myWorker = new Worker("./worker.js?v=6.9.66-bl41");
+let myWorker2 = new Worker("./worker.js?v=6.9.66-bl41");
 let workerOnMessage = function(e) {
     if (e.data.type === 'reload') {
         window.location.reload();
@@ -7286,7 +7286,7 @@ let calcFutureChallenges = function() {
     }
     tempSections = combineJSONs(tempSections, manualSections);
     myWorker2.terminate();
-    myWorker2 = new Worker("./worker.js?v=6.9.66-bl39");
+    myWorker2 = new Worker("./worker.js?v=6.9.66-bl41");
     myWorker2.onmessage = workerOnMessage;
     myWorker2.postMessage({
         type: 'future',
@@ -9535,6 +9535,16 @@ let openBoardlockedSlayer = function() {
         return;
     }
     openProgressView('Slayer');
+}
+
+let openBoardlockedClues = function() {
+    if (BOARDLOCKED_FORK && window.boardlockedController?.openSection) {
+        highest2ModalOpen && closeHighest2();
+        onMobile && hideMobileMenu();
+        window.boardlockedController.openSection('clues');
+        return;
+    }
+    openProgressView('Clues');
 }
 
 // Opens the highest modal

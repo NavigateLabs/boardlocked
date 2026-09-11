@@ -6,6 +6,7 @@ let blCollectionItems = new Set();
 let blCollectionSources = {};
 let blPresentItems = new Set();
 let blStructuralGates = new Set();
+let blClueRewards = null;
 
 function blInitialize(request) {
     blContext = request.boardlocked || null;
@@ -14,7 +15,12 @@ function blInitialize(request) {
     blCollectionSources = {};
     blPresentItems = new Set();
     blStructuralGates = new Set();
+    blClueRewards = null;
     if (!blContext) return;
+    blClueRewards = Boardlocked.clueRewardCatalog(chunkInfo, {
+        completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
+        manualEquipment, backlog
+    }, blContext.state, blContext.tasksMap);
     blAccess = Boardlocked.createAccess(chunkInfo, blContext.state, {
         completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
         manualEquipment, backlog
@@ -101,6 +107,20 @@ function blFilterSources(base) {
             }
         }
     }
+    const masterInputs = BoardlockedData.clues?.masterInputs || ['easy', 'medium', 'hard', 'elite'];
+    const masterSource = BoardlockedData.clues?.masterPersistentSource || 'Watson';
+    const clueSourceAvailable = tier => {
+        if (blContext.state.clueLocks?.[tier] || blContext.state.clueTaskCooldown || blClueRewards.tiers?.[tier]?.complete) return false;
+        if (tier === 'master') return masterInputs.every(input => blClueRewards.tiers?.[input]?.complete) &&
+            !!base.npcs?.[masterSource] && Object.keys(base.npcs[masterSource]).length > 0;
+        return Object.keys(base.items?.['Clue scroll (' + tier + ')'] || {}).length > 0;
+    };
+    // Virtual reward entries let the existing BiS scorer compare clue gear.
+    // buildTasks resolves their real origin through the tier's scroll source;
+    // these entries never turn caskets into persistent Master sources.
+    for (const reward of blClueRewards.rewards) if (!reward.completed && clueSourceAvailable(reward.ownerTier)) {
+        base.items[reward.itemKey] ||= { ['Clue scroll (' + reward.ownerTier + ')']: 'clue-reward' };
+    }
     return base;
 }
 
@@ -134,6 +154,10 @@ function blEquipmentUsable(itemName) {
 
 function blEquipmentObtainable(itemName) {
     if (!blContext) return true;
+    const clueReward = blClueRewards?.rewards?.find(reward =>
+        Boardlocked.canonicalItemKey(reward.itemKey).replaceAll('#', '/').toLowerCase() ===
+        Boardlocked.canonicalItemKey(itemName).replaceAll('#', '/').toLowerCase());
+    if (clueReward && blClueTierSourceAvailable(clueReward.ownerTier)) return true;
     const hasFixedOrigin = (kind, source) => Object.keys(baseChunkData[kind]?.[source] || {}).some(location =>
         !!Boardlocked.parseLocation(location) && blLocationAllowed(location));
     return Object.entries(baseChunkData.items?.[itemName] || baseChunkData.items?.[itemName + '*'] || {}).some(([source, type]) => {
@@ -145,6 +169,19 @@ function blEquipmentObtainable(itemName) {
         const category = String(type).includes('-') ? String(type).split('-').slice(1).join('-') : null;
         return !!category && globalValids?.[category]?.[source] !== undefined && globalValids[category][source] !== false;
     });
+}
+
+function blClueTierSourceAvailable(tier) {
+    if (!blContext || !blClueRewards || blContext.state.clueLocks?.[tier] || blContext.state.clueTaskCooldown ||
+        blClueRewards.tiers?.[tier]?.complete) return false;
+    if (tier === 'master') {
+        const inputs = BoardlockedData.clues?.masterInputs || ['easy', 'medium', 'hard', 'elite'];
+        const source = BoardlockedData.clues?.masterPersistentSource || 'Watson';
+        return inputs.every(input => blClueRewards.tiers?.[input]?.complete) &&
+            !!baseChunkData.npcs?.[source] && Object.keys(baseChunkData.npcs[source]).length > 0;
+    }
+    const sources = baseChunkData.items?.['Clue scroll (' + tier + ')'] || {};
+    return Object.keys(sources).length > 0;
 }
 
 function blCanOpen(name) {
@@ -207,7 +244,7 @@ function blAddEquipmentUpgradeTasks(atomicValids, highestOverallCompleted = {}, 
         const baseline = Number.isFinite(ownedScore) ? ownedScore : emptyWeaponScore;
         const upgrades = Object.entries(scores).filter(([item, rawScore]) => {
             const score = Number(rawScore);
-            return item !== 'Unarmed' && Number.isFinite(score) && score > baseline && !!baseChunkData.items[item] &&
+            return item !== 'Unarmed' && Number.isFinite(score) && score > baseline &&
                 blEquipmentUsable(item) && blEquipmentObtainable(item);
         });
         const bestAvailableScore = Math.max(-Infinity, ...upgrades.map(([, rawScore]) => Number(rawScore)));
@@ -230,6 +267,15 @@ function blAddEquipmentUpgradeTasks(atomicValids, highestOverallCompleted = {}, 
 
 function blOutput(highestOverallCompleted = {}, equipmentScores = {}) {
     const atomicValids = { ...globalValids, Extra: { ...globalValids.Extra }, BiS: { ...globalValids.BiS } };
+    blClueRewards = Boardlocked.clueRewardCatalog(chunkInfo, {
+        completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
+        manualEquipment, backlog
+    }, blContext.state, blContext.tasksMap);
+    // Boardlocked evaluates clue sources and per-tier locks live. The upstream
+    // percentage rule is deliberately bypassed here, and only the canonical
+    // owner task for a reward shared by several tiers is admitted.
+    for (const reward of blClueRewards.rewards) atomicValids.Extra[reward.name] =
+        chunkInfo.challenges.Extra?.[reward.name]?.Label || true;
     blAddEquipmentUpgradeTasks(atomicValids, highestOverallCompleted, equipmentScores);
     const acquisitionItems = { ...baseChunkData.items };
     // Valid thieving/resource/minigame actions can also have collection drops.

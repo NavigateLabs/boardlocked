@@ -5,13 +5,15 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 39;
+    const VERSION = 41;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
         'Cooking', 'Woodcutting', 'Fletching', 'Fishing', 'Firemaking', 'Crafting', 'Smithing',
         'Mining', 'Herblore', 'Agility', 'Thieving', 'Slayer', 'Farming', 'Runecraft', 'Hunter',
         'Construction', 'Sailing'];
+    const CLUE_TIERS = Object.freeze(['beginner', 'easy', 'medium', 'hard', 'elite', 'master']);
+    const CLUE_TIER_RANK = Object.freeze(Object.fromEntries(CLUE_TIERS.map((tier, index) => [tier, index])));
     const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
     const copy = value => JSON.parse(JSON.stringify(value));
     const cleanName = name => String(name).replace(/\{\d+\}/g, '').replace(/^Kill .*? ~/u, 'Kill X ~');
@@ -125,7 +127,8 @@
             travelAnchorSections: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
-            slayerMasters: {}, blockedEncounters: {},
+            slayerMasters: {}, blockedEncounters: {}, clueLocks: {}, clueTaskCooldown: 0,
+            incidentalClues: { master: 0 },
             rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input, enablerRevision: input ? 0 : ENABLER_REVISION,
             startingSectionPolicy: input ? null : STARTING_SECTION_POLICY,
             startingQuestPointFloor: 0,
@@ -229,6 +232,35 @@
                 for (const [encounter, blocked] of Object.entries(blockedSources)) {
                     if (!encounter || blocked !== true) throw new Error('Invalid blocked encounter state: ' + encounter);
                     state.blockedEncounters[encounter] = true;
+                }
+            }
+            if (input.clueLocks !== undefined) {
+                if (!input.clueLocks || Array.isArray(input.clueLocks) || typeof input.clueLocks !== 'object') {
+                    throw new Error('Invalid clue lock states');
+                }
+                for (const [tier, lock] of Object.entries(input.clueLocks)) {
+                    if (!CLUE_TIERS.includes(tier) || !lock || Array.isArray(lock) || typeof lock !== 'object' ||
+                        (typeof lock.stepId !== 'string' && typeof lock.name !== 'string')) {
+                        throw new Error('Invalid clue lock state: ' + tier);
+                    }
+                    state.clueLocks[tier] = copy(lock);
+                }
+            }
+            if (input.clueTaskCooldown !== undefined) {
+                if (!Number.isInteger(input.clueTaskCooldown) || input.clueTaskCooldown < 0 || input.clueTaskCooldown > 1) {
+                    throw new Error('Invalid clue task cooldown');
+                }
+                state.clueTaskCooldown = input.clueTaskCooldown;
+            }
+            if (input.incidentalClues !== undefined) {
+                if (!input.incidentalClues || Array.isArray(input.incidentalClues) || typeof input.incidentalClues !== 'object') {
+                    throw new Error('Invalid incidental clue state');
+                }
+                for (const [tier, count] of Object.entries(input.incidentalClues)) {
+                    if (!CLUE_TIERS.includes(tier) || !Number.isInteger(count) || count < 0 || count > 100) {
+                        throw new Error('Invalid incidental clue count: ' + tier);
+                    }
+                    state.incidentalClues[tier] = count;
                 }
             }
         }
@@ -769,6 +801,159 @@
             skilling: advancesSkillProgression, bisReason,
             bisSet: meta.Set || null };
     }
+
+    const clueTiersFor = meta => {
+        const raw = meta?.ClueRewardTiers ?? meta?.ClueRewardTier;
+        return [...new Set((Array.isArray(raw) ? raw : raw ? [raw] : [])
+            .map(tier => String(tier).toLowerCase()).filter(tier => CLUE_TIERS.includes(tier)))];
+    };
+    function clueRewardCatalog(data = {}, legacy = {}, state = null, ids = {}) {
+        const groups = new Map();
+        for (const [name, meta] of Object.entries(data.challenges?.Extra || {})) {
+            const sourceTiers = clueTiersFor(meta);
+            if (!sourceTiers.length) continue;
+            const itemKey = canonicalItemKey(meta.Output || (meta.Items?.length === 1 ? meta.Items[0] : ''));
+            if (!itemKey) continue;
+            const key = comparableItemKey(itemKey), entry = {
+                name, skill: 'Extra', taskId: taskId(name, 'Extra', ids), itemKey, sourceTiers,
+                meta, completed: isComplete({ name, skill: 'Extra', taskId: taskId(name, 'Extra', ids) }, legacy, state)
+            };
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(entry);
+        }
+        const rewards = [];
+        for (const [key, entries] of groups) {
+            const sourceTiers = [...new Set(entries.flatMap(entry => entry.sourceTiers))]
+                .sort((left, right) => CLUE_TIER_RANK[left] - CLUE_TIER_RANK[right]);
+            // Shared rewards belong to their highest source tier. This lets a
+            // lower tier finish without demanding an item that a later tier
+            // already represents, while any old completion still counts.
+            const ownerTier = sourceTiers.at(-1);
+            const canonical = entries.filter(entry => entry.sourceTiers.includes(ownerTier))
+                .sort((left, right) => left.taskId.localeCompare(right.taskId))[0] || entries[0];
+            rewards.push({ key, itemKey: canonical.itemKey, ownerTier, sourceTiers,
+                taskId: canonical.taskId, name: canonical.name, skill: canonical.skill,
+                // Equipment ownership alone does not prove that the item's
+                // clue collection-log slot was filled. The UI records the
+                // canonical clue task alongside a merged BiS task, so only an
+                // explicit clue-task completion is accepted here.
+                completed: entries.some(entry => entry.completed),
+                equivalentTaskIds: [...new Set(entries.map(entry => entry.taskId))],
+                equivalentTaskNames: [...new Set(entries.map(entry => entry.name))] });
+        }
+        rewards.sort((left, right) => CLUE_TIER_RANK[left.ownerTier] - CLUE_TIER_RANK[right.ownerTier] ||
+            left.itemKey.localeCompare(right.itemKey));
+        const tiers = Object.fromEntries(CLUE_TIERS.map(tier => {
+            const owned = rewards.filter(reward => reward.ownerTier === tier);
+            const completed = owned.filter(reward => reward.completed).length;
+            return [tier, { tier, total: owned.length, completed, remaining: owned.length - completed,
+                complete: owned.length > 0 && completed === owned.length }];
+        }));
+        return { rewards, tiers };
+    }
+
+    function clueStepCatalog(data = {}, tier = null, ids = {}) {
+        return Object.entries(data.challenges?.Nonskill || {}).flatMap(([name, meta]) => {
+            const clueTier = String(meta.ClueTier || '').toLowerCase();
+            if (!CLUE_TIERS.includes(clueTier) || (tier && clueTier !== tier)) return [];
+            return [{ stepId: taskId(name, 'Nonskill', ids), name, tier: clueTier,
+                type: meta.ClueType || 'Clue step', clueId: meta.ClueId || null,
+                requirements: {
+                    chunks: [...(meta.Chunks || [])], items: [...(meta.Items || [])],
+                    npcs: [...(meta.NPCs || [])], monsters: [...(meta.Monsters || [])],
+                    objects: [...(meta.Objects || [])], tasks: { ...(meta.Tasks || {}) },
+                    skills: { ...(meta.Skills || {}) }, questPoints: Number(meta.QuestPointsNeeded) || 0,
+                    combatLevel: Number(meta.CombatLevelNeeded) || 0
+                } }];
+        }).sort((left, right) => CLUE_TIER_RANK[left.tier] - CLUE_TIER_RANK[right.tier] || left.name.localeCompare(right.name));
+    }
+    function clueStepDefinition(data = {}, tier, lock = null, ids = {}) {
+        if (!CLUE_TIERS.includes(tier) || !lock || typeof lock !== 'object') return null;
+        return clueStepCatalog(data, tier, ids).find(step => step.stepId === lock.stepId || step.name === lock.name) || null;
+    }
+    function setClueLock(state, tier, step = null) {
+        if (!CLUE_TIERS.includes(tier)) throw new Error('Invalid clue tier');
+        const clueLocks = { ...(state.clueLocks || {}) };
+        if (!step) delete clueLocks[tier];
+        else {
+            if (typeof step.stepId !== 'string' && typeof step.name !== 'string') throw new Error('Invalid clue step');
+            clueLocks[tier] = { stepId: step.stepId || '', name: step.name || '',
+                blockedAt: step.blockedAt || new Date().toISOString() };
+        }
+        return { ...state, clueLocks };
+    }
+    function setIncidentalClueCount(state, tier, count) {
+        if (!CLUE_TIERS.includes(tier) || !Number.isInteger(count) || count < 0 || count > 100) {
+            throw new Error('Invalid incidental clue count');
+        }
+        return { ...state, incidentalClues: { ...(state.incidentalClues || {}), [tier]: count } };
+    }
+    function clueStepTargets(data = {}, tier, lock = null, ids = {}) {
+        const step = clueStepDefinition(data, tier, lock, ids);
+        if (!step) return [];
+        const codes = data.codeItems || {}, targets = new Set(), visitedTasks = new Set();
+        const containers = [];
+        for (const [chunkId, chunk] of Object.entries(data.chunks || {})) {
+            containers.push({ chunkId, sectionId: null, value: chunk });
+            for (const [sectionId, section] of Object.entries(chunk.Sections || {})) containers.push({ chunkId, sectionId, value: section });
+        }
+        const addLocation = location => { const parsed = parseLocation(location); if (parsed) targets.add(parsed.chunkId); };
+        const findEntity = (field, raw, group) => {
+            const wanted = new Set(expand(raw, codes[group]).map(comparableItemKey));
+            for (const container of containers) if (Object.keys(container.value?.[field] || {})
+                .some(name => wanted.has(comparableItemKey(name))) && parseLocation(container.chunkId)) targets.add(container.chunkId);
+        };
+        const visitTask = (name, skill) => {
+            const key = skill + '\u0000' + name;
+            if (visitedTasks.has(key)) return;
+            visitedTasks.add(key);
+            for (const choice of expand(name, codes.tasksPlus)) {
+                const meta = data.challenges?.[skill]?.[choice];
+                if (!meta) continue;
+                (meta.Chunks || []).flatMap(raw => expand(raw, codes.chunksPlus)).forEach(addLocation);
+                for (const raw of meta.NPCs || []) findEntity('NPC', raw, 'npcsPlus');
+                for (const raw of meta.Monsters || []) findEntity('Monster', raw, 'monstersPlus');
+                for (const raw of meta.Objects || []) findEntity('Object', raw, 'objectsPlus');
+                for (const [sub, category] of Object.entries(meta.Tasks || {})) visitTask(sub, category);
+            }
+        };
+        const meta = data.challenges?.Nonskill?.[step.name] || {};
+        (meta.Chunks || []).flatMap(raw => expand(raw, codes.chunksPlus)).forEach(addLocation);
+        for (const raw of meta.NPCs || []) findEntity('NPC', raw, 'npcsPlus');
+        for (const raw of meta.Monsters || []) findEntity('Monster', raw, 'monstersPlus');
+        for (const raw of meta.Objects || []) findEntity('Object', raw, 'objectsPlus');
+        // Equipment and consumable requirements are listed in the panel. They
+        // can have hundreds of sources, so drawing all of them would obscure
+        // the useful solution/quest locations on the map.
+        for (const [name, skill] of Object.entries(meta.Tasks || {})) visitTask(name, skill);
+        return [...targets].sort((left, right) => Number(left) - Number(right));
+    }
+    function clueStepStatus(data = {}, tier, lock = null, valids = {}, legacy = {}, state = null, ids = {}, base = {}) {
+        const definition = clueStepDefinition(data, tier, lock, ids);
+        if (!definition) return { tier, valid: false, satisfied: false, targets: [], selfCycle: false, step: null };
+        const rewards = clueRewardCatalog(data, legacy, state, ids).rewards;
+        const rewardByItem = new Map(rewards.map(reward => [reward.key, reward]));
+        const meta = data.challenges?.Nonskill?.[definition.name] || {};
+        const cycleItems = [];
+        for (const raw of meta.Items || []) {
+            const itemAlternatives = expand(raw, data.codeItems?.itemsPlus);
+            const alternatives = itemAlternatives.map(name => rewardByItem.get(comparableItemKey(name))).filter(Boolean);
+            const hasOrdinarySource = name => Object.entries(base.items?.[canonicalItemKey(name)] ||
+                base.items?.[canonicalItemKey(name) + '*'] || {}).some(([, type]) => type !== 'clue-reward');
+            if (alternatives.length && alternatives.length === itemAlternatives.length &&
+                alternatives.every(reward => reward.ownerTier === tier && !reward.completed) &&
+                itemAlternatives.every(name => !hasOrdinarySource(name))) cycleItems.push(raw);
+        }
+        const requirementsSatisfied = own(valids.Nonskill || {}, definition.name) && valids.Nonskill[definition.name] !== false;
+        // The worker exposes active clue rewards as possible item sources so
+        // they can participate in BiS and dependency calculations. A step
+        // cannot use an unowned reward from the clue currently being held,
+        // however, so a same-tier reward cycle must remain blocked even when
+        // the legacy validity graph considers that reward obtainable.
+        return { tier, valid: true, satisfied: requirementsSatisfied && cycleItems.length === 0,
+            targets: clueStepTargets(data, tier, lock, ids), selfCycle: cycleItems.length > 0, cycleItems,
+            step: definition };
+    }
     function resourceRepresentativeMetadata(name, skill, meta, annotations = {}) {
         const ignored = new Set(annotations.resourceRepresentatives?.ignoredPrimaryResources?.[skill] || []);
         const primaryIndex = (meta.Items || []).findIndex(raw => String(raw).includes('*') && !ignored.has(canonicalItemKey(raw)));
@@ -955,14 +1140,33 @@
     }
     function acquisitionTaskItems(task) {
         if (!['bis', 'collection', 'enabler'].includes(task.taskClass)) return [];
-        return [...new Set([task.equipmentName, task.enablerItemKey, ...(task.provesAcquiredItemKeys || [])].filter(Boolean))];
+        return [...new Set([task.equipmentName, task.enablerItemKey, task.clueReward?.itemKey,
+            ...(task.provesAcquiredItemKeys || [])].filter(Boolean))];
     }
     function sameAccessibleArea(left, right) {
         return left.chunkId === right.chunkId && (!left.sectionId || !right.sectionId || left.sectionId === right.sectionId);
     }
     function collapseRedundantEquipmentTasks(tasks) {
-        const detailed = tasks.filter(task => task.eligible && acquisitionTaskItems(task).length);
-        return tasks.map(task => {
+        const exactCollapsed = tasks.map(task => {
+            if (!task.eligible || task.taskClass !== 'collection' || !task.clueReward?.itemKey) return task;
+            const wanted = comparableItemKey(task.clueReward.itemKey);
+            const covering = tasks.filter(candidate => candidate.eligible && candidate.taskClass === 'bis' && candidate.clueReward?.itemKey &&
+                candidate.taskId !== task.taskId && comparableItemKey(candidate.clueReward.itemKey) === wanted &&
+                acquisitionTaskItems(candidate).some(item => comparableItemKey(item) === wanted));
+            if (!covering.length) return task;
+            const coveredOrigins = task.activeOrigins.filter(origin => covering.some(candidate =>
+                candidate.activeOrigins.some(detailOrigin => sameAccessibleArea(origin, detailOrigin))));
+            if (!coveredOrigins.length) return task;
+            const activeOrigins = task.activeOrigins.filter(origin => !coveredOrigins.includes(origin));
+            return { ...task, activeOrigins, eligible: activeOrigins.length > 0, redundant: activeOrigins.length === 0,
+                partiallyRedundant: activeOrigins.length > 0, coveredOrigins: uniqueOrigins(coveredOrigins),
+                coveredByTaskIds: covering.map(candidate => candidate.taskId),
+                eligibilityReason: activeOrigins.length ? task.eligibilityReason : 'Covered by the matching clue equipment goal',
+                whyWouldBeIneligible: activeOrigins.length ? task.whyWouldBeIneligible :
+                    [...task.whyWouldBeIneligible, 'the matching clue equipment goal records the same reward'] };
+        });
+        const detailed = exactCollapsed.filter(task => task.eligible && acquisitionTaskItems(task).length);
+        return exactCollapsed.map(task => {
             if (!task.eligible || !(task.equipmentObjectiveAlternatives || []).length) return task;
             const alternatives = new Set(task.equipmentObjectiveAlternatives.map(comparableItemKey));
             const covering = detailed.filter(candidate => candidate.taskId !== task.taskId &&
@@ -1743,6 +1947,7 @@
         enablerItemKey: task.enablerItemKey || null, provesAcquiredItemKeys: task.provesAcquiredItemKeys || [],
         confirmsEquipped: !!task.confirmsEquipped, capabilities: task.capabilities || [],
         bisReason: task.bisReason || null, bisSet: task.bisSet || null,
+        clueReward: task.clueReward ? copy(task.clueReward) : null,
         slayerTrainingAlternative: !!task.slayerTrainingAlternative,
         slayerTrainingMasters: task.slayerTrainingMasters || [],
         slayerProgression: task.slayerProgression ? {
@@ -2099,6 +2304,13 @@
         ]);
         const diagnostics = [], accessDiagnostics = [], enablerModel = buildEnablerModel(data, annotations);
         const taskCatalog = buildTaskCatalog(data, ids), dependencyDiagnostics = new Map();
+        const clueRewards = clueRewardCatalog(data, legacy, state, ids);
+        const clueRewardByTaskId = new Map(clueRewards.rewards.map(reward => [reward.taskId, reward]));
+        const clueRewardByItem = new Map(clueRewards.rewards.map(reward => [reward.key, reward]));
+        const clueSourceCache = new Map();
+        const clueConfig = annotations.clues || {};
+        const masterClueInputs = clueConfig.masterInputs || ['easy', 'medium', 'hard', 'elite'];
+        const masterClueSource = clueConfig.masterPersistentSource || 'Watson';
         let trainingAnalysisReady = false, trainingSupportedSkills = new Set(), trainingEvidenceSkills = new Set(),
             trainingMethodsBySkill = new Map();
         const pendingCapabilities = new Map();
@@ -2192,7 +2404,12 @@
             if (visiting.has(key)) return [];
             if (sourceCache.has(key)) return sourceCache.get(key);
             const next = new Set(visiting).add(key);
-            const origins = itemSourceEntries(name).flatMap(([source, type]) => {
+            const clueReward = clueRewardByItem.get(comparableItemKey(name));
+            let clueOrigins = [];
+            if (clueReward && !clueReward.completed && clueTierCanGenerate(clueReward.ownerTier)) {
+                clueOrigins = clueTierSourceOrigins(clueReward.ownerTier, next);
+            }
+            const origins = [...clueOrigins, ...itemSourceEntries(name).flatMap(([source, type]) => {
                 if (String(type).includes('spawn')) return origin(source, 'spawn', name, 'Direct item spawn');
                 if (type === 'shop' && base.shops?.[source]) return fixed('shops', source);
                 if (String(type).includes('drop')) return acquisitionOrigins(name, source, fixed('monsters', source));
@@ -2212,11 +2429,26 @@
                     return [];
                 }
                 return taskOrigins(source, category, next);
-            });
+            })];
             const result = uniqueOrigins(origins);
             // Do not memoize an unresolved cycle as a permanent negative result.
             if (result.length) sourceCache.set(key, result);
             return result;
+        }
+        function clueTierCanGenerate(tier) {
+            if (!CLUE_TIERS.includes(tier) || state.clueLocks?.[tier] || Number(state.clueTaskCooldown) > 0 ||
+                clueRewards.tiers[tier]?.complete) return false;
+            if (tier === 'master') return masterClueInputs.every(input => clueRewards.tiers[input]?.complete);
+            return true;
+        }
+        function clueTierSourceOrigins(tier, visiting = new Set()) {
+            if (clueSourceCache.has(tier)) return clueSourceCache.get(tier);
+            const result = tier === 'master' ?
+                (masterClueInputs.every(input => clueRewards.tiers[input]?.complete) ? fixed('npcs', masterClueSource) : []) :
+                item('Clue scroll (' + tier + ')', new Set(visiting).add('clue-source:' + tier));
+            const unique = uniqueOrigins(result);
+            if (unique.length) clueSourceCache.set(tier, unique);
+            return unique;
         }
         function taskOrigins(name, skill, visiting = new Set()) {
             const key = 'task:' + skill + ':' + name;
@@ -2582,6 +2814,55 @@
         // The first pass deliberately traces the worker's raw source graph. Clear
         // those caches so normal task construction applies the level and training gates.
         sourceCache.clear(); originCache.clear(); dependencyDiagnostics.clear();
+        const ordinaryGoalSupplyCache = new Map();
+        function ordinaryGoalItemAvailable(raw, visiting = new Set()) {
+            const alternatives = expand(raw, codes.itemsPlus).map(canonicalItemKey);
+            return alternatives.some(itemName => {
+                const key = comparableItemKey(itemName);
+                if (ordinaryGoalSupplyCache.has(key)) return ordinaryGoalSupplyCache.get(key);
+                if (visiting.has(key)) return false;
+                const next = new Set(visiting).add(key);
+                const available = itemSourceEntries(itemName).some(([source, type]) => {
+                    if (String(type).includes('spawn')) return origin(source, 'spawn', itemName, 'Direct item spawn').length > 0;
+                    if (type === 'shop' && base.shops?.[source]) return fixed('shops', source).length > 0;
+                    if (String(type).includes('drop')) {
+                        const origins = acquisitionOrigins(itemName, source, fixed('monsters', source));
+                        if (!origins.length) return false;
+                        if (encounterDetails[source]?.sourceTypes?.includes('monsters')) return true;
+                        const chance = dropChance(source, itemName);
+                        return chance === null || chance >= TRAINING_DROP_RATE;
+                    }
+                    if (['objects', 'npcs', 'monsters', 'shops'].some(kind => fixed(kind, source).length > 0)) return true;
+                    const producerSkill = knownNames.get(source), producerMeta = data.challenges?.[producerSkill]?.[source];
+                    if (!producerMeta || !taskLevelReadiness(source, producerSkill, producerMeta).allowed ||
+                        !declaredSkillReadiness(producerMeta).allowed) return false;
+                    const reusable = (producerMeta.Items || []).filter(item => !item.includes('*'));
+                    if (!reusable.every(item => itemRequirementReadiness(item, next).allowed)) return false;
+                    return (producerMeta.Items || []).filter(item => item.includes('*'))
+                        .every(item => ordinaryGoalItemAvailable(item, next));
+                });
+                ordinaryGoalSupplyCache.set(key, available);
+                return available;
+            });
+        }
+        function progressionSupplyReadiness(meta, taskClass, advancesSkillProgression, forestBound = false) {
+            // A level-one objective may introduce a skill through a one-off
+            // resource. Later ordinary milestones cannot be introduced by a
+            // low-rate incidental monster drop anywhere in their input chain.
+            // Ground spawns and intended production sources stay usable. Reward objectives are
+            // classified separately, so rare BiS and Collection Log drops stay
+            // available without becoming training supplies.
+            if (taskClass !== 'skill_progression' || !advancesSkillProgression || Number(meta.Level || 1) <= 1 || forestBound) {
+                return { allowed: true, blocks: [] };
+            }
+            const blocks = (meta.Items || []).filter(raw => raw.includes('*')).flatMap(raw => {
+                if (ordinaryGoalItemAvailable(raw)) return [];
+                const itemName = canonicalItemKey(raw).replaceAll('*', '');
+                return [{ item: itemName, reason: 'Only a low-rate monster drop supplies ' + itemName }];
+            });
+            return { allowed: blocks.length === 0,
+                blocks: [...new Map(blocks.map(block => [block.reason, block])).values()] };
+        }
         function applySlayerProgression(record, requirementMeta, requirementSkill) {
             const otherwiseAvailable = record.available !== false;
             const explicitRequirement = Math.max(
@@ -2766,10 +3047,21 @@
             if (skill === 'Quest' && !rules['Show Quest Tasks']) continue;
             if (skill === 'Diary' && !rules['Show Diary Tasks'] && !rules['Show Diary Tasks Any']) continue;
             if ((meta.Category || []).includes('Collection Log') && (!rules['Collection Log'] ||
-                (meta.Category.filter(c => c.startsWith('Collection Log ')).length && !meta.Category.some(c => c !== 'Collection Log' && rules[c])))) continue;
+                (!clueTiersFor(meta).length && meta.Category.filter(c => c.startsWith('Collection Log ')).length &&
+                    !meta.Category.some(c => c !== 'Collection Log' && rules[c])))) continue;
             const id = taskId(name, skill, ids);
             const equipmentName = skill === 'BiS' ? equipmentByFormattedName.get(name.split('|')[1]) : undefined;
-            let origins = equipmentName ? item(equipmentName, new Set()) : taskOrigins(name, skill);
+            const directClueReward = clueRewardByTaskId.get(id);
+            if (clueTiersFor(meta).length && !directClueReward) continue;
+            const equipmentClueReward = equipmentName ? clueRewardByItem.get(comparableItemKey(equipmentName)) : null;
+            let origins = directClueReward ? (clueTierCanGenerate(directClueReward.ownerTier) ?
+                clueTierSourceOrigins(directClueReward.ownerTier) : []) : equipmentName ? item(equipmentName, new Set()) : taskOrigins(name, skill);
+            // A BiS row can stand in for its clue-log row only when the item is
+            // currently clue-exclusive. If an ordinary source also exists,
+            // keep the goals separate so the completion retains provenance.
+            const equipmentHasOrdinarySource = equipmentName && itemSourceEntries(equipmentName)
+                .some(([, type]) => type !== 'clue-reward');
+            const clueReward = directClueReward || (equipmentClueReward && !equipmentHasOrdinarySource ? equipmentClueReward : null);
             const blockedShipCombatOrigins = !shipCannonCapability ? [] : origins.filter(source => shipCombatMonsters.has(source.sourceName));
             const shipCannonStatus = blockedShipCombatOrigins.length ? enablerRequirementStatus(
                 requirementFromCapability(shipCannonCapability), state, data, 'Sailing') : null;
@@ -2785,6 +3077,18 @@
             if (isDirectForestry(meta)) origins = filterForestryOrigins(origins);
             let record = { ...taskMetadata(name, skill, meta, ids), equipmentName,
                 origins, available: true, enablers: [] };
+            if (clueReward) record.clueReward = { tier: clueReward.ownerTier, ownerTier: clueReward.ownerTier,
+                sourceTiers: clueReward.sourceTiers, itemKey: clueReward.itemKey, incidental: false };
+            if (clueReward && (!clueTierCanGenerate(clueReward.ownerTier) || !origins.length)) {
+                record.available = false;
+                const reason = state.clueLocks?.[clueReward.ownerTier] ?
+                    clueReward.ownerTier + ' clues are blocked by the current clue step' :
+                    clueRewards.tiers[clueReward.ownerTier]?.complete ? clueReward.ownerTier + ' clue rewards are complete' :
+                    Number(state.clueTaskCooldown) > 0 ? 'Complete a non-clue goal before another clue reward goal' :
+                    clueReward.ownerTier === 'master' ? 'Watson needs completed easy, medium, hard and elite clue pools' :
+                    'No repeatable clue source is available';
+                record.accessResult = { allowed: false, reason, clueReward: record.clueReward };
+            }
             if (skill === 'BiS') {
                 record.bisReason = stripMarkup(typeof value === 'string' ? value : meta.Label || record.bisReason);
                 record.category = record.bisReason || 'BiS';
@@ -2821,11 +3125,14 @@
                 const levelReadiness = taskLevelReadiness(name, requirementSkill, requirementMeta);
                 const declaredReadiness = declaredSkillReadiness(requirementMeta);
                 const inputReadiness = taskInputReadiness(name, requirementSkill, requirementMeta);
+                const supplyReadiness = progressionSupplyReadiness(requirementMeta, record.taskClass,
+                    record.advancesSkillProgression, forestBound);
                 const dependencyReadiness = !declaredReadiness.allowed ? declaredReadiness :
                     !levelReadiness.allowed && levelReadiness.reason.startsWith('No repeatable ') ? levelReadiness : null;
                 const progressionInputBlocks = inputReadiness.blocks.filter(block => block.skill);
-                if (dependencyReadiness || progressionInputBlocks.length) {
-                    const blocks = dependencyReadiness ? [dependencyReadiness] : progressionInputBlocks;
+                if (dependencyReadiness || progressionInputBlocks.length || !supplyReadiness.allowed) {
+                    const blocks = dependencyReadiness ? [dependencyReadiness] :
+                        progressionInputBlocks.length ? progressionInputBlocks : supplyReadiness.blocks;
                     record.available = false;
                     record.dependencyBlocks = blocks;
                     record.accessResult = { allowed: false, reason: blocks[0].reason,
@@ -2988,7 +3295,7 @@
                 encounterSources: sources,
                 encounterDetails: Object.fromEntries(sources.map(source => [source, encounterDetails[source]])) };
         });
-        for (const record of finalTasks) if (!record.origins.length) diagnostics.push({ taskId: record.taskId,
+        for (const record of finalTasks) if (!record.origins.length && !record.clueReward) diagnostics.push({ taskId: record.taskId,
             name: record.displayName, reason: 'No confident action/resource origin in validated source metadata. Set an origin override.' });
         if (forestry.kitItem && ((!forestryKitAcquired && !kitOrigins.length) || !forestryTreeRecords.some(record => record.validSources.length))) {
             for (const [skill, allTasks] of Object.entries(data.challenges || {})) for (const [name, meta] of Object.entries(allTasks || {})) {
@@ -3008,15 +3315,34 @@
                         reason: 'Tree object is referenced by Forestry task metadata and is outside excluded origin groups' } });
             }
         }
+        const clueLocks = Object.fromEntries(CLUE_TIERS.filter(tier => state.clueLocks?.[tier]).map(tier =>
+            [tier, clueStepStatus(data, tier, state.clueLocks[tier], valids, legacy, state, ids, base)]));
+        const clueStatus = {
+            cooldown: Number(state.clueTaskCooldown) || 0,
+            incidentalClues: { ...(state.incidentalClues || {}) },
+            steps: clueStepCatalog(data, null, ids),
+            locks: clueLocks,
+            rewards: clueRewards.rewards.map(reward => ({ ...reward })),
+            tiers: Object.fromEntries(CLUE_TIERS.map(tier => {
+                const sourceOrigins = clueTierSourceOrigins(tier);
+                const progress = clueRewards.tiers[tier];
+                const blocked = !!state.clueLocks?.[tier];
+                return [tier, { ...progress, blocked, lock: clueLocks[tier] || null, sourceOrigins,
+                    repeatableSource: sourceOrigins.length > 0,
+                    generating: !progress.complete && !blocked && !state.clueTaskCooldown && sourceOrigins.length > 0,
+                    sourceKind: tier === 'master' ? 'watson' : 'direct-drop' }];
+            }))
+        };
         return { tasks: finalTasks, unassigned: diagnostics, accessDiagnostics,
             slayerMasters: slayerProgression.masterStatuses,
-            enablerCatalog, enablerAmbiguities: enablerModel.ambiguous };
+            enablerCatalog, enablerAmbiguities: enablerModel.ambiguous, clueStatus };
     }
-    return { VERSION, STARTING_SECTION_POLICY, SKILLS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
+    return { VERSION, STARTING_SECTION_POLICY, SKILLS, CLUE_TIERS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
         canonicalItemKey, itemSourceAllowed, enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
         uniqueOrigins, isComplete, isBacklogged, completionIds, completedQuestProgress, taskMetadata, resourceRepresentativeMetadata,
         equipmentObjectiveAlternatives, equipmentDominatesTask, superiorEquipmentCompletion,
+        clueRewardCatalog, clueStepCatalog, clueStepDefinition, clueStepTargets, clueStepStatus, setClueLock, setIncidentalClueCount,
         isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, completedSkillProgress, trainingMethodsAtOrBelow,

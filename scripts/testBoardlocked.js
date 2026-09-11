@@ -481,17 +481,17 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=20/);
+    assert.match(html, /boardlocked-data\.js\?v=21/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl29/);
-    assert.match(html, /boardlocked\.js\?v=61/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl39/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl39/);
-    assert.match(worker, /boardlocked-data\.js\?v=20/);
-    assert.match(worker, /boardlocked\.js\?v=61/);
-    assert.match(worker, /boardlocked-worker\.js\?v=22/);
-    assert.match(html, /boardlocked-ui\.js\?v=79/);
-    assert.match(html, /boardlocked\.css\?v=21/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl30/);
+    assert.match(html, /boardlocked\.js\?v=65/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl41/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl41/);
+    assert.match(worker, /boardlocked-data\.js\?v=21/);
+    assert.match(worker, /boardlocked\.js\?v=65/);
+    assert.match(worker, /boardlocked-worker\.js\?v=23/);
+    assert.match(html, /boardlocked-ui\.js\?v=82/);
+    assert.match(html, /boardlocked\.css\?v=22/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -1100,8 +1100,9 @@ test('Boardlocked progress navigation uses completed evidence and clear destinat
         'Slayer remains upstream but is removed from Boardlocked Levels & Training');
     assert.match(index, /if \(!BOARDLOCKED_FORK\) combatStyles\.push\('Clues'\)/,
         'Clues remains upstream but is removed from Boardlocked Levels & Training');
-    assert.match(index, /const clueOnly = BOARDLOCKED_FORK && boardlockedProgressViewScope === 'Clues'/,
-        'the dedicated Clues shortcut still opens its clue-only view');
+    assert.match(index, /openBoardlockedClues/);
+    assert.match(ui, /clues: 'bl-clue-summary'/,
+        'the dedicated Clues shortcut opens the focused Boardlocked tier view');
     for (const label of ['BiS', 'Levels &amp; Training', 'Slayer', 'Clues']) assert.match(html, new RegExp('>' + label + '<'));
     assert.doesNotMatch(html.match(/<div class='menu6'>[\s\S]*?<\/div>\s*<div class='menu7'>/)[0], /Activity Info|Current BIS/);
 });
@@ -1969,6 +1970,90 @@ test('a rare one-time ingredient does not prove a repeatable training route', ()
         'a steady level-one ingredient source can support later Cooking training');
 });
 
+test('later ordinary skill goals reject low-rate monster drops anywhere in their supply chain', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges.Cooking = {
+        Starter: { Items: ['Raw beef*'], Objects: ['Cooking object[+]'], Level: 1, Primary: true, Output: 'Cooked beef' },
+        Headache: { Items: ['Pastry dough*'], Objects: ['Cooking object[+]'], Level: 10, Primary: true, Output: 'Mud pie' }
+    };
+    fixture.data.challenges.Nonskill = {
+        Dough: { Items: ['Pot of flour*'], Objects: ['Mixing table'], Output: 'Pastry dough' }
+    };
+    fixture.data.drops = { Cow: { 'Raw beef': { 1: 'Always' } }, Imp: { 'Pot of flour': { 1: '1/64' } } };
+    fixture.base.monsters = { Cow: { '2000': true }, Imp: { '2000': true } };
+    fixture.base.objects['Mixing table'] = { '2000': true };
+    fixture.base.items = { 'Raw beef': { Cow: 'primary-drop' }, 'Pot of flour': { Imp: 'secondary-drop' },
+        'Pastry dough': { Dough: 'primary-Nonskill' } };
+    fixture.valids.Cooking = { Starter: 1, Headache: 10 };
+    fixture.valids.Nonskill = { Dough: true };
+    fixture.ids = { ...fixture.ids, Starter: 'starter', Headache: 'headache', Dough: 'dough' };
+    fixture.state.progressionHighWater.Cooking = 1;
+    fixture.state.progressionInitialized = true;
+
+    let tasks = R.buildTasks(fixture).tasks;
+    const rare = tasks.find(task => task.name === 'Headache');
+    assert.equal(rare.available, false);
+    assert.match(rare.accessResult.reason, /Only a low-rate monster drop supplies Pastry dough/);
+    assert.equal(tasks.find(task => task.name === 'Starter').available, true,
+        'the sustainable starter still establishes ordinary Cooking training');
+
+    fixture.data.drops.Imp['Pot of flour'][1] = 'Always';
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Headache').available, true,
+        'the same recipe opens when its own ingredient has a practical supply');
+});
+
+test('real worker: Imp flour cannot unlock the later mud-pie goal', () => {
+    const locations = ['4910', '4911', '4912', '5166', '5167', '5168', '5424', '5425', '5426', '5427',
+        '5428', '5681', '5682', '5683', '5684', '5937', '5938', '5939', '5940', '6195', '6196', '6450',
+        '6451', '6706', '6707'];
+    const request = usePreset(makeRequest(locations), 'Boardlocked Chunker');
+    request.boardlocked.state.progressionHighWater.Cooking = 20;
+    request.boardlocked.state.progressionInitialized = true;
+    for (const item of ['Pie dish', 'Knife', 'Tinderbox', 'Bronze axe', 'Bronze pickaxe', 'Chisel',
+        'Forestry kit', 'Hammer', 'Bowl', 'Shears']) request.boardlocked.state.acquiredEnablers[item] = { manual: true };
+    const tasks = runWorker(request).result.tasks;
+    const mudPie = tasks.find(task => task.name === 'Bake a ~|mud pie|~');
+    assert.equal(mudPie.available, false);
+    assert.match(mudPie.accessResult.reason, /low-rate monster drop supplies Pastry dough/);
+    assert.equal(tasks.find(task => task.name === 'Bake a loaf of ~|bread|~').available, true,
+        'the existing level-one one-off exception remains intact');
+});
+
+test('rare supplies remain valid for reward goals and registered encounter activities', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges = {
+        Cooking: {
+            Starter: { Items: ['Raw beef*'], Objects: ['Cooking object[+]'], Level: 1, Primary: true, Output: 'Cooked beef' },
+            Ordinary: { Items: ['Rare gem*'], Objects: ['Cooking object[+]'], Level: 10, Primary: true, Output: 'Gem meal' }
+        },
+        BiS: { 'Obtain a ~|rare gem|~': { Items: ['Rare gem'], Level: 1, Label: 'Magic BiS ring' } },
+        Extra: { Log: { Items: ['Rare gem'], Level: 1, Category: ['Collection Log'], Label: 'Collection Log' } },
+        Quest: {}, Diary: {}
+    };
+    fixture.data.equipment = { 'Rare gem': { formatted_name: 'rare gem', slot: 'ring', defence_magic: 1 } };
+    fixture.data.drops = { Cow: { 'Raw beef': { 1: 'Always' } }, Imp: { 'Rare gem': { 1: '1/1000' } } };
+    fixture.base.monsters = { Cow: { '2000': true }, Imp: { '2000': true } };
+    fixture.base.items = { 'Raw beef': { Cow: 'primary-drop' }, 'Rare gem': { Imp: 'secondary-drop' } };
+    fixture.valids = { Cooking: { Starter: 1, Ordinary: 10 }, BiS: { 'Obtain a ~|rare gem|~': true }, Extra: { Log: true } };
+    fixture.ids = { Starter: 'starter', Ordinary: 'ordinary', 'Obtain a ~|rare gem|~': 'reward', Log: 'log' };
+    fixture.rules = { 'Show Skill Tasks': true, 'Show Best in Slot Tasks': true, 'Collection Log': true };
+    fixture.state.progressionHighWater.Cooking = 1;
+    fixture.state.progressionInitialized = true;
+
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Ordinary').available, false);
+    assert.equal(tasks.find(task => task.taskId === 'reward').available, true);
+    assert.equal(tasks.find(task => task.name === 'Log').available, true);
+
+    fixture.annotations = { encounterReadiness: { sources: {
+        Imp: { kind: 'competitive-reward', sourceTypes: ['monsters'] }
+    } } };
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Ordinary').available, true,
+        'an explicitly registered readiness decision governs its downstream ordinary goals');
+});
+
 test('a task in one disconnected section does not block a free route through another section', () => {
     const unlocked = { '6195': '6195', '5939': '5939' };
     const frontier = ['5938', '6194', '6451'];
@@ -2380,7 +2465,7 @@ test('a distinct process remains separate when it consumes the same resource', (
         Cannon: { Items: ['Bronze bar*'], Objects: ['Anvil'], Level: 5, Primary: true, Output: 'Bronze cannonball', Priority: 1 }
     }, Extra: {}, Quest: {}, Diary: {}, BiS: {} };
     const data = { challenges, codeItems: { itemsPlus: {}, objectsPlus: {}, tools: {} },
-        taskUnlocks: { Items: {} }, equipment: {} };
+        taskUnlocks: { Items: {} }, equipment: {}, chunks: { '1000': { Spawn: { 'Bronze bar': 2 } } } };
     const state = fresh(); state.actualLevels.Smithing = 5;
     const result = R.buildTasks({ data, valids: { Smithing: { Dagger: 1, Sword: 4, Cannon: 5 } },
         base: { objects: { Anvil: { '1000': true } }, items: { 'Bronze bar': { '1000': 'primary-spawn' } },
@@ -2584,6 +2669,128 @@ test('older states migrate, exact completions replace automatic tiers, and expli
     assert.deepEqual(imported.tempChunks, { unlocked: { 1000: '1000' } });
     assert.deepEqual(imported.rules, { Forestry: true }); assert.deepEqual(imported.settings, { theme: 'dark' });
     assert.equal(imported.globalValids, undefined);
+});
+
+test('clue state migrates with independent tier locks, cooldown, and incidental clues', () => {
+    const step = R.clueStepCatalog(chunkData, 'easy', require('../tasksMap.json'))[0];
+    let state = R.setClueLock(fresh(), 'easy', step);
+    state.clueTaskCooldown = 1;
+    state = R.setIncidentalClueCount(state, 'master', 2);
+    const restored = R.normalizeState(JSON.parse(JSON.stringify(state)));
+    assert.equal(restored.clueLocks.easy.stepId, step.stepId);
+    assert.equal(restored.clueTaskCooldown, 1);
+    assert.equal(restored.incidentalClues.master, 2);
+    assert.equal(R.setClueLock(restored, 'easy', null).clueLocks.easy, undefined);
+    assert.throws(() => R.setClueLock(restored, 'legendary', step), /Invalid clue tier/);
+});
+
+test('clue rewards have one highest-tier owner and old duplicate completions still count', () => {
+    const ids = require('../tasksMap.json');
+    const catalog = R.clueRewardCatalog(chunkData, {}, fresh(), ids);
+    assert.deepEqual(Object.fromEntries(R.CLUE_TIERS.map(tier => [tier, catalog.tiers[tier].total])),
+        { beginner: 17, easy: 133, medium: 117, hard: 136, elite: 60, master: 52 });
+    const blackPickaxe = catalog.rewards.find(reward => reward.itemKey === 'Black pickaxe');
+    const thirdAgeRing = catalog.rewards.find(reward => reward.itemKey === 'Ring of 3rd age');
+    assert.equal(blackPickaxe.ownerTier, 'easy');
+    assert.deepEqual(blackPickaxe.sourceTiers, ['beginner', 'easy']);
+    assert.equal(thirdAgeRing.ownerTier, 'master');
+    const oldBeginnerName = blackPickaxe.equivalentTaskNames.find(name =>
+        chunkData.challenges.Extra[name].ClueRewardTier === 'beginner');
+    const completed = R.clueRewardCatalog(chunkData, { checkedAllTasks: { Extra: { [oldBeginnerName]: true } } }, fresh(), ids);
+    assert.equal(completed.rewards.find(reward => reward.itemKey === 'Black pickaxe').completed, true,
+        'a completion recorded before canonical ownership changed is preserved');
+    const ownedElsewhere = R.clueRewardCatalog(chunkData, { manualEquipment: { 'Black pickaxe': true } }, fresh(), ids);
+    assert.equal(ownedElsewhere.rewards.find(reward => reward.itemKey === 'Black pickaxe').completed, false,
+        'owning an item from another source does not prove its clue collection-log slot');
+});
+
+test('direct clue sources expose one collapsed reward pool and cooldown or tier locks suppress it', () => {
+    const request = usePreset(makeRequest(['4651']), 'Boardlocked Chunker');
+    const adaptResult = result => R.adaptTasks(result.tasks,
+        { checkedAllTasks: request.boardlocked.checkedAllTasks }, request.boardlocked.state, request.chunks,
+        result.sections, request.manualSections, R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap),
+        request.boardlocked.tasksMap, request.chunkInfo);
+    let result = runWorker(request).result;
+    let beginner = adaptResult(result).filter(task => task.eligible && task.clueReward?.tier === 'beginner');
+    assert.equal(beginner.length, 17, 'BiS rewards replace their duplicate collection rows rather than adding more goals');
+    assert.ok(beginner.some(task => task.skill === 'BiS'));
+    assert.ok(beginner.every(task => task.origins.some(origin => origin.chunkId === '4651')));
+    assert.equal(adaptResult(result).some(task => task.eligible && task.clueReward && task.clueReward.tier !== 'beginner'), false);
+
+    request.boardlocked.state.clueTaskCooldown = 1;
+    result = runWorker(request).result;
+    assert.equal(adaptResult(result).some(task => task.eligible && task.clueReward), false);
+    assert.equal(result.clueStatus.tiers.beginner.repeatableSource, true);
+    assert.equal(result.clueStatus.tiers.beginner.generating, false);
+
+    request.boardlocked.state.clueTaskCooldown = 0;
+    const blockedStep = R.clueStepCatalog(chunkData, 'beginner', request.boardlocked.tasksMap)
+        .find(step => step.name === 'Bow to Brugsen Bursen at the Grand Exchange.');
+    request.boardlocked.state = R.setClueLock(request.boardlocked.state, 'beginner', blockedStep);
+    result = runWorker(request).result;
+    assert.equal(adaptResult(result).some(task => task.eligible && task.clueReward?.tier === 'beginner'), false);
+    assert.equal(result.clueStatus.tiers.beginner.blocked, true);
+    assert.ok(result.clueStatus.locks.beginner.targets.every(target => /^\d+$/.test(target)));
+});
+
+test('Master clue tasks use sustainable Watson inputs while caskets remain incidental', () => {
+    const noWatson = usePreset(makeRequest(['4651']), 'Boardlocked Chunker');
+    let result = runWorker(noWatson).result;
+    assert.equal(result.clueStatus.tiers.master.repeatableSource, false);
+    assert.equal(result.tasks.some(task => task.available && task.clueReward?.tier === 'master'), false,
+        'a lower-tier clue source never manufactures persistent Master goals');
+
+    const request = usePreset(makeRequest(['6455']), 'Boardlocked Chunker');
+    const catalog = R.clueRewardCatalog(request.chunkInfo, {}, request.boardlocked.state, request.boardlocked.tasksMap);
+    request.boardlocked.checkedAllTasks = { Extra: {} };
+    for (const reward of catalog.rewards.filter(reward => ['easy', 'medium', 'hard', 'elite'].includes(reward.ownerTier))) {
+        request.boardlocked.checkedAllTasks.Extra[reward.name] = true;
+    }
+    result = runWorker(request).result;
+    const adapted = R.adaptTasks(result.tasks, { checkedAllTasks: request.boardlocked.checkedAllTasks },
+        request.boardlocked.state, request.chunks, result.sections, request.manualSections,
+        R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap), request.boardlocked.tasksMap, request.chunkInfo);
+    const master = adapted.filter(task => task.eligible && task.clueReward?.tier === 'master');
+    assert.equal(master.length, 52);
+    assert.ok(master.every(task => task.origins.some(origin => origin.sourceName === 'Watson')));
+    assert.equal(result.clueStatus.tiers.master.sourceKind, 'watson');
+});
+
+test('same-tier clue reward dependencies expose a general deadlock escape', () => {
+    const ids = require('../tasksMap.json');
+    const name = 'Jig at Jiggig. Beware of double agents! (Rune spear, Rune platelegs, Any rune heraldic helm)';
+    const step = R.clueStepCatalog(chunkData, 'hard', ids).find(candidate => candidate.name === name);
+    const status = R.clueStepStatus(chunkData, 'hard', step, { Nonskill: { [name]: true } }, {}, fresh(), ids);
+    assert.equal(status.selfCycle, true);
+    assert.equal(status.satisfied, false, 'virtual same-tier rewards must not auto-unlock their own clue step');
+    assert.deepEqual(status.cycleItems, ['HeraldicRuneHelm[+]']);
+    assert.ok(status.targets.includes('9775'));
+    assert.ok(status.targets.every(target => /^\d+$/.test(target)), 'map target icons must be drawable chunk IDs');
+
+    const ordinarySourceStep = 'Test easy clue step requiring a black pickaxe';
+    const ordinarySourceData = { ...chunkData, challenges: { ...chunkData.challenges,
+        Nonskill: { ...chunkData.challenges.Nonskill,
+            [ordinarySourceStep]: { ClueTier: 'easy', Items: ['Black pickaxe'], Chunks: ['12694'] } } } };
+    const obtainableElsewhere = R.clueStepStatus(ordinarySourceData, 'easy', { name: ordinarySourceStep },
+        { Nonskill: { [ordinarySourceStep]: true } }, {}, fresh(), ids,
+        { items: { 'Black pickaxe': { 'H.A.M. Guard': 'primary-drop' } } });
+    assert.equal(obtainableElsewhere.selfCycle, false,
+        'a clue reward with an ordinary source is not a same-tier deadlock');
+    assert.equal(obtainableElsewhere.satisfied, true);
+});
+
+test('clue UI groups reward goals and keeps each tier lock independent', () => {
+    const ui = fs.readFileSync(path.join(__dirname, '..', 'boardlocked-ui.js'), 'utf8');
+    const css = fs.readFileSync(path.join(__dirname, '..', 'boardlocked.css'), 'utf8');
+    assert.match(ui, /className: 'bl-clue-task-group'/);
+    assert.match(ui, /I can't complete my current clue step/);
+    assert.match(ui, /I received a Master clue from a casket/);
+    assert.match(ui, /An unlocked source will generate reward goals again after the next non-clue goal/);
+    assert.match(ui, /Discard this deadlocked clue/);
+    assert.match(ui, /action: 'auto_unlock_clue_tier'/);
+    assert.match(ui, /checkedAllTasks\.Extra.*clueReward\.name/s,
+        'a merged BiS checkbox must also record the canonical clue reward task');
+    assert.match(css, /\.bl-clue-state\.is-blocked/);
 });
 
 test('Boardlocked Chunker preset has the strict broad-progression defaults', () => {
