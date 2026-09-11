@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 32;
+    const VERSION = 33;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -1186,7 +1186,7 @@
                 .filter(node => availableStartNodes.includes(node)) : availableStartNodes;
             if (!startNodes.length && availableStartNodes.includes(current)) startNodes = [current];
             if (!startNodes.length) startNodes = availableStartNodes;
-            const traverse = (blockingChunks = new Set()) => {
+            const traverse = (blockingChunks = new Set(), knownEncounters = new Map()) => {
                 const traversed = new Set(startNodes), queue = startNodes.map(id => ({ id, distance: 0 })), found = new Map();
                 const reachableFreeSet = new Set(), reachableLiveSet = new Set();
                 while (queue.length) {
@@ -1212,6 +1212,22 @@
                                 traversed.add(node);
                                 queue.push({ id: node, distance });
                             }
+                        } else if (blockingChunks.has(locationId)) {
+                            // Discovery may reach this chunk's task through a
+                            // later section after first crossing a task-free
+                            // section of the same chunk. The whole chunk still
+                            // stops onward travel, but it must remain the
+                            // encounter rather than blocking its own ticket.
+                            const encounter = knownEncounters.get(locationId);
+                            if (encounter && !found.has(locationId)) found.set(locationId, {
+                                ...encounter,
+                                metadata: {
+                                    ...encounter.metadata,
+                                    taskIds: [...(encounter.metadata.taskIds || [])],
+                                    entrySections: [...(encounter.metadata.entrySections || [])]
+                                }
+                            });
+                            if (encounter) reachableLiveSet.add(locationId);
                         } else if (nodeTasks.length) {
                             const entrySections = parsed.sectionId ? [parsed.sectionId] : [];
                             if (!found.has(locationId)) found.set(locationId, { kind: 'revisit', locationId, weight: 1,
@@ -1236,7 +1252,7 @@
             // encounters, so another disconnected section cannot be used as a
             // hidden free passage around a reachable task in the same chunk.
             const discovered = traverse();
-            const final = discovered.reachableLiveSet.size ? traverse(discovered.reachableLiveSet) : discovered;
+            const final = discovered.reachableLiveSet.size ? traverse(discovered.reachableLiveSet, discovered.found) : discovered;
             candidates.push(...final.found.values());
             reachableFree.push(...final.reachableFreeSet); reachableLive.push(...final.reachableLiveSet);
         } else if (travelGraph && current && own(unlocked, current)) {

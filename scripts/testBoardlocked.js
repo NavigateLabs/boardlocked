@@ -361,9 +361,9 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl18/);
-    assert.match(html, /boardlocked\.js\?v=49/);
-    assert.match(html, /boardlocked-ui\.js\?v=62/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl19/);
+    assert.match(html, /boardlocked\.js\?v=50/);
+    assert.match(html, /boardlocked-ui\.js\?v=63/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -1461,6 +1461,29 @@ test('a reachable task section makes every section of that chunk block onward tr
     assert.deepEqual(pool.candidates.map(candidate => candidate.locationId), ['2000']);
     assert.ok(!pool.reachableFree.includes('2000'));
     assert.ok(!pool.reachableLive.includes('3000'));
+});
+
+test('a split chunk cannot block its own reachable task ticket', () => {
+    const data = { sections: {
+        '1000': { '1': ['2000-2'] },
+        '2000': { '1': ['3000-1'], '2': ['1000-1', '3000-1'] },
+        '3000': { '1': ['2000-1', '2000-2', '4000-1'] },
+        '4000': { '1': ['3000-1'] }
+    } };
+    const unlocked = { '1000': '1000', '2000': '2000', '3000': '3000' };
+    const sections = { '1000': { '1': true }, '2000': { '1': true, '2': true }, '3000': { '1': true } };
+    const graph = R.buildTravelGraph(data, unlocked, sections, ['4000']);
+    const tasks = adapt([task('split-task', ['2000'], {
+        origins: [origin('2000', '1')], activeOrigins: [origin('2000', '1')]
+    })], {}, fresh(), unlocked, sections);
+    const pool = R.derivePool(['4000'], unlocked, tasks, null, graph, '1000', ['1']);
+    assert.deepEqual(pool.candidates.map(candidate => candidate.locationId), ['2000']);
+    assert.deepEqual(pool.candidates[0].metadata.taskIds, ['split-task']);
+    assert.deepEqual(pool.candidates[0].metadata.entrySections, ['1']);
+    assert.equal(pool.candidates[0].metadata.distance, 3,
+        'the encounter retains the real route to its task section');
+    assert.ok(!pool.candidates.some(candidate => candidate.locationId === '4000'),
+        'the encounter still blocks destinations beyond its transit section');
 });
 
 test('reusable containers cannot obtain themselves through fill-empty or cook-eat cycles', () => {
