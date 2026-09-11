@@ -2948,19 +2948,29 @@ test('an active lower clue tier may supply an item for a higher-tier step', () =
         'the fixed-point calculation should allow progress from an already-active clue tier');
 });
 
-test('Twilight emissary sources unlock with the quest step that awards the robes', () => {
+test('Tower and temple emissary sources unlock at their Heart of Darkness steps', () => {
     const request = usePreset(makeRequest(['6450', '6706']), 'Boardlocked Chunker');
     request.chunkInfo.challenges.Nonskill['Test completable medium clue step'] = {
-        ClueTier: 'medium', Chunks: ['6706']
+        ClueTier: 'medium', Chunks: ['6450']
     };
     let result = runWorker(request).result;
-    assert.equal(result.sections['6450']['1'], true,
-        'the Tower of Ascension and the quest route to the robes remain accessible');
+    assert.equal(result.clueStatus.tiers.medium.sourceOrigins.some(origin => origin.chunkId === '6450' &&
+        ['Emissary Acolyte', 'Emissary Chosen'].includes(origin.sourceName)), false);
     assert.equal(result.clueStatus.tiers.medium.sourceOrigins.some(origin => origin.chunkId === '6706' &&
         ['Emissary Acolyte', 'Emissary Chosen'].includes(origin.sourceName)), false);
 
+    const towerStep = '~|The Heart of Darkness|~ 2';
+    ((request.checkedAllTasks ||= {}).Quest ||= {})[towerStep] = true;
+    (request.boardlocked.checkedAllTasks.Quest ||= {})[towerStep] = true;
+    result = runWorker(request).result;
+    assert.ok(result.clueStatus.tiers.medium.sourceOrigins.some(origin =>
+        origin.chunkId === '6450' && ['Emissary Acolyte', 'Emissary Chosen'].includes(origin.sourceName)));
+    assert.equal(result.clueStatus.tiers.medium.sourceOrigins.some(origin => origin.chunkId === '6706' &&
+        ['Emissary Acolyte', 'Emissary Chosen'].includes(origin.sourceName)), false,
+        'reaching the tower does not expose Twilight Temple monsters early');
+
     const questStep = '~|The Heart of Darkness|~ 3';
-    ((request.checkedAllTasks ||= {}).Quest ||= {})[questStep] = true;
+    request.checkedAllTasks.Quest[questStep] = true;
     (request.boardlocked.checkedAllTasks.Quest ||= {})[questStep] = true;
     result = runWorker(request).result;
     assert.ok(result.clueStatus.tiers.medium.sourceOrigins.some(origin =>
@@ -2970,8 +2980,13 @@ test('Twilight emissary sources unlock with the quest step that awards the robes
         'the robe-granting quest step opens the protected temple section');
 });
 
-test('Twilight Temple section access is shared by travel and manual-start requirements', () => {
+test('Tower and temple section access is shared by travel and manual-start requirements', () => {
     const state = fresh(), legacy = {}, ids = require('../tasksMap.json');
+    assert.equal(R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, '6450-1'), false);
+    const towerRequirement = R.directStartingRequirements(chunkData, annotations, '6450', '1');
+    assert.equal(towerRequirement.Tasks['~|The Heart of Darkness|~ 2'], 'Quest');
+    const towerDone = { checkedAllTasks: { Quest: { '~|The Heart of Darkness|~ 2': true } } };
+    assert.equal(R.sectionAccessAllowed(chunkData, annotations, state, towerDone, ids, {}, '6450-1'), true);
     assert.equal(R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, '6706-1'), false);
     const requirement = R.directStartingRequirements(chunkData, annotations, '6706', '1');
     assert.equal(requirement.Tasks['~|The Heart of Darkness|~ 3'], 'Quest');
@@ -2981,7 +2996,7 @@ test('Twilight Temple section access is shared by travel and manual-start requir
         'the outside statue section does not inherit the temple gate');
     const graph = R.buildTravelGraph(chunkData, { '6450': '6450' }, { '6450': { '1': true } }, ['6706'],
         (from, to) => [from, to].every(location =>
-            R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, location)));
+            R.sectionAccessAllowed(chunkData, annotations, state, towerDone, ids, {}, location)));
     assert.ok(graph.sectionGraph['6450-1'].includes('6706-2'), 'the outside approach remains reachable');
     assert.ok(!graph.sectionGraph['6450-1'].includes('6706-1'), 'travel cannot enter the protected temple section');
 
@@ -2992,12 +3007,29 @@ test('Twilight Temple section access is shared by travel and manual-start requir
         { '6450': '6450', '6451': '6451', '6706': '6706' },
         { '6450': { '1': true }, '6451': { '1': true }, '6706': { '1': true } },
         (from, to) => [from, to].every(location =>
-            R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, location)));
+            R.sectionAccessAllowed(chunkData, annotations, state, towerDone, ids, {}, location)));
     assert.equal(migrated.changed, true);
     assert.deepEqual(migrated.removedSections, ['1']);
     assert.deepEqual(migrated.addedSections, ['2']);
     assert.deepEqual(migrated.state.currentVisit.arrivalSections, ['2'],
         'an old protected arrival moves to the reachable outside section instead of trapping the run');
+
+    let towerVisit = R.startVisit(state,
+        { kind: 'frontier', locationId: '6706', metadata: { entrySections: ['2'] } });
+    towerVisit = R.snapshotVisit(towerVisit, []);
+    towerVisit = R.startVisit(towerVisit,
+        { kind: 'frontier', locationId: '6450', metadata: { entrySections: ['1'] } });
+    const reverted = R.migrateCurrentArrival(chunkData, towerVisit,
+        { '6706': '6706', '6450': '6450' }, { '6706': { '2': true }, '6450': { '1': true } },
+        (from, to) => [from, to].every(location =>
+            R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, location)));
+    assert.equal(reverted.changed, true);
+    assert.equal(reverted.reverted, true);
+    assert.equal(reverted.locationId, '6450');
+    assert.equal(reverted.state.currentVisit.locationId, '6706');
+    assert.equal(reverted.state.travelAnchor, '6706');
+    assert.equal(reverted.state.visitHistory.find(visit => visit.visitNumber === 2).resolution, 'admin_void',
+        'an imported visit with no valid arrival is removed instead of becoming a softlock');
 });
 
 test('clue UI groups reward goals and keeps each tier lock independent', () => {

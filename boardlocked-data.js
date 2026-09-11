@@ -231,10 +231,13 @@
         // absent from the upstream section graph. The same annotation governs
         // travel, task sources, and player-picked starting requirements.
         sectionAccessRequirements: Object.freeze({
-            // The Tower of Ascension remains open for The Heart of Darkness.
-            // Finishing its trials grants the disguise used to enter the
-            // Twilight Temple, so the following quest step cannot be blocked
-            // by the protected temple sections themselves.
+            // Heart of Darkness step 3 sends the player into the Tower of
+            // Ascension. Completing its trials grants the disguise used to
+            // enter the Twilight Temple in step 4.
+            '6450-1': Object.freeze({
+                requirements: Object.freeze([Object.freeze({ '~|The Heart of Darkness|~ 2': 'Quest' })]),
+                reason: 'Requires reaching the Tower of Ascension during The Heart of Darkness'
+            }),
             '6706-1': Object.freeze({
                 requirements: Object.freeze([Object.freeze({ '~|The Heart of Darkness|~ 3': 'Quest' })]),
                 reason: 'Requires the Twilight Emissary robes obtained during The Heart of Darkness'

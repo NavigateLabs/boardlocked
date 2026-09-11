@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 43;
+    const VERSION = 44;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -490,6 +490,20 @@
         const pool = derivePool([target], before, [], null, graph, previousId,
             Array.isArray(previous.arrivalSections) ? previous.arrivalSections : null);
         const candidate = pool.candidates.find(item => item.kind === 'frontier' && item.locationId === target);
+        if (!candidate) {
+            const invalidated = { ...visit, status: 'resolved', resolution: 'admin_void',
+                note: 'Invalidated after its arrival section became inaccessible' };
+            const visitHistory = state.visitHistory.map(item =>
+                item.visitNumber === visit.visitNumber ? invalidated : item);
+            const next = { ...state, currentVisit: copy(previous), visitHistory,
+                travelAnchor: previousId, travelAnchorSections: copy(previous.arrivalSections || []),
+                adminHistory: [...state.adminHistory, { timestamp: new Date().toISOString(),
+                    action: 'repair_inaccessible_current_visit', locationId: target,
+                    restoredLocationId: previousId, removedSectionIds: [...visit.arrivalSections],
+                    reason: 'The current arrival no longer has an accessible route' }] };
+            return { state: next, changed: true, reverted: true, locationId: target,
+                removedSections: [...visit.arrivalSections], addedSections: [] };
+        }
         const valid = candidate?.metadata?.entrySections || [];
         if (!valid.length) return { state, changed: false, removedSections: [], addedSections: [] };
         const overlap = visit.arrivalSections.filter(section => valid.includes(section));
@@ -506,7 +520,7 @@
         next.adminHistory = [...next.adminHistory, { timestamp: new Date().toISOString(), action: 'repair_invalid_arrival_sections',
             locationId: target, removedSectionIds: removedSections, addedSectionIds: addedSections,
             reason: 'Arrival sections no longer match an accessible route' }];
-        return { state: next, changed: true, removedSections, addedSections };
+        return { state: next, changed: true, reverted: false, locationId: target, removedSections, addedSections };
     }
 
     function deriveStartingSectionGroups(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}, sectionAllowed = () => true) {

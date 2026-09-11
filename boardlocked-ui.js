@@ -321,11 +321,12 @@
                 (from, to, connection) => completedConnectionAllowed(from, to, connection, arrivalAccess),
                 BoardlockedData.travelConnections) : { state, changed: false, removedSections: [], addedSections: [] };
             state = arrivalMigration.state;
+            const migratedArrivalLocation = arrivalMigration.locationId || state.currentVisit?.locationId;
             if (arrivalMigration.changed) for (const section of arrivalMigration.removedSections) {
-                if (manualSections[state.currentVisit.locationId]?.[section] === true) delete manualSections[state.currentVisit.locationId][section];
+                if (manualSections[migratedArrivalLocation]?.[section] === true) delete manualSections[migratedArrivalLocation][section];
             }
             if (arrivalMigration.changed) for (const section of arrivalMigration.addedSections) {
-                (manualSections[state.currentVisit.locationId] ||= {})[section] = true;
+                (manualSections[migratedArrivalLocation] ||= {})[section] = true;
             }
             const latestNoTaskVisit = state.currentVisit?.status === 'resolved' && state.currentVisit.resolution === 'no_tasks';
             const recalculatingUpdatedVisit = sourceVersion < R.VERSION && !!state.currentVisit &&
