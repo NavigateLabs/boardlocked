@@ -483,14 +483,14 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-data\.js\?v=19/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl27/);
-    assert.match(html, /boardlocked\.js\?v=59/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl37/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl37/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl28/);
+    assert.match(html, /boardlocked\.js\?v=60/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl38/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl38/);
     assert.match(worker, /boardlocked-data\.js\?v=19/);
-    assert.match(worker, /boardlocked\.js\?v=59/);
-    assert.match(worker, /boardlocked-worker\.js\?v=21/);
-    assert.match(html, /boardlocked-ui\.js\?v=77/);
+    assert.match(worker, /boardlocked\.js\?v=60/);
+    assert.match(worker, /boardlocked-worker\.js\?v=22/);
+    assert.match(html, /boardlocked-ui\.js\?v=78/);
     assert.match(html, /boardlocked\.css\?v=21/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -1087,6 +1087,12 @@ test('Boardlocked progress navigation uses completed evidence and clear destinat
     assert.match(ui, /I can use this master/);
     assert.match(ui, /class="bl-slayer-lock-editor"/,
         'the less common lock controls stay collapsed inside the dedicated Slayer view');
+    assert.match(ui, /id="bl-slayer-lock-master"/);
+    assert.match(ui, /slayerLockMapTargets/);
+    assert.match(ui, /action: 'auto_unlock_slayer'/);
+    assert.match(ui, /Tasks through Slayer level/);
+    assert.match(index, /!BOARDLOCKED_FORK && checkSlayerLocked\(\)/,
+        'the legacy broad unlock check cannot bypass the exact Boardlocked assignment check');
     assert.match(ui, /panel\.classList\.add\('bl-section-focus'\)/,
         'opening Slayer presents one focused side-panel destination');
     assert.match(index, /if \(!BOARDLOCKED_FORK\) combatStyles\.push\('Slayer'\)/,
@@ -1258,6 +1264,31 @@ test('Slayer account setup and master tasks remain independent progression entry
     assert.match(ui, /<summary>Run data &amp; rules<\/summary>/);
     assert.doesNotMatch(ui, /Avoid the level-6 rat/);
     assert.doesNotMatch(ui, /ruined house/);
+});
+
+test('locked Slayer assignments keep their level floor and exact master locations', () => {
+    const catacombs = { master: 'Konar quo Maten', assignment: 'Black demons - Catacombs of Kourend',
+        monster: 'Black demons', level: '40' };
+    const targets = R.slayerLockTargets(chunkData, catacombs);
+    assert.ok(targets.includes('6457'));
+    assert.ok(!targets.includes('13623'), 'a Konar Catacombs assignment must not point at the Slayer Tower');
+    assert.equal(R.slayerLockStatus(chunkData, catacombs,
+        { monsters: { 'Black demon': { 'Catacombs of Kourend': true } } }).satisfied, true);
+    assert.equal(R.slayerLockStatus(chunkData, catacombs,
+        { monsters: { 'Black demon': { 'Slayer Tower': true } } }).satisfied, false);
+
+    const everyAssignment = Object.entries(chunkData.slayerMasterTasks).flatMap(([master, entries]) =>
+        Object.keys(entries).map(assignment => ({ master, assignment, monster: assignment.split(' - ')[0], level: '99' })));
+    assert.equal(everyAssignment.filter(lock => !R.slayerLockTargets(chunkData, lock).length).length, 0,
+        'every master-specific assignment has at least one map destination');
+    assert.equal(R.slayerLockDefinition(chunkData,
+        { master: 'Mortimer', assignment: 'Warped creatures', monster: 'Warped creatures' }).family, 'Warped Creatures',
+    'assignment-family matching tolerates harmless capitalization differences in source data');
+
+    const state = fresh(); state.actualLevels.Slayer = 1;
+    const model = R.slayerProgressionModel({ data: chunkData, state,
+        legacy: { slayerLocked: { monster: 'Birds', level: '22' } }, base: {}, unlocked: {}, sections: {}, manualSections: {} });
+    assert.equal(model.actualLevel, 22, 'the recorded lock level remains usable while Slayer is locked');
 });
 
 test('Slayer master decisions survive migration and reject invalid states', () => {
@@ -2856,6 +2887,29 @@ test('real worker: Turael exposes his currently assignable pool without exposing
     assert.equal(abyssalDemon.available, false);
     assert.ok(!R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections,
         request.manualSections).some(task => task.eligible && task.name === abyssalDemon.name));
+});
+
+test('real worker: a Slayer lock keeps completed-level tasks and reports a reached unlock source', () => {
+    const calculate = chunkIds => {
+        const request = usePreset(makeRequest(chunkIds), 'Boardlocked Chunker');
+        request.manualPrimary.Slayer = true;
+        request.completedChallenges.Slayer = {
+            'Receive a Slayer assignment from ~|Turael|~ in Burthorpe': true
+        };
+        request.completedChallenges.Quest = { '~|Priest in Peril|~ Complete the quest': true };
+        request.boardlocked.state.actualLevels.Slayer = 1;
+        request.slayerLocked = { master: 'Turael', assignment: 'Bears', monster: 'Bears', level: '22' };
+        return runWorker(request).result;
+    };
+    let result = calculate(['11575', '5942', '13623']);
+    assert.equal(result.slayerLockStatus.satisfied, false);
+    assert.equal(result.tasks.find(task => task.name === 'Slay a ~|Crawling Hand|~').available, true);
+    assert.equal(result.tasks.find(task => task.name === 'Slay a ~|banshee|~').available, true);
+    assert.ok(!result.tasks.some(task => task.skill === 'Slayer' && Number(task.level) > 22));
+
+    result = calculate(['11575', '5942', '13623', '4918']);
+    assert.equal(result.slayerLockStatus.satisfied, true);
+    assert.ok(result.slayerLockStatus.matches.some(match => /bear/i.test(match.monster)));
 });
 
 test('real worker: a combat-gated master changes every dependent route together', () => {

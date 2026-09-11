@@ -1160,6 +1160,86 @@
         return { ...state, slayerMasters: { ...(state.slayerMasters || {}), [master]: status } };
     }
 
+    function slayerLockDefinition(data = {}, lock = null) {
+        if (!lock || typeof lock !== 'object') return null;
+        const normalized = value => stripMarkup(String(value || '')).trim().toLowerCase();
+        const findKey = (object, value) => Object.keys(object || {}).find(key => normalized(key) === normalized(value));
+        const master = findKey(data.slayerMasterTasks, lock.master);
+        const masterEntries = master ? data.slayerMasterTasks[master] || {} : {};
+        const assignment = findKey(masterEntries, lock.assignment);
+        const families = data.codeItems?.slayerTasks || {};
+        const family = findKey(families, lock.monster) ||
+            findKey(families, assignment ? assignment.split(' - ')[0] : lock.assignment);
+        if (!family) return null;
+        return { master: master || null, assignment: assignment || null, family,
+            entry: assignment ? masterEntries[assignment] || {} : null,
+            monsters: Object.keys(data.codeItems.slayerTasks[family] || {}) };
+    }
+
+    function slayerLockTargets(data = {}, lock = null) {
+        const definition = slayerLockDefinition(data, lock);
+        if (!definition) return [];
+        const generic = [...new Set((data.codeItems?.slayerTaskChunks?.[definition.family] || []).map(String))];
+        if (!definition.entry?.Chunks?.length) return generic;
+        const chunks = data.chunks || {}, graph = new Map();
+        const connect = (left, right) => {
+            if (!left || !right) return;
+            (graph.get(left) || graph.set(left, new Set()).get(left)).add(right);
+            (graph.get(right) || graph.set(right, new Set()).get(right)).add(left);
+        };
+        for (const [location, chunk] of Object.entries(chunks)) {
+            for (const target of Object.keys(chunk.Connect || {})) connect(location, target);
+            for (const section of Object.values(chunk.Sections || {})) {
+                for (const target of Object.keys(section.Connect || {})) connect(location, target);
+            }
+        }
+        const normalized = value => stripMarkup(String(value || '')).trim().toLowerCase();
+        const namedLocations = Object.keys(chunks).filter(location => !parseLocation(location));
+        for (const [location, chunk] of Object.entries(chunks)) if (chunk.Name) {
+            const name = normalized(chunk.Name).split('#')[0];
+            for (const named of namedLocations) if (normalized(named).split('#')[0] === name) connect(location, named);
+        }
+        const roots = definition.entry.Chunks.flatMap(raw => expand(raw, data.codeItems?.chunksPlus)).flatMap(location => {
+            if (own(chunks, location) || parseLocation(location)) return [String(location)];
+            const key = normalized(location);
+            return Object.keys(chunks).filter(candidate => normalized(candidate).includes(key) || key.includes(normalized(candidate)));
+        });
+        const targets = new Set();
+        for (const root of roots) {
+            const queue = [root], visited = new Set();
+            while (queue.length) {
+                const location = queue.shift();
+                if (visited.has(location)) continue;
+                visited.add(location);
+                const parsed = parseLocation(location), chunk = chunks[location];
+                if (parsed && chunk?.Nickname) { targets.add(parsed.chunkId); continue; }
+                for (const neighbour of graph.get(location) || []) queue.push(neighbour);
+            }
+        }
+        return [...targets];
+    }
+
+    function slayerLockStatus(data = {}, lock = null, base = {}) {
+        const definition = slayerLockDefinition(data, lock);
+        if (!definition) return { satisfied: false, targets: [], family: null, matches: [] };
+        const allowed = definition.entry?.Chunks?.flatMap(raw => expand(raw, data.codeItems?.chunksPlus)) || [];
+        const locationMatches = (left, right) => {
+            const a = parseLocation(left), b = parseLocation(right);
+            if (!a || !b) return String(left) === String(right);
+            return a.chunkId === b.chunkId && (!a.sectionId || !b.sectionId || a.sectionId === b.sectionId);
+        };
+        const level = Math.max(1, Number(lock.level) || 1), matches = [];
+        for (const monster of definition.monsters) {
+            if (Number(data.slayerMonsters?.[monster] || 1) > level) continue;
+            for (const origin of Object.keys(base.monsters?.[monster] || {})) {
+                if (allowed.length && !allowed.some(location => locationMatches(origin, location))) continue;
+                matches.push({ monster, origin });
+            }
+        }
+        return { satisfied: matches.length > 0, targets: slayerLockTargets(data, lock),
+            master: definition.master, assignment: definition.assignment, family: definition.family, matches };
+    }
+
     function setBossBlocked(state, boss, blocked) {
         if (!boss || typeof boss !== 'string' || typeof blocked !== 'boolean') throw new Error('Invalid boss state');
         const blockedBosses = { ...(state.blockedBosses || {}) };
@@ -1171,7 +1251,8 @@
     // Slayer weights are probabilities within one master's assignment table.
     // They are reported for diagnostics, but never compared between masters.
     function slayerProgressionModel({ data, state, legacy = {}, base = {}, ids = {}, unlocked = {}, sections = {}, manualSections = {} }) {
-        const levels = state.actualLevels || {}, actualLevel = Number(levels.Slayer) || 1;
+        const levels = state.actualLevels || {}, actualLevel = Math.max(Number(levels.Slayer) || 1,
+            Number(legacy.slayerLocked?.level) || 1);
         const combatLevel = actualCombatLevel(levels), codes = data.codeItems || {};
         const complete = (name, skill) => {
             const meta = data.challenges?.[skill]?.[name] || {};
@@ -2917,7 +2998,7 @@
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, completedSkillProgress, trainingMethodsAtOrBelow,
         initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
-        actualCombatLevel, setSlayerMasterState, setBossBlocked, slayerProgressionModel,
+        actualCombatLevel, setSlayerMasterState, setBossBlocked, slayerLockDefinition, slayerLockTargets, slayerLockStatus, slayerProgressionModel,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,

@@ -11,6 +11,7 @@
     let worker = null, generation = 0, busy = true, error = '', timer = null;
     let rawTasks = [], tasks = [], sections = {}, diagnostics = [], sourceCounts = {};
     let enablerCatalog = [], enablerAmbiguities = [], slayerMasterCatalog = [], slayerConfirmation = null;
+    let slayerLockMapTargets = [];
     let pool = R.derivePool([], {}, [], null), travelGraph = null, signature = '', previousUnlocked = null;
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
     let manualStartingPool = { ids: [], groups: [], groupByLocation: {} };
@@ -454,13 +455,32 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl37');
+        worker = new Worker('./worker.js?v=6.9.66-bl38');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
             const result = event.data;
             if (result.type === 'error') { fail(result.err); return; }
             if (result.type !== 'boardlocked' || result.requestId !== requestId) return;
+            slayerLockMapTargets = result.slayerLockStatus?.targets || [];
+            if (slayerLocked && result.slayerLockStatus?.satisfied) {
+                const completedLock = R.copy(slayerLocked);
+                state.actualLevels.Slayer = Math.max(Number(state.actualLevels.Slayer) || 1,
+                    Number(completedLock.level) || 1);
+                slayerLocked = null; tempSlayerLocked = null; editingSlayerLock = false;
+                slayerLockMapTargets = [];
+                state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'auto_unlock_slayer',
+                    master: completedLock.master || null, assignment: completedLock.assignment || completedLock.monster,
+                    monster: completedLock.monster, level: Number(completedLock.level) || 1,
+                    matches: result.slayerLockStatus.matches || [] });
+                message = 'Slayer unlocked: ' + R.displayName(completedLock.assignment || completedLock.monster) +
+                    ' is now available in your reached area.';
+                busy = false; worker?.terminate(); worker = null;
+                save();
+                if (typeof setData === 'function') setData();
+                schedule(); render(); drawCanvas();
+                return;
+            }
             rawTasks = result.tasks; sections = result.sections;
             questProgress = result.questProgress || {}; questPointTotal = Number(result.questPointTotal) || 1;
             enablerCatalog = result.enablerCatalog || []; enablerAmbiguities = result.enablerAmbiguities || [];
@@ -1037,29 +1057,58 @@
     function updateSlayerLockEditor() {
         const status = document.getElementById('bl-slayer-lock-select');
         const fields = document.getElementById('bl-slayer-lock-fields');
+        const master = document.getElementById('bl-slayer-lock-master');
         const task = document.getElementById('bl-slayer-lock-task');
         const level = document.getElementById('bl-slayer-lock-level');
         const saveButton = document.getElementById('bl-slayer-lock-save');
-        if (!status || !fields || !task || !level || !saveButton) return;
+        if (!status || !fields || !master || !task || !level || !saveButton) return;
         const locking = status.value === 'locked';
+        const entry = master.value ? chunkInfo.slayerMasterTasks?.[master.value]?.[task.value] : null;
+        const requiredLevel = Number(entry?.Level || 1);
         fields.hidden = !locking;
-        saveButton.disabled = !canEdit() || busy || (locking && (!task.value || !/^\d+$/.test(level.value) || Number(level.value) < 1 || Number(level.value) > 99));
+        saveButton.disabled = !canEdit() || busy || (locking && (!task.value || !/^\d+$/.test(level.value) ||
+            Number(level.value) < requiredLevel || Number(level.value) < 1 || Number(level.value) > 99));
+    }
+    function updateSlayerLockAssignments(selected = '') {
+        const master = document.getElementById('bl-slayer-lock-master');
+        const task = document.getElementById('bl-slayer-lock-task');
+        if (!master || !task) return;
+        const entries = master.value ? Object.entries(chunkInfo.slayerMasterTasks?.[master.value] || {}) :
+            Object.keys(typeof slayerTasks === 'object' && slayerTasks ? slayerTasks : {}).map(name => [name, {}]);
+        entries.sort(([leftName, left], [rightName, right]) =>
+            Number(left.Level || 1) - Number(right.Level || 1) || leftName.localeCompare(rightName));
+        task.replaceChildren(element('option', 'Choose the blocked assignment…', { value: '' }));
+        for (const [name, entry] of entries) {
+            const level = Number(entry.Level || 1);
+            task.append(element('option', (level > 1 ? '[' + level + '] ' : '') + R.displayName(name), { value: name }));
+        }
+        if (selected && !entries.some(([name]) => name === selected)) task.append(element('option', R.displayName(selected), { value: selected }));
+        task.value = selected || '';
+        updateSlayerLockEditor();
     }
     function saveSlayerLock() {
         if (!canEdit() || busy) return;
         const locking = document.getElementById('bl-slayer-lock-select').value === 'locked';
-        const task = document.getElementById('bl-slayer-lock-task').value;
+        const master = document.getElementById('bl-slayer-lock-master').value;
+        const assignment = document.getElementById('bl-slayer-lock-task').value;
         const level = Number(document.getElementById('bl-slayer-lock-level').value);
-        if (locking && (!task || !Number.isInteger(level) || level < 1 || level > 99)) {
+        const entryLevel = Number(chunkInfo.slayerMasterTasks?.[master]?.[assignment]?.Level || 1);
+        const definition = R.slayerLockDefinition(chunkInfo, { master, assignment, monster: assignment });
+        if (locking && (!definition || !Number.isInteger(level) || level < entryLevel || level < 1 || level > 99)) {
             return notice('Choose the blocked assignment and a Slayer level from 1 to 99.');
         }
-        slayerLocked = locking ? { monster: task, level: String(level) } : null;
+        slayerLocked = locking ? { master: definition.master, assignment: definition.assignment || assignment,
+            monster: definition.family, level: String(level) } : null;
+        if (locking) state.actualLevels.Slayer = Math.max(Number(state.actualLevels.Slayer) || 1, level);
+        slayerLockMapTargets = locking ? R.slayerLockTargets(chunkInfo, slayerLocked) : [];
         tempSlayerLocked = null;
         editingSlayerLock = false;
         forceUpdatePluginOutput = true;
         state.adminHistory.push({ timestamp: new Date().toISOString(), action: locking ? 'lock_slayer' : 'unlock_slayer',
-            monster: locking ? task : null, level: locking ? level : null });
-        message = locking ? 'Slayer goals are locked until ' + R.displayName(task) + ' becomes available.' : 'Slayer goals are unlocked.';
+            master: locking ? definition.master : null, assignment: locking ? definition.assignment || assignment : null,
+            monster: locking ? definition.family : null, level: locking ? level : null });
+        message = locking ? 'Slayer goals above level ' + level + ' are locked until ' + R.displayName(definition.assignment || definition.family) +
+            ' becomes available.' : 'Slayer goals are unlocked.';
         save();
         if (typeof setData === 'function') setData();
         schedule(); render();
@@ -1070,23 +1119,23 @@
         const lockState = document.getElementById('bl-slayer-lock-state');
         const lockDetail = document.getElementById('bl-slayer-lock-detail');
         const lockSelect = document.getElementById('bl-slayer-lock-select');
+        const lockMaster = document.getElementById('bl-slayer-lock-master');
         const lockTask = document.getElementById('bl-slayer-lock-task');
         const lockLevel = document.getElementById('bl-slayer-lock-level');
-        if (!summary || !list || !lockState || !lockDetail || !lockSelect || !lockTask || !lockLevel) return;
+        if (!summary || !list || !lockState || !lockDetail || !lockSelect || !lockMaster || !lockTask || !lockLevel) return;
         const locked = !!slayerLocked;
         summary.textContent = 'Slayer';
         lockState.textContent = locked ? 'Slayer is locked' : 'Slayer is unlocked';
         lockState.className = 'bl-slayer-state ' + (locked ? 'is-locked' : 'is-unlocked');
-        lockDetail.textContent = locked ? 'Waiting on ' + R.displayName(slayerLocked.monster || 'a Slayer assignment') +
-            ' from Slayer level ' + (slayerLocked.level || 1) + '.' : 'Slayer goals may be generated normally.';
+        lockDetail.textContent = locked ? 'Waiting on ' + R.displayName(slayerLocked.assignment || slayerLocked.monster || 'a Slayer assignment') +
+            (slayerLocked.master ? ' from ' + slayerLocked.master : '') + '. Tasks through Slayer level ' +
+            (slayerLocked.level || 1) + ' remain available. Slayer icons mark chunks that can unlock it.' : 'Slayer goals may be generated normally.';
         lockSelect.value = locked ? 'locked' : 'unlocked';
-        const choices = ['Manually Locked', ...Object.keys(typeof slayerTasks === 'object' && slayerTasks ? slayerTasks : {})]
-            .filter((value, index, values) => value && values.indexOf(value) === index).sort((a, b) => a.localeCompare(b));
-        const selectedTask = locked ? slayerLocked.monster : '';
-        lockTask.replaceChildren(element('option', 'Choose the blocked assignment…', { value: '' }));
-        for (const choice of choices) lockTask.append(element('option', R.displayName(choice), { value: choice }));
-        if (selectedTask && !choices.includes(selectedTask)) lockTask.append(element('option', R.displayName(selectedTask), { value: selectedTask }));
-        lockTask.value = selectedTask || '';
+        const masters = Object.keys(chunkInfo.slayerMasterTasks || {}).sort((a, b) => a.localeCompare(b));
+        lockMaster.replaceChildren(element('option', 'Unknown or manual lock', { value: '' }));
+        for (const master of masters) lockMaster.append(element('option', master, { value: master }));
+        lockMaster.value = locked && masters.includes(slayerLocked.master) ? slayerLocked.master : '';
+        updateSlayerLockAssignments(locked ? slayerLocked.assignment || slayerLocked.monster : '');
         lockLevel.value = locked ? slayerLocked.level || 1 : state.actualLevels.Slayer || 1;
         updateSlayerLockEditor();
 
@@ -1515,6 +1564,19 @@
             context.setLineDash(current || rollable || free ? [] : [5, 3]);
             context.strokeRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
         }
+        if (slayerLocked && osrsStickers?.slayer) for (const id of slayerLockMapTargets) {
+            const point = convertToXY(id), sizeX = totalZoom * imgW / rowSize, sizeY = totalZoom * imgH / (fullSize / rowSize);
+            if (Math.min(sizeX, sizeY) < 24) continue;
+            const iconSize = Math.min(sizeX, sizeY) * .3;
+            const x = dragTotalX + (point.x + .66) * sizeX, y = dragTotalY + (point.y + .06) * sizeY;
+            context.save();
+            context.fillStyle = 'rgba(20, 24, 23, .82)';
+            context.beginPath();
+            context.arc(x + iconSize / 2, y + iconSize / 2, iconSize * .58, 0, Math.PI * 2);
+            context.fill();
+            context.drawImage(osrsStickers.slayer, x, y, iconSize, iconSize);
+            context.restore();
+        }
         context.restore();
     }
     function mount() {
@@ -1546,7 +1608,7 @@
             <div id="bl-enabler-list"></div><details><summary>Unclear tool requirements</summary><p>These items are not treated as reusable because their task data is unclear.</p><div id="bl-enabler-ambiguities"></div></details></details>
             <details class="bl-slayer-panel"><summary id="bl-slayer-master-summary">Slayer</summary>
             <div class="bl-slayer-overview"><div><strong id="bl-slayer-lock-state" class="bl-slayer-state"></strong><small id="bl-slayer-lock-detail"></small></div></div>
-            <details class="bl-slayer-lock-editor"><summary>Change Slayer lock</summary><label>Status<select id="bl-slayer-lock-select"><option value="unlocked">Unlocked</option><option value="locked">Locked</option></select></label><div id="bl-slayer-lock-fields"><label>Blocked assignment<select id="bl-slayer-lock-task"></select></label><label>Slayer level<input id="bl-slayer-lock-level" type="number" min="1" max="99"></label></div><button id="bl-slayer-lock-save" type="button">Save Slayer lock</button></details>
+            <details class="bl-slayer-lock-editor"><summary>Change Slayer lock</summary><label>Status<select id="bl-slayer-lock-select"><option value="unlocked">Unlocked</option><option value="locked">Locked</option></select></label><div id="bl-slayer-lock-fields"><label>Slayer master<select id="bl-slayer-lock-master"></select></label><label>Blocked assignment<select id="bl-slayer-lock-task"></select></label><label>Current Slayer level<input id="bl-slayer-lock-level" type="number" min="1" max="99"></label></div><button id="bl-slayer-lock-save" type="button">Save Slayer lock</button></details>
             <div class="bl-slayer-list-heading"><h4>Slayer masters</h4><span id="bl-slayer-master-count" class="bl-muted"></span></div><p class="bl-muted">A master is available when their location and required quests are unlocked, and you have confirmed any Combat requirement.</p><div id="bl-slayer-masters"></div></details>
             <details><summary id="bl-blocked-boss-summary">Bosses waiting for better gear</summary><p>Boss goals can wait until you decide your equipment is ready.</p><div id="bl-blocked-bosses"></div></details>
             <details><summary id="bl-task-count">Other tasks &amp; progress</summary><p>Record past goals, quests, and permanent unlocks here. Routine training does not complete the current visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
@@ -1604,6 +1666,7 @@
         };
         document.getElementById('bl-add-enabler').onclick = addEnabler;
         document.getElementById('bl-slayer-lock-select').onchange = updateSlayerLockEditor;
+        document.getElementById('bl-slayer-lock-master').onchange = () => updateSlayerLockAssignments();
         document.getElementById('bl-slayer-lock-task').onchange = updateSlayerLockEditor;
         document.getElementById('bl-slayer-lock-level').oninput = updateSlayerLockEditor;
         document.getElementById('bl-slayer-lock-save').onclick = saveSlayerLock;
