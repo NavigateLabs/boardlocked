@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 30;
+    const VERSION = 31;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -1186,49 +1186,59 @@
                 .filter(node => availableStartNodes.includes(node)) : availableStartNodes;
             if (!startNodes.length && availableStartNodes.includes(current)) startNodes = [current];
             if (!startNodes.length) startNodes = availableStartNodes;
-            const traversed = new Set(startNodes), queue = startNodes.map(id => ({ id, distance: 0 })), found = new Map();
-            const reachableFreeSet = new Set(), reachableLiveSet = new Set();
-            while (queue.length) {
-                const { id: from, distance } = queue.shift();
-                for (const node of travelGraph.sectionGraph[from] || []) {
-                    const parsed = parseLocation(node), locationId = parsed.chunkId;
-                    if (!own(unlocked, locationId)) {
-                        if (!frontierSet.has(locationId)) continue;
-                        const entrySections = parsed.sectionId ? [parsed.sectionId] : [];
-                        if (!found.has(locationId)) found.set(locationId, { kind: 'frontier', locationId, weight: 1,
-                            metadata: { distance: distance + 1, entrySections } });
-                        else {
-                            const metadata = found.get(locationId).metadata;
-                            metadata.distance = Math.min(metadata.distance, distance + 1);
-                            metadata.entrySections = [...new Set([...metadata.entrySections, ...entrySections])];
+            const traverse = (blockingChunks = new Set()) => {
+                const traversed = new Set(startNodes), queue = startNodes.map(id => ({ id, distance: 0 })), found = new Map();
+                const reachableFreeSet = new Set(), reachableLiveSet = new Set();
+                while (queue.length) {
+                    const { id: from, distance } = queue.shift();
+                    for (const node of travelGraph.sectionGraph[from] || []) {
+                        const parsed = parseLocation(node), locationId = parsed.chunkId;
+                        const nodeTasks = [...new Set([...(byNode[node] || []), ...(byNode[locationId] || [])])];
+                        if (!own(unlocked, locationId)) {
+                            if (!frontierSet.has(locationId)) continue;
+                            const entrySections = parsed.sectionId ? [parsed.sectionId] : [];
+                            if (!found.has(locationId)) found.set(locationId, { kind: 'frontier', locationId, weight: 1,
+                                metadata: { distance: distance + 1, entrySections } });
+                            else {
+                                const metadata = found.get(locationId).metadata;
+                                metadata.distance = Math.min(metadata.distance, distance + 1);
+                                metadata.entrySections = [...new Set([...metadata.entrySections, ...entrySections])];
+                            }
+                        } else if (locationId === current) {
+                            // Connected sections inside the tile we are standing on
+                            // remain usable as routes, but can never become a revisit
+                            // encounter even when recalculation reveals another task.
+                            if (!traversed.has(node)) {
+                                traversed.add(node);
+                                queue.push({ id: node, distance });
+                            }
+                        } else if (nodeTasks.length) {
+                            const entrySections = parsed.sectionId ? [parsed.sectionId] : [];
+                            if (!found.has(locationId)) found.set(locationId, { kind: 'revisit', locationId, weight: 1,
+                                metadata: { taskCount: nodeTasks.length, taskIds: nodeTasks, distance: distance + 1, entrySections } });
+                            else if (found.get(locationId).kind === 'revisit') {
+                                const metadata = found.get(locationId).metadata;
+                                metadata.distance = Math.min(metadata.distance, distance + 1);
+                                metadata.taskIds = [...new Set([...metadata.taskIds, ...nodeTasks])];
+                                metadata.taskCount = metadata.taskIds.length;
+                                metadata.entrySections = [...new Set([...metadata.entrySections, ...entrySections])];
+                            }
+                            reachableLiveSet.add(locationId);
+                        } else if (!blockingChunks.has(locationId) && !traversed.has(node)) {
+                            traversed.add(node); reachableFreeSet.add(locationId); queue.push({ id: node, distance: distance + 1 });
                         }
-                    } else if (locationId === current) {
-                        // Connected sections inside the tile we are standing on
-                        // remain usable as routes, but can never become a revisit
-                        // encounter even when recalculation reveals another task.
-                        if (!traversed.has(node)) {
-                            traversed.add(node);
-                            queue.push({ id: node, distance });
-                        }
-                    } else if ((byNode[node] || []).length) {
-                        const entrySections = parsed.sectionId ? [parsed.sectionId] : [];
-                        if (!found.has(locationId)) found.set(locationId, { kind: 'revisit', locationId, weight: 1,
-                            metadata: { taskCount: byNode[node].length, taskIds: [...byNode[node]], distance: distance + 1, entrySections } });
-                        else if (found.get(locationId).kind === 'revisit') {
-                            const metadata = found.get(locationId).metadata;
-                            metadata.distance = Math.min(metadata.distance, distance + 1);
-                            metadata.taskIds = [...new Set([...metadata.taskIds, ...byNode[node]])];
-                            metadata.taskCount = metadata.taskIds.length;
-                            metadata.entrySections = [...new Set([...metadata.entrySections, ...entrySections])];
-                        }
-                        reachableLiveSet.add(locationId);
-                    } else if (!traversed.has(node)) {
-                        traversed.add(node); reachableFreeSet.add(locationId); queue.push({ id: node, distance: distance + 1 });
                     }
                 }
-            }
-            candidates.push(...found.values());
-            reachableFree.push(...reachableFreeSet); reachableLive.push(...reachableLiveSet);
+                return { found, reachableFreeSet, reachableLiveSet };
+            };
+            // First find every task-bearing section reachable by the ordinary
+            // section graph. Then repeat with those whole chunks acting as
+            // encounters, so another disconnected section cannot be used as a
+            // hidden free passage around a reachable task in the same chunk.
+            const discovered = traverse();
+            const final = discovered.reachableLiveSet.size ? traverse(discovered.reachableLiveSet) : discovered;
+            candidates.push(...final.found.values());
+            reachableFree.push(...final.reachableFreeSet); reachableLive.push(...final.reachableLiveSet);
         } else if (travelGraph && current && own(unlocked, current)) {
             const traversed = new Set([current]), queue = [{ id: current, distance: 0 }], found = new Map();
             while (queue.length) {

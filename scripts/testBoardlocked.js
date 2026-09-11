@@ -361,9 +361,9 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl16/);
-    assert.match(html, /boardlocked\.js\?v=47/);
-    assert.match(html, /boardlocked-ui\.js\?v=60/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl17/);
+    assert.match(html, /boardlocked\.js\?v=48/);
+    assert.match(html, /boardlocked-ui\.js\?v=61/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -1441,6 +1441,26 @@ test('a task in one disconnected section does not block a free route through ano
     assert.ok(pool.reachableFree.includes('5939'));
     assert.ok(!pool.reachableLive.includes('5939'),
         'the task in 5939-1 is not reachable through the free section used by this route');
+});
+
+test('a reachable task section makes every section of that chunk block onward travel', () => {
+    const data = { sections: {
+        '1000': { '1': ['2000-1', '2000-2'] },
+        '2000': { '1': ['1000-1'], '2': ['1000-1', '3000-1'] },
+        '3000': { '1': ['2000-2'] }
+    } };
+    const unlocked = { '1000': '1000', '2000': '2000', '3000': '3000' };
+    const graph = R.buildTravelGraph(data, unlocked,
+        { '1000': { '1': true }, '2000': { '1': true, '2': true }, '3000': { '1': true } }, []);
+    const tasks = adapt([
+        task('near-task', ['2000'], { origins: [origin('2000', '1')], activeOrigins: [origin('2000', '1')] }),
+        task('far-task', ['3000'], { origins: [origin('3000', '1')], activeOrigins: [origin('3000', '1')] })
+    ], {}, fresh(), unlocked,
+    { '1000': { '1': true }, '2000': { '1': true, '2': true }, '3000': { '1': true } });
+    const pool = R.derivePool([], unlocked, tasks, null, graph, '1000', ['1']);
+    assert.deepEqual(pool.candidates.map(candidate => candidate.locationId), ['2000']);
+    assert.ok(!pool.reachableFree.includes('2000'));
+    assert.ok(!pool.reachableLive.includes('3000'));
 });
 
 test('reusable containers cannot obtain themselves through fill-empty or cook-eat cycles', () => {
