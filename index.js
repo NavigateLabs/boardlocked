@@ -4194,10 +4194,8 @@ let workerOnMessage = function(e) {
                 baseChunkData,
                 highestCurrent,
                 tempChallengeArrSaved,
-                questPointTotal,
                 highestOverall,
                 dropRatesGlobal,
-                questProgress,
                 diaryProgress,
                 skillQuestXp,
                 savedChunks,
@@ -4211,6 +4209,14 @@ let workerOnMessage = function(e) {
                 globalValidsBoosts,
                 globalEveryDropAltMap
             } = e.data);
+            // Boardlocked derives quest completion from goals the player has
+            // actually checked off. The legacy worker treats currently possible
+            // quest steps as progress, so letting its response win this race can
+            // paint unfinished quests green.
+            if (!BOARDLOCKED_FORK) {
+                questPointTotal = e.data.questPointTotal;
+                questProgress = e.data.questProgress;
+            }
             Object.keys(savedChunks).filter(area => { return savedChunks[area] === true }).forEach((area) => {
                 possibleAreas[area] = true;
             });

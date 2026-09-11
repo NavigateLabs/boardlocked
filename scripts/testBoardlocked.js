@@ -131,6 +131,16 @@ test('quest panel progress comes from completed tasks rather than currently poss
         'the existing one-point baseline plus completed quest rewards is preserved');
 });
 
+test('legacy worker cannot overwrite Boardlocked quest completion display', () => {
+    const index = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+    assert.doesNotMatch(index, /tempChallengeArrSaved,\s*questPointTotal,\s*highestOverall/,
+        'quest points must not be assigned by the legacy worker response');
+    assert.doesNotMatch(index, /dropRatesGlobal,\s*questProgress,\s*diaryProgress/,
+        'quest progress must not be assigned by the legacy worker response');
+    assert.match(index, /if \(!BOARDLOCKED_FORK\) \{\s*questPointTotal = e\.data\.questPointTotal;\s*questProgress = e\.data\.questProgress;/,
+        'the legacy quest result remains available outside Boardlocked mode');
+});
+
 test('starting roll gives enabled groups equal odds before choosing a tile', () => {
     const starting = R.deriveStartingPool(chunkData, annotations,
         { varlamore: true, wilderness: true, ocean: true });
@@ -427,7 +437,7 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-data\.js\?v=18/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl25/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl26/);
     assert.match(html, /boardlocked\.js\?v=58/);
     assert.match(index, /worker\.js\?v=6\.9\.66-bl36/g);
     assert.match(ui, /worker\.js\?v=6\.9\.66-bl36/);
