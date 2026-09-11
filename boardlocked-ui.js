@@ -712,8 +712,10 @@
         state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'defer_boss', boss });
         if (state.currentVisit && !R.canRoll(state)) state = R.recalculateCurrentVisit(state,
             'Player deferred ' + boss + ' until their gear is ready');
-        message = boss + ' goals are waiting until you reactivate the boss.';
+        message = boss + ' tasks hidden. Restore them under “Bosses waiting for better gear”.';
         save(); schedule(); render();
+        const waiting = document.getElementById('bl-blocked-boss-summary')?.parentElement;
+        if (waiting) waiting.open = true;
     }
 
     function reactivateBoss(boss) {
@@ -849,9 +851,10 @@
                     const heading = element('div', null, { className: 'bl-boss-heading' });
                     heading.append(element('h4', category));
                     for (const boss of bosses) {
-                        const defer = element('button', bosses.length === 1 ? "Can't beat it yet?" : "Can't beat " + boss + ' yet?',
+                        const defer = element('button', bosses.length === 1 ? 'Hide tasks until ready' : 'Hide ' + boss + ' tasks',
                             { type: 'button', className: 'bl-boss-defer', onclick: () => deferBoss(boss) });
-                        defer.setAttribute('aria-label', "I can't defeat " + boss + ' with my current gear');
+                        defer.setAttribute('aria-label', 'Hide ' + boss + ' tasks until I am ready');
+                        defer.title = 'Hide these boss tasks until you reactivate them';
                         defer.disabled = !canEdit() || busy; heading.append(defer);
                     }
                     container.append(heading);
