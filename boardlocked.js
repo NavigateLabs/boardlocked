@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 29;
+    const VERSION = 30;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -2048,8 +2048,13 @@
             else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
             else if (String(type).includes('drop')) directOrigins = acquisitionOrigins(itemName, source, fixed('monsters', source));
             else directOrigins = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
-            if (directOrigins.length) return { source, sourceType: type, origins: uniqueOrigins(directOrigins), available: true,
-                resourceMilestones: [], persistentEnablers: [], forestry: null };
+            if (directOrigins.length) {
+                const persistentEnablers = shipCombatMonsters.has(source) && shipCannonCapability ?
+                    [enablerRequirementStatus(requirementFromCapability(shipCannonCapability), state, data, 'Sailing')] : [];
+                return { source, sourceType: type, origins: uniqueOrigins(directOrigins),
+                    available: persistentEnablers.every(requirement => requirement.satisfied),
+                    resourceMilestones: [], persistentEnablers, forestry: null };
+            }
             const sourceSkill = knownNames.get(source), sourceMeta = data.challenges[sourceSkill]?.[source];
             let origins = sourceMeta ? taskOrigins(source, sourceSkill) : [];
             if (!sourceMeta || !origins.length) return null;
@@ -2168,8 +2173,9 @@
             if (record.taskClass === 'bis' && record.bisReason && !record.displayName.startsWith('[')) {
                 record.displayName = '[' + record.bisReason + '] ' + record.displayName;
             }
-            const acquisitionTarget = ['bis', 'collection'].includes(record.taskClass) && requirementMeta.Items?.length === 1 &&
-                !requirementMeta.Items[0].includes('*') ? canonicalItemKey(requirementMeta.Items[0]) : null;
+            const acquisitionTarget = record.taskClass === 'bis' && equipmentName ? equipmentName :
+                ['bis', 'collection'].includes(record.taskClass) && requirementMeta.Items?.length === 1 &&
+                    !requirementMeta.Items[0].includes('*') ? canonicalItemKey(requirementMeta.Items[0]) : null;
             const forestryEventUnique = forestBound && forestryEventUniqueItems.has(acquisitionTarget);
             if (acquisitionTarget) {
                 const acquisition = itemAcquisitionStatus(acquisitionTarget);
@@ -2186,7 +2192,8 @@
             }
             if (forestryEventUnique) record.origins = kitOrigins;
             record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, requirementMeta);
-            record.resourceMilestoneDependencies = record.taskClass === 'skill_progression' ?
+            record.resourceMilestoneDependencies = SKILLS.includes(requirementSkill) &&
+                ['skill_progression', 'activity'].includes(record.taskClass) ?
                 taskResourceMilestoneDependencies(name, requirementMeta) : [];
             record.resourceRepresentative = record.taskClass === 'skill_progression' ?
                 resourceRepresentativeMetadata(name, requirementSkill, requirementMeta, annotations) : null;

@@ -361,9 +361,9 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl15/);
-    assert.match(html, /boardlocked\.js\?v=46/);
-    assert.match(html, /boardlocked-ui\.js\?v=59/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl16/);
+    assert.match(html, /boardlocked\.js\?v=47/);
+    assert.match(html, /boardlocked-ui\.js\?v=60/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -1366,6 +1366,7 @@ test('Shipwreck Cove offers the small net before shrimp and defers the higher-le
     request.boardlocked.state.progressionHighWater.Cooking = 13;
     request.boardlocked.state.progressionInitialized = true;
     request.boardlocked.state.actualLevels.Cooking = 13;
+    request.boardlocked.state.acquiredEnablers.Knife = { manual: true };
     const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
     let result = runWorker(request).result;
     let tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
@@ -1373,6 +1374,9 @@ test('Shipwreck Cove offers the small net before shrimp and defers the higher-le
     const smallNet = tasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Small fishing net');
     const bigNet = tasks.find(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Big fishing net');
     const shrimps = tasks.find(task => task.name === 'Catch ~|raw shrimps|~');
+    const offcuts = tasks.find(task => task.name === 'Cut raw fish into ~|fish offcuts|~');
+    const leatherBoots = tasks.find(task => task.skill === 'BiS' && task.equipmentName === 'Leather boots');
+    const leatherGloves = tasks.find(task => task.skill === 'BiS' && task.equipmentName === 'Leather gloves');
     assert.equal(smallNet?.eligible, true, 'the level-one fishing route first offers its required net');
     assert.ok(smallNet.requiredBy.length > 0);
     assert.ok(smallNet.requiredBy.every(dependency => !dependency.requiresSpecificItem || dependency.itemKey === 'Small fishing net'));
@@ -1381,6 +1385,14 @@ test('Shipwreck Cove offers the small net before shrimp and defers the higher-le
     assert.equal(shrimps?.progressionBlocked, false);
     assert.equal(shrimps?.eligible, false);
     assert.match(shrimps?.eligibilityReason || '', /Small fishing net/);
+    assert.equal(offcuts?.eligible, false, 'processing fish waits until an accessible raw-fish milestone is completed');
+    assert.equal(offcuts?.resourceMilestoneBlocked, true);
+    assert.match(offcuts?.eligibilityReason || '', /Catch raw shrimps/);
+    for (const equipment of [leatherBoots, leatherGloves]) {
+        assert.equal(equipment?.eligible, false, equipment?.equipmentName);
+        assert.equal(equipment?.available, false, equipment?.equipmentName);
+        assert.match(equipment?.eligibilityReason || '', /Big fishing net/);
+    }
 
     let imported = R.startVisit(request.boardlocked.state,
         { kind: 'frontier', locationId: '6195', metadata: { entrySections: ['1'] } });
@@ -1390,7 +1402,10 @@ test('Shipwreck Cove offers the small net before shrimp and defers the higher-le
     imported = R.snapshotVisit(imported, tasks);
     assert.equal(imported.currentVisit.status, 'task_required');
     assert.ok(imported.currentVisit.candidateTaskIds.includes(smallNet.taskId),
-        'an upgraded free Shipwreck Cove visit discovers the net task without changing location');
+        'an upgraded free Shipwreck Cove visit discovers its currently actionable net task');
+    assert.ok(!imported.currentVisit.candidateTaskIds.includes(offcuts.taskId));
+    assert.ok(!imported.currentVisit.candidateTaskIds.includes(leatherBoots.taskId));
+    assert.ok(!imported.currentVisit.candidateTaskIds.includes(leatherGloves.taskId));
 
     request.boardlocked.state.acquiredEnablers['Small fishing net'] = { manual: true };
     result = runWorker(request).result;
@@ -1398,7 +1413,34 @@ test('Shipwreck Cove offers the small net before shrimp and defers the higher-le
         result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
     assert.equal(tasks.find(task => task.name === 'Catch ~|raw shrimps|~')?.eligible, true,
         'registering the net exposes the concrete level-one fishing action');
+    assert.equal(tasks.find(task => task.name === 'Cut raw fish into ~|fish offcuts|~')?.eligible, false,
+        'owning the net alone does not claim that raw fish have been caught');
     assert.ok(!tasks.some(task => task.taskClass === 'enabler' && task.enablerItemKey === 'Small fishing net' && task.eligible));
+
+    const caughtTasks = R.adaptTasks(result.tasks,
+        { checkedAllTasks: { Fishing: { 'Catch ~|raw shrimps|~': true } } }, request.boardlocked.state,
+        request.chunks, result.sections, request.manualSections, catalog, request.boardlocked.tasksMap);
+    assert.equal(caughtTasks.find(task => task.name === 'Cut raw fish into ~|fish offcuts|~')?.eligible, true,
+        'completing the raw-fish milestone exposes fish processing');
+});
+
+test('a task in one disconnected section does not block a free route through another section', () => {
+    const unlocked = { '6195': '6195', '5939': '5939' };
+    const frontier = ['5938', '6194', '6451'];
+    const graph = R.buildTravelGraph(chunkData, unlocked,
+        { '6195': { '1': true }, '5939': { '1': true, '2': true, '3': true, '4': true } }, frontier);
+    const peakTask = adapt([task('peak-task', ['5939'], {
+        origins: [origin('5939', '1')], activeOrigins: [origin('5939', '1')]
+    })], {}, fresh(), unlocked,
+    { '6195': { '1': true }, '5939': { '1': true, '2': true, '3': true, '4': true } });
+    const pool = R.derivePool(frontier, unlocked, peakTask, null, graph, '6195', ['1']);
+    const gorge = pool.candidates.find(candidate => candidate.locationId === '5938');
+    assert.equal(gorge?.kind, 'frontier');
+    assert.equal(gorge?.metadata.distance, 2,
+        '6195-1 reaches 5938 through the separate task-free 5939-4 route');
+    assert.ok(pool.reachableFree.includes('5939'));
+    assert.ok(!pool.reachableLive.includes('5939'),
+        'the task in 5939-1 is not reachable through the free section used by this route');
 });
 
 test('reusable containers cannot obtain themselves through fill-empty or cook-eat cycles', () => {
