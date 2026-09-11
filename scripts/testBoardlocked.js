@@ -363,7 +363,7 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl20/);
     assert.match(html, /boardlocked\.js\?v=51/);
-    assert.match(html, /boardlocked-ui\.js\?v=68/);
+    assert.match(html, /boardlocked-ui\.js\?v=69/);
     assert.match(html, /boardlocked\.css\?v=18/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -844,6 +844,14 @@ test('deferring the boss on an unresolved visit recalculates without completing 
     assert.equal(state.currentVisit.resolution, 'no_tasks');
     assert.equal(state.currentVisit.resolvedTaskId, null);
     assert.deepEqual(state.visitHistory[0], completedHistory);
+
+    state = R.setBossBlocked(state, 'Test boss', false);
+    state = R.recalculateCurrentVisit(state, 'gear is ready', undefined, { reopenNoTasks: true });
+    state = R.snapshotVisit(state, adapt([bossTask], {}, state));
+    assert.equal(state.currentVisit.status, 'task_required');
+    assert.deepEqual(state.currentVisit.candidateTaskIds, ['boss-drop']);
+    assert.deepEqual(state.visitHistory[0], completedHistory,
+        'restoring a boss must not alter an earlier completed visit');
 });
 test('source metadata is not mutated while deriving task origins', () => {
     const fixture = sourceFixture(), before = JSON.stringify(fixture);

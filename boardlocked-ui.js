@@ -718,11 +718,25 @@
         if (waiting) waiting.open = true;
     }
 
+    function bossHasTasksAtCurrentVisit(boss) {
+        const visit = state.currentVisit;
+        if (!visit) return false;
+        const arrivalSections = new Set(visit.arrivalSections || []);
+        return tasks.some(task => (task.bossSources || []).includes(boss) && (task.origins || []).some(origin =>
+            origin.sourceType === 'monsters' && origin.sourceName === boss && origin.chunkId === visit.locationId &&
+            (!arrivalSections.size || !origin.sectionId || arrivalSections.has(origin.sectionId))));
+    }
+
     function reactivateBoss(boss) {
         if (!canEdit() || busy || !boss || !state.blockedBosses?.[boss]) return;
+        const restoreCurrentVisit = bossHasTasksAtCurrentVisit(boss) && state.currentVisit &&
+            (!R.canRoll(state) || state.currentVisit.resolution === 'no_tasks');
         state = R.setBossBlocked(state, boss, false);
         state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'reactivate_boss', boss });
-        message = boss + ' goals are eligible again for future visits.';
+        if (restoreCurrentVisit) state = R.recalculateCurrentVisit(state,
+            'Player reactivated ' + boss, undefined, { reopenNoTasks: true });
+        message = restoreCurrentVisit ? boss + ' tasks are being restored to this visit.' :
+            boss + ' tasks are eligible again for future visits.';
         save(); schedule(); render();
     }
 
