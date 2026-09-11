@@ -363,7 +363,8 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl20/);
     assert.match(html, /boardlocked\.js\?v=51/);
-    assert.match(html, /boardlocked-ui\.js\?v=64/);
+    assert.match(html, /boardlocked-ui\.js\?v=65/);
+    assert.match(html, /boardlocked\.css\?v=17/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -1062,6 +1063,7 @@ test('Slayer account setup and master tasks remain independent progression entry
     assert.match(ui, /id="bl-blocked-boss-summary"/);
     assert.match(ui, /I can't defeat /);
     assert.match(ui, /with my current gear/);
+    assert.match(ui, /className: 'bl-boss-action'/);
     assert.match(ui, /I am ready to fight this boss/);
     assert.match(ui, /id="bl-start-turael"/);
     assert.match(ui, /<summary>Instructions for getting Druidic Ritual Items<\/summary>/);

@@ -830,12 +830,31 @@
     }
     function taskList(container, list, snapshot = false) {
         let lastCategory;
-        const group = task => snapshot && task.slayerTrainingAlternative ? 'Slayer training' : task.skill;
-        for (const task of list.slice().sort((a, b) => group(a).localeCompare(group(b)) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName))) {
+        const arrivalSections = new Set(state.currentVisit?.arrivalSections || []);
+        const bossGroup = task => {
+            if (!snapshot) return [];
+            const bosses = (task.bossSources || []).filter(boss => !state.blockedBosses?.[boss]);
+            if (!(task.activeOrigins || []).length) return bosses;
+            return bosses.filter(boss => task.activeOrigins.some(origin => origin.sourceType === 'monsters' &&
+                origin.sourceName === boss && origin.chunkId === state.currentVisit?.locationId &&
+                (!arrivalSections.size || !origin.sectionId || arrivalSections.has(origin.sectionId))));
+        };
+        const group = task => bossGroup(task).join(' / ') || (snapshot && task.slayerTrainingAlternative ? 'Slayer training' : task.skill);
+        for (const task of list.slice().sort((a, b) => Number(!bossGroup(a).length) - Number(!bossGroup(b).length) ||
+            group(a).localeCompare(group(b)) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName))) {
             const category = group(task);
             if (lastCategory !== category) {
                 container.append(element('h4', category));
-                if (category === 'Slayer training') container.append(element('small',
+                const bosses = bossGroup(task);
+                if (bosses.length) {
+                    const action = element('div', null, { className: 'bl-boss-action' });
+                    for (const boss of bosses) {
+                        const defer = button("I can't defeat this boss with my current gear", () => deferBoss(boss));
+                        defer.setAttribute('aria-label', "I can't defeat " + boss + ' with my current gear');
+                        defer.disabled = !canEdit() || busy; action.append(defer);
+                    }
+                    container.append(action);
+                } else if (category === 'Slayer training') container.append(element('small',
                     'Any listed drop obtained while training assignments from your reachable Slayer masters completes this visit.'));
                 lastCategory = category;
             }
@@ -885,10 +904,6 @@
             }));
             const backlogButton = button(task.backlogged ? 'Unbacklog' : 'Backlog', () => backlogTask(task));
             backlogButton.disabled = !canEdit(); tools.append(backlogButton);
-            if (snapshot) for (const boss of task.bossSources || []) if (!state.blockedBosses?.[boss]) {
-                const defer = button("I can't defeat " + boss + ' with my current gear', () => deferBoss(boss));
-                defer.disabled = !canEdit() || busy; tools.append(defer);
-            }
             row.append(tools); container.append(row);
         }
     }

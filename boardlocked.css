@@ -21,6 +21,8 @@
 #bl-panel .bl-task-tools button { padding: 2px 5px; font-size: 12px; }
 #bl-panel .bl-task-tools small { flex: 1 0 100%; }
 #bl-panel .bl-task-debug { padding: 7px; background: #0001; border-radius: 3px; }
+#bl-panel .bl-boss-action { margin: 0 0 6px; padding: 7px; border: 1px solid #9a741f; border-radius: 4px; background: #ffd16620; }
+#bl-panel .bl-boss-action button { width: 100%; border-color: #9a741f; font-weight: bold; }
 #bl-panel details { margin: 10px 0; }
 #bl-panel summary { cursor: pointer; font-weight: bold; }
 #bl-panel textarea, #bl-panel input[type=search] { box-sizing: border-box; width: 100%; margin: 6px 0; padding: 8px; color: inherit; background: var(--color4, #fff); border: 1px solid #888; border-radius: 3px; font: inherit; }
