@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 41;
+    const VERSION = 42;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -2309,6 +2309,14 @@
         const clueRewardByItem = new Map(clueRewards.rewards.map(reward => [reward.key, reward]));
         const clueSourceCache = new Map();
         const clueConfig = annotations.clues || {};
+        const clueEquipmentTiersByItem = new Map();
+        for (const [tier, itemNames] of Object.entries(clueConfig.equipmentRewardsByTier || {})) {
+            for (const itemName of itemNames) {
+                const key = comparableItemKey(itemName);
+                if (clueRewardByItem.has(key)) continue;
+                clueEquipmentTiersByItem.set(key, [...(clueEquipmentTiersByItem.get(key) || []), tier]);
+            }
+        }
         const masterClueInputs = clueConfig.masterInputs || ['easy', 'medium', 'hard', 'elite'];
         const masterClueSource = clueConfig.masterPersistentSource || 'Watson';
         let trainingAnalysisReady = false, trainingSupportedSkills = new Set(), trainingEvidenceSkills = new Set(),
@@ -2413,6 +2421,10 @@
                 if (String(type).includes('spawn')) return origin(source, 'spawn', name, 'Direct item spawn');
                 if (type === 'shop' && base.shops?.[source]) return fixed('shops', source);
                 if (String(type).includes('drop')) return acquisitionOrigins(name, source, fixed('monsters', source));
+                if (type === 'clue-reward') {
+                    const match = /^Clue scroll \((beginner|easy|medium|hard|elite|master)\)$/.exec(source);
+                    return match && clueTierCanGenerate(match[1]) ? clueTierSourceOrigins(match[1], next) : [];
+                }
                 const direct = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
                 if (direct.length) return direct;
                 const category = knownNames.get(source), sourceMeta = data.challenges?.[category]?.[source];
@@ -3061,7 +3073,15 @@
             // keep the goals separate so the completion retains provenance.
             const equipmentHasOrdinarySource = equipmentName && itemSourceEntries(equipmentName)
                 .some(([, type]) => type !== 'clue-reward');
-            const clueReward = directClueReward || (equipmentClueReward && !equipmentHasOrdinarySource ? equipmentClueReward : null);
+            const genericClueTiers = equipmentName ? clueEquipmentTiersByItem.get(comparableItemKey(equipmentName)) || [] : [];
+            const activeGenericClueTiers = genericClueTiers.filter(tier => clueTierCanGenerate(tier) &&
+                clueTierSourceOrigins(tier).length);
+            const genericClueReward = activeGenericClueTiers.length ? {
+                ownerTier: activeGenericClueTiers[0], sourceTiers: genericClueTiers,
+                itemKey: equipmentName, equipmentOnly: true
+            } : null;
+            const clueReward = directClueReward || (equipmentClueReward && !equipmentHasOrdinarySource ? equipmentClueReward : null) ||
+                (!equipmentHasOrdinarySource ? genericClueReward : null);
             const blockedShipCombatOrigins = !shipCannonCapability ? [] : origins.filter(source => shipCombatMonsters.has(source.sourceName));
             const shipCannonStatus = blockedShipCombatOrigins.length ? enablerRequirementStatus(
                 requirementFromCapability(shipCannonCapability), state, data, 'Sailing') : null;
@@ -3078,7 +3098,8 @@
             let record = { ...taskMetadata(name, skill, meta, ids), equipmentName,
                 origins, available: true, enablers: [] };
             if (clueReward) record.clueReward = { tier: clueReward.ownerTier, ownerTier: clueReward.ownerTier,
-                sourceTiers: clueReward.sourceTiers, itemKey: clueReward.itemKey, incidental: false };
+                sourceTiers: clueReward.sourceTiers, itemKey: clueReward.itemKey, incidental: false,
+                equipmentOnly: !!clueReward.equipmentOnly };
             if (clueReward && (!clueTierCanGenerate(clueReward.ownerTier) || !origins.length)) {
                 record.available = false;
                 const reason = state.clueLocks?.[clueReward.ownerTier] ?

@@ -107,6 +107,9 @@ body.bl-start-picking #canvas { cursor: crosshair !important; }
 #bl-panel .bl-clue-task-group { margin: 5px 0 8px; padding: 5px 8px; border: 1px solid #8885; border-radius: 5px; }
 #bl-panel .bl-clue-task-group > summary { font-size: 13px; }
 #bl-panel .bl-clue-task-list { padding-left: 2px; }
+#bl-panel .bl-clue-task-lock { margin: 4px 0 2px; padding: 3px 0 7px; border: 0; border-bottom: 1px solid #8884; border-radius: 0; }
+#bl-panel .bl-clue-task-lock > summary { width: max-content; max-width: 100%; font-size: 12px; font-weight: normal; text-decoration: underline; opacity: .78; }
+#bl-panel .bl-clue-task-lock > summary:hover, #bl-panel .bl-clue-task-lock > summary:focus-visible { opacity: 1; }
 #bl-panel .bl-file input { max-width: 150px; display: block; font-size: 11px; }
 #bl-panel .bl-muted, #bl-storage-label { opacity: .8; font-size: 12px; }
 #bl-panel .bl-save-warning { padding: 7px 9px; background: #fff3cd; color: #5d4600; border: 1px solid #caa83b; border-radius: 4px; font-size: 12px; }

@@ -7,6 +7,7 @@ let blCollectionSources = {};
 let blPresentItems = new Set();
 let blStructuralGates = new Set();
 let blClueRewards = null;
+let blClueEquipmentTiers = new Map();
 
 function blInitialize(request) {
     blContext = request.boardlocked || null;
@@ -16,11 +17,20 @@ function blInitialize(request) {
     blPresentItems = new Set();
     blStructuralGates = new Set();
     blClueRewards = null;
+    blClueEquipmentTiers = new Map();
     if (!blContext) return;
     blClueRewards = Boardlocked.clueRewardCatalog(chunkInfo, {
         completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
         manualEquipment, backlog
     }, blContext.state, blContext.tasksMap);
+    const collectionRewardKeys = new Set(blClueRewards.rewards.map(reward => reward.key));
+    for (const [tier, itemNames] of Object.entries(BoardlockedData.clues?.equipmentRewardsByTier || {})) {
+        for (const itemName of itemNames) {
+            const key = Boardlocked.canonicalItemKey(itemName).replaceAll('#', '/').toLowerCase();
+            if (collectionRewardKeys.has(key)) continue;
+            blClueEquipmentTiers.set(key, [...(blClueEquipmentTiers.get(key) || []), tier]);
+        }
+    }
     blAccess = Boardlocked.createAccess(chunkInfo, blContext.state, {
         completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
         manualEquipment, backlog
@@ -119,7 +129,15 @@ function blFilterSources(base) {
     // buildTasks resolves their real origin through the tier's scroll source;
     // these entries never turn caskets into persistent Master sources.
     for (const reward of blClueRewards.rewards) if (!reward.completed && clueSourceAvailable(reward.ownerTier)) {
-        base.items[reward.itemKey] ||= { ['Clue scroll (' + reward.ownerTier + ')']: 'clue-reward' };
+        (base.items[reward.itemKey] ||= {})['Clue scroll (' + reward.ownerTier + ')'] = 'clue-reward';
+    }
+    for (const [tier, itemNames] of Object.entries(BoardlockedData.clues?.equipmentRewardsByTier || {})) {
+        if (!clueSourceAvailable(tier)) continue;
+        for (const itemName of itemNames) {
+            const key = Boardlocked.canonicalItemKey(itemName).replaceAll('#', '/').toLowerCase();
+            if (!blClueEquipmentTiers.has(key)) continue;
+            (base.items[itemName] ||= {})['Clue scroll (' + tier + ')'] = 'clue-reward';
+        }
     }
     return base;
 }
@@ -154,6 +172,9 @@ function blEquipmentUsable(itemName) {
 
 function blEquipmentObtainable(itemName) {
     if (!blContext) return true;
+    const clueEquipmentTiers = blClueEquipmentTiers.get(Boardlocked.canonicalItemKey(itemName)
+        .replaceAll('#', '/').toLowerCase()) || [];
+    if (clueEquipmentTiers.some(blClueTierSourceAvailable)) return true;
     const clueReward = blClueRewards?.rewards?.find(reward =>
         Boardlocked.canonicalItemKey(reward.itemKey).replaceAll('#', '/').toLowerCase() ===
         Boardlocked.canonicalItemKey(itemName).replaceAll('#', '/').toLowerCase());

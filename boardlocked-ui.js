@@ -460,7 +460,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl41');
+        worker = new Worker('./worker.js?v=6.9.66-bl42');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1041,9 +1041,12 @@
             for (const tier of R.CLUE_TIERS) if (clueGroups.has(tier)) {
                 const clueTasks = clueGroups.get(tier);
                 const details = element('details', null, { className: 'bl-clue-task-group' });
-                details.append(element('summary', tier[0].toUpperCase() + tier.slice(1) + ' clue rewards · ' +
+                const tierLabel = tier[0].toUpperCase() + tier.slice(1);
+                details.append(element('summary', tierLabel + ' clue rewards · ' +
                     clueTasks.length + (clueTasks.length === 1 ? ' goal' : ' goals')));
                 const content = element('div', null, { className: 'bl-clue-task-list' });
+                content.append(clueLockEditor(tier, 'bl-clue-step-task-' + tier,
+                    "I can't complete my current " + tierLabel + ' clue', 'bl-clue-task-lock'));
                 clueTasks.forEach(task => content.append(taskRow(task)));
                 details.append(content); container.append(details);
             }
@@ -1256,11 +1259,25 @@
                 clueTierLabel(tier) + ' clue rewards are available again.';
         save(); schedule(); render();
     }
-    function saveClueLock(tier) {
-        const select = document.getElementById('bl-clue-step-' + tier);
+    function saveClueLock(tier, selectId = 'bl-clue-step-panel-' + tier) {
+        const select = document.getElementById(selectId);
         const step = (clueStatus.steps || []).find(candidate => candidate.tier === tier && candidate.stepId === select?.value);
         if (!step) return notice('Choose the clue step you cannot complete.');
         changeClueLock(tier, step);
+    }
+    function clueLockEditor(tier, selectId, summaryText = "I can't complete my current clue step", className = '') {
+        const editor = element('details', null, { className: ['bl-clue-lock-editor', className].filter(Boolean).join(' ') });
+        editor.append(element('summary', summaryText));
+        const select = element('select', null, { id: selectId,
+            'aria-label': 'Blocked ' + tier + ' clue step' });
+        select.append(element('option', 'Choose the step…', { value: '' }));
+        for (const step of (clueStatus.steps || []).filter(step => step.tier === tier)) {
+            select.append(element('option', step.name, { value: step.stepId }));
+        }
+        const saveButton = button('Block this clue tier', () => saveClueLock(tier, selectId));
+        saveButton.disabled = !canEdit() || busy;
+        editor.append(select, saveButton);
+        return editor;
     }
     function changeIncidentalMaster(delta) {
         if (!canEdit() || busy) return;
@@ -1337,17 +1354,7 @@
                     'Master clue goals require Watson and completed easy, medium, hard, and elite reward pools.' :
                     'No usable source for this clue tier is in the unlocked area.'));
                 if (status.repeatableSource || Number(state.incidentalClues?.[tier]) > 0) {
-                    const editor = element('details', null, { className: 'bl-clue-lock-editor' });
-                    editor.append(element('summary', "I can't complete my current clue step"));
-                    const select = element('select', null, { id: 'bl-clue-step-' + tier,
-                        'aria-label': 'Blocked ' + tier + ' clue step' });
-                    select.append(element('option', 'Choose the step…', { value: '' }));
-                    for (const step of (clueStatus.steps || []).filter(step => step.tier === tier)) {
-                        select.append(element('option', step.name, { value: step.stepId }));
-                    }
-                    const saveButton = button('Block this clue tier', () => saveClueLock(tier));
-                    saveButton.disabled = !canEdit() || busy;
-                    editor.append(select, saveButton); row.append(editor);
+                    row.append(clueLockEditor(tier, 'bl-clue-step-panel-' + tier));
                 }
             }
             if (tier === 'master' && !status.generating && !status.complete) {

@@ -481,17 +481,17 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=21/);
+    assert.match(html, /boardlocked-data\.js\?v=22/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl30/);
-    assert.match(html, /boardlocked\.js\?v=65/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl41/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl41/);
-    assert.match(worker, /boardlocked-data\.js\?v=21/);
-    assert.match(worker, /boardlocked\.js\?v=65/);
-    assert.match(worker, /boardlocked-worker\.js\?v=23/);
-    assert.match(html, /boardlocked-ui\.js\?v=82/);
-    assert.match(html, /boardlocked\.css\?v=22/);
+    assert.match(html, /boardlocked\.js\?v=66/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl42/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl42/);
+    assert.match(worker, /boardlocked-data\.js\?v=22/);
+    assert.match(worker, /boardlocked\.js\?v=66/);
+    assert.match(worker, /boardlocked-worker\.js\?v=24/);
+    assert.match(html, /boardlocked-ui\.js\?v=83/);
+    assert.match(html, /boardlocked\.css\?v=23/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -1677,7 +1677,7 @@ test('live acceptance worker output offers axe Enablers and blocks concrete gath
     const yew = tasks.find(task => /^Chop ~\|yew logs/.test(task.name)); assert.ok(yew);
     assert.equal(yew.eligible, false); assert.equal(yew.progressionBlocked, true);
     const mace = tasks.find(task => task.skill === 'BiS' && /iron mace/.test(task.name));
-    assert.match(mace.bisReason, /Prayer BiS weapon/); assert.match(mace.bisReason, /Melee upgrade weapon/);
+    assert.match(mace.bisReason, /Prayer (?:BiS|upgrade) weapon/); assert.match(mace.bisReason, /Melee upgrade weapon/);
     assert.match(mace.displayName, /^\[/);
     assert.ok(!tasks.some(task => task.accessResult?.forestry && task.eligible));
 });
@@ -2704,7 +2704,7 @@ test('clue rewards have one highest-tier owner and old duplicate completions sti
         'owning an item from another source does not prove its clue collection-log slot');
 });
 
-test('direct clue sources expose one collapsed reward pool and cooldown or tier locks suppress it', () => {
+test('direct clue sources expose collection rewards and every strict clue-equipment upgrade', () => {
     const request = usePreset(makeRequest(['4651']), 'Boardlocked Chunker');
     const adaptResult = result => R.adaptTasks(result.tasks,
         { checkedAllTasks: request.boardlocked.checkedAllTasks }, request.boardlocked.state, request.chunks,
@@ -2712,8 +2712,15 @@ test('direct clue sources expose one collapsed reward pool and cooldown or tier 
         request.boardlocked.tasksMap, request.chunkInfo);
     let result = runWorker(request).result;
     let beginner = adaptResult(result).filter(task => task.eligible && task.clueReward?.tier === 'beginner');
-    assert.equal(beginner.length, 17, 'BiS rewards replace their duplicate collection rows rather than adding more goals');
-    assert.ok(beginner.some(task => task.skill === 'BiS'));
+    const collectionRewards = beginner.filter(task => !task.clueReward.equipmentOnly);
+    const equipmentRewards = beginner.filter(task => task.clueReward.equipmentOnly);
+    assert.equal(collectionRewards.length, 17,
+        'BiS versions of collection-log rewards replace their duplicate collection rows');
+    assert.ok(equipmentRewards.length > 0);
+    for (const item of ['Black sword', 'Black platebody', 'Black full helm']) {
+        assert.ok(equipmentRewards.some(task => task.equipmentName === item), item + ' is exposed as a clue equipment upgrade');
+    }
+    assert.ok(equipmentRewards.every(task => task.skill === 'BiS'));
     assert.ok(beginner.every(task => task.origins.some(origin => origin.chunkId === '4651')));
     assert.equal(adaptResult(result).some(task => task.eligible && task.clueReward && task.clueReward.tier !== 'beginner'), false);
 
@@ -2751,7 +2758,8 @@ test('Master clue tasks use sustainable Watson inputs while caskets remain incid
         request.boardlocked.state, request.chunks, result.sections, request.manualSections,
         R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap), request.boardlocked.tasksMap, request.chunkInfo);
     const master = adapted.filter(task => task.eligible && task.clueReward?.tier === 'master');
-    assert.equal(master.length, 52);
+    assert.equal(master.filter(task => !task.clueReward.equipmentOnly).length, 52);
+    assert.ok(master.some(task => task.clueReward.equipmentOnly), 'strict Master-casket equipment upgrades are included');
     assert.ok(master.every(task => task.origins.some(origin => origin.sourceName === 'Watson')));
     assert.equal(result.clueStatus.tiers.master.sourceKind, 'watson');
 });
@@ -2783,6 +2791,10 @@ test('clue UI groups reward goals and keeps each tier lock independent', () => {
     const ui = fs.readFileSync(path.join(__dirname, '..', 'boardlocked-ui.js'), 'utf8');
     const css = fs.readFileSync(path.join(__dirname, '..', 'boardlocked.css'), 'utf8');
     assert.match(ui, /className: 'bl-clue-task-group'/);
+    assert.match(ui, /I can't complete my current " \+ tierLabel \+ ' clue'/,
+        'the active task group exposes the blocked-step action without opening the Clues panel');
+    assert.match(ui, /bl-clue-step-task-/);
+    assert.match(ui, /bl-clue-step-panel-/);
     assert.match(ui, /I can't complete my current clue step/);
     assert.match(ui, /I received a Master clue from a casket/);
     assert.match(ui, /An unlocked source will generate reward goals again after the next non-clue goal/);
@@ -2791,6 +2803,16 @@ test('clue UI groups reward goals and keeps each tier lock independent', () => {
     assert.match(ui, /checkedAllTasks\.Extra.*clueReward\.name/s,
         'a merged BiS checkbox must also record the canonical clue reward task');
     assert.match(css, /\.bl-clue-state\.is-blocked/);
+    assert.match(css, /\.bl-clue-task-lock/);
+});
+
+test('every configured clue equipment reward is a real scored equipment item', () => {
+    const configured = annotations.clues.equipmentRewardsByTier;
+    assert.deepEqual(Object.keys(configured), R.CLUE_TIERS);
+    for (const [tier, items] of Object.entries(configured)) {
+        assert.equal(new Set(items).size, items.length, tier + ' clue equipment has no duplicates');
+        for (const item of items) assert.ok(chunkData.equipment[item], tier + ' clue reward is scored equipment: ' + item);
+    }
 });
 
 test('Boardlocked Chunker preset has the strict broad-progression defaults', () => {
