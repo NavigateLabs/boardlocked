@@ -214,8 +214,10 @@
             if (marker?.parentNode) marker.parentNode.insertBefore(focusedPanelDetails, marker.nextSibling);
             marker?.remove();
             delete focusedPanelDetails.boardlockedPlaceholder;
+            focusedPanelDetails.classList.remove('bl-focused-section');
             focusedPanelDetails = null;
         }
+        if (!open) panel.classList.remove('bl-section-focus');
         if (!open && pickingStartingTile) {
             pickingStartingTile = false;
             selectedStartingCandidate = null;
@@ -1032,22 +1034,89 @@
             record.requiredCombat > 3 && record.status !== 'usable');
         changeSlayerMasters(targets.length ? targets : [selected], 'usable', 'activate_slayer_master');
     }
+    function updateSlayerLockEditor() {
+        const status = document.getElementById('bl-slayer-lock-select');
+        const fields = document.getElementById('bl-slayer-lock-fields');
+        const task = document.getElementById('bl-slayer-lock-task');
+        const level = document.getElementById('bl-slayer-lock-level');
+        const saveButton = document.getElementById('bl-slayer-lock-save');
+        if (!status || !fields || !task || !level || !saveButton) return;
+        const locking = status.value === 'locked';
+        fields.hidden = !locking;
+        saveButton.disabled = !canEdit() || busy || (locking && (!task.value || !/^\d+$/.test(level.value) || Number(level.value) < 1 || Number(level.value) > 99));
+    }
+    function saveSlayerLock() {
+        if (!canEdit() || busy) return;
+        const locking = document.getElementById('bl-slayer-lock-select').value === 'locked';
+        const task = document.getElementById('bl-slayer-lock-task').value;
+        const level = Number(document.getElementById('bl-slayer-lock-level').value);
+        if (locking && (!task || !Number.isInteger(level) || level < 1 || level > 99)) {
+            return notice('Choose the blocked assignment and a Slayer level from 1 to 99.');
+        }
+        slayerLocked = locking ? { monster: task, level: String(level) } : null;
+        tempSlayerLocked = null;
+        editingSlayerLock = false;
+        forceUpdatePluginOutput = true;
+        state.adminHistory.push({ timestamp: new Date().toISOString(), action: locking ? 'lock_slayer' : 'unlock_slayer',
+            monster: locking ? task : null, level: locking ? level : null });
+        message = locking ? 'Slayer goals are locked until ' + R.displayName(task) + ' becomes available.' : 'Slayer goals are unlocked.';
+        save();
+        if (typeof setData === 'function') setData();
+        schedule(); render();
+    }
     function renderSlayerMasters() {
         const summary = document.getElementById('bl-slayer-master-summary');
         const list = document.getElementById('bl-slayer-masters');
-        if (!summary || !list) return;
-        const pending = Object.entries(state.slayerMasters || {}).filter(([, status]) => status === 'pending')
-            .map(([master]) => slayerMasterCatalog.find(record => record.master === master) || { master, requiredCombat: null })
-            .sort((left, right) => (left.requiredCombat || Infinity) - (right.requiredCombat || Infinity) || left.master.localeCompare(right.master));
-        summary.textContent = 'Slayer masters' + (pending.length ? ' (' + pending.length + ' pending)' : '');
+        const lockState = document.getElementById('bl-slayer-lock-state');
+        const lockDetail = document.getElementById('bl-slayer-lock-detail');
+        const lockSelect = document.getElementById('bl-slayer-lock-select');
+        const lockTask = document.getElementById('bl-slayer-lock-task');
+        const lockLevel = document.getElementById('bl-slayer-lock-level');
+        if (!summary || !list || !lockState || !lockDetail || !lockSelect || !lockTask || !lockLevel) return;
+        const locked = !!slayerLocked;
+        summary.textContent = 'Slayer';
+        lockState.textContent = locked ? 'Slayer is locked' : 'Slayer is unlocked';
+        lockState.className = 'bl-slayer-state ' + (locked ? 'is-locked' : 'is-unlocked');
+        lockDetail.textContent = locked ? 'Waiting on ' + R.displayName(slayerLocked.monster || 'a Slayer assignment') +
+            ' from Slayer level ' + (slayerLocked.level || 1) + '.' : 'Slayer goals may be generated normally.';
+        lockSelect.value = locked ? 'locked' : 'unlocked';
+        const choices = ['Manually Locked', ...Object.keys(typeof slayerTasks === 'object' && slayerTasks ? slayerTasks : {})]
+            .filter((value, index, values) => value && values.indexOf(value) === index).sort((a, b) => a.localeCompare(b));
+        const selectedTask = locked ? slayerLocked.monster : '';
+        lockTask.replaceChildren(element('option', 'Choose the blocked assignment…', { value: '' }));
+        for (const choice of choices) lockTask.append(element('option', R.displayName(choice), { value: choice }));
+        if (selectedTask && !choices.includes(selectedTask)) lockTask.append(element('option', R.displayName(selectedTask), { value: selectedTask }));
+        lockTask.value = selectedTask || '';
+        lockLevel.value = locked ? slayerLocked.level || 1 : state.actualLevels.Slayer || 1;
+        updateSlayerLockEditor();
+
+        const records = slayerMasterCatalog.slice().sort((left, right) =>
+            (left.requiredCombat || 3) - (right.requiredCombat || 3) || left.master.localeCompare(right.master));
+        const usableCount = records.filter(record => record.status === 'usable' && record.accessible && record.reachable).length;
+        document.getElementById('bl-slayer-master-count').textContent = usableCount + ' of ' + records.length + ' available';
         list.replaceChildren();
-        for (const record of pending) {
-            const row = element('div', null, { className: 'bl-enabler-record' });
-            row.append(element('strong', record.master), element('small', record.requiredCombat ? 'Requires ' + record.requiredCombat + ' Combat' : 'Marked unavailable'));
-            const activate = button('I can use ' + record.master + ' now', () => activateSlayerMaster(record.master));
-            activate.disabled = !canEdit() || busy; row.append(activate); list.append(row);
+        for (const record of records) {
+            const usable = record.status === 'usable' && record.accessible && record.reachable;
+            const row = element('div', null, { className: 'bl-slayer-master' });
+            const heading = element('div', null, { className: 'bl-slayer-master-heading' });
+            heading.append(element('strong', record.master), element('span', usable ? 'Can use' : 'Cannot use', {
+                className: 'bl-slayer-master-status ' + (usable ? 'is-usable' : 'is-unavailable') }));
+            const requirements = [record.requiredCombat > 3 ? record.requiredCombat + ' Combat' : null,
+                record.requiredSlayer > 1 ? record.requiredSlayer + ' Slayer' : null].filter(Boolean).join(' · ') || 'No level requirement';
+            let reason = 'Available in your unlocked area.';
+            if (!record.accessible) reason = "The master's location or a required quest is not unlocked.";
+            else if (!record.reachable) reason = 'No usable assignment route reaches this master yet.';
+            else if (record.status === 'unknown') reason = 'Access is present; confirm when you meet the Combat requirement.';
+            else if (record.status === 'pending') reason = 'You previously marked this master unavailable.';
+            row.append(heading, element('small', requirements, { className: 'bl-slayer-master-requirements' }),
+                element('small', reason, { className: 'bl-slayer-master-reason' }));
+            if (record.accessible && record.reachable && record.status !== 'usable') {
+                const activate = button('I can use this master', () => activateSlayerMaster(record.master));
+                activate.disabled = !canEdit() || busy; row.append(activate);
+            }
+            list.append(row);
         }
-        if (!pending.length) list.append(element('p', 'No Slayer masters are waiting for confirmation.'));
+        if (!records.length) list.append(element('p', 'No Slayer masters are present in the task data.'));
     }
     function renderBlockedBosses() {
         const summary = document.getElementById('bl-blocked-boss-summary');
@@ -1475,7 +1544,10 @@
             <details><summary id="bl-enabler-summary">Acquired tools (0)</summary><p>Reusable tools such as axes stay unlocked after you get them. If an old save is missing one, add it here.</p>
             <div class="bl-toolbar"><select id="bl-enabler-select" aria-label="Known persistent enabler to register"><option value="">Choose a known reusable item…</option></select><button id="bl-add-enabler" type="button">Mark acquired</button></div>
             <div id="bl-enabler-list"></div><details><summary>Unclear tool requirements</summary><p>These items are not treated as reusable because their task data is unclear.</p><div id="bl-enabler-ambiguities"></div></details></details>
-            <details><summary id="bl-slayer-master-summary">Slayer masters</summary><p>Masters you cannot use yet wait here. Activating one restores every goal that depends on it.</p><div id="bl-slayer-masters"></div></details>
+            <details class="bl-slayer-panel"><summary id="bl-slayer-master-summary">Slayer</summary>
+            <div class="bl-slayer-overview"><div><strong id="bl-slayer-lock-state" class="bl-slayer-state"></strong><small id="bl-slayer-lock-detail"></small></div></div>
+            <details class="bl-slayer-lock-editor"><summary>Change Slayer lock</summary><label>Status<select id="bl-slayer-lock-select"><option value="unlocked">Unlocked</option><option value="locked">Locked</option></select></label><div id="bl-slayer-lock-fields"><label>Blocked assignment<select id="bl-slayer-lock-task"></select></label><label>Slayer level<input id="bl-slayer-lock-level" type="number" min="1" max="99"></label></div><button id="bl-slayer-lock-save" type="button">Save Slayer lock</button></details>
+            <div class="bl-slayer-list-heading"><h4>Slayer masters</h4><span id="bl-slayer-master-count" class="bl-muted"></span></div><p class="bl-muted">A master is available when their location and required quests are unlocked, and you have confirmed any Combat requirement.</p><div id="bl-slayer-masters"></div></details>
             <details><summary id="bl-blocked-boss-summary">Bosses waiting for better gear</summary><p>Boss goals can wait until you decide your equipment is ready.</p><div id="bl-blocked-bosses"></div></details>
             <details><summary id="bl-task-count">Other tasks &amp; progress</summary><p>Record past goals, quests, and permanent unlocks here. Routine training does not complete the current visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
             <details><summary>Diagnostics and overrides</summary>
@@ -1531,6 +1603,10 @@
             document.getElementById('bl-add-enabler').disabled = !canEdit() || !event.target.value;
         };
         document.getElementById('bl-add-enabler').onclick = addEnabler;
+        document.getElementById('bl-slayer-lock-select').onchange = updateSlayerLockEditor;
+        document.getElementById('bl-slayer-lock-task').onchange = updateSlayerLockEditor;
+        document.getElementById('bl-slayer-lock-level').oninput = updateSlayerLockEditor;
+        document.getElementById('bl-slayer-lock-save').onclick = saveSlayerLock;
         document.getElementById('bl-past-search').oninput = renderPastTasks;
         document.getElementById('bl-sections').onclick = () => { setPanelOpen(false); calcCurrentChallengesCanvas(true, true); };
         document.getElementById('bl-set-anchor').onclick = setAnchor;
@@ -1567,6 +1643,8 @@
                 details.parentNode.insertBefore(marker, details);
                 details.boardlockedPlaceholder = marker;
                 content.prepend(details);
+                details.classList.add('bl-focused-section');
+                panel.classList.add('bl-section-focus');
                 focusedPanelDetails = details;
             }
             if (details) details.open = true;

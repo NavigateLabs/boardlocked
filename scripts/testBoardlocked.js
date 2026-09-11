@@ -483,15 +483,15 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-data\.js\?v=19/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl26/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl27/);
     assert.match(html, /boardlocked\.js\?v=59/);
     assert.match(index, /worker\.js\?v=6\.9\.66-bl37/g);
     assert.match(ui, /worker\.js\?v=6\.9\.66-bl37/);
     assert.match(worker, /boardlocked-data\.js\?v=19/);
     assert.match(worker, /boardlocked\.js\?v=59/);
     assert.match(worker, /boardlocked-worker\.js\?v=21/);
-    assert.match(html, /boardlocked-ui\.js\?v=76/);
-    assert.match(html, /boardlocked\.css\?v=20/);
+    assert.match(html, /boardlocked-ui\.js\?v=77/);
+    assert.match(html, /boardlocked\.css\?v=21/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -1080,6 +1080,21 @@ test('Boardlocked progress navigation uses completed evidence and clear destinat
     assert.match(index, /At or below completed task level/);
     assert.match(ui, /skillProgress: skill => R\.completedSkillProgress/);
     assert.match(ui, /openSection: section =>/);
+    assert.match(ui, /Slayer is locked/);
+    assert.match(ui, /Slayer is unlocked/);
+    assert.match(ui, /record\.status === 'usable' && record\.accessible && record\.reachable/,
+        'master availability combines confirmation, quest geography, and the usable assignment route');
+    assert.match(ui, /I can use this master/);
+    assert.match(ui, /class="bl-slayer-lock-editor"/,
+        'the less common lock controls stay collapsed inside the dedicated Slayer view');
+    assert.match(ui, /panel\.classList\.add\('bl-section-focus'\)/,
+        'opening Slayer presents one focused side-panel destination');
+    assert.match(index, /if \(!BOARDLOCKED_FORK\) combatStyles\.push\('Slayer'\)/,
+        'Slayer remains upstream but is removed from Boardlocked Levels & Training');
+    assert.match(index, /if \(!BOARDLOCKED_FORK\) combatStyles\.push\('Clues'\)/,
+        'Clues remains upstream but is removed from Boardlocked Levels & Training');
+    assert.match(index, /const clueOnly = BOARDLOCKED_FORK && boardlockedProgressViewScope === 'Clues'/,
+        'the dedicated Clues shortcut still opens its clue-only view');
     for (const label of ['BiS', 'Levels &amp; Training', 'Slayer', 'Clues']) assert.match(html, new RegExp('>' + label + '<'));
     assert.doesNotMatch(html.match(/<div class='menu6'>[\s\S]*?<\/div>\s*<div class='menu7'>/)[0], /Activity Info|Current BIS/);
 });

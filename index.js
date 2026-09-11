@@ -1511,6 +1511,7 @@ let starRegions = {
 let pickedNum;
 let highestTab;
 let highestTab2;
+let boardlockedProgressViewScope = null;
 let dropRatesGlobal = {};
 let dropTablesGlobal = {};
 let bestEquipmentAltsGlobal = {};
@@ -9521,12 +9522,14 @@ let boardlockedTrainingMethods = function(skill) {
 
 let openProgressView = function(tab) {
     BOARDLOCKED_FORK && window.boardlockedController?.close?.();
+    boardlockedProgressViewScope = BOARDLOCKED_FORK ? tab : null;
     highestTab2 = tab;
     openHighest2();
 }
 
 let openBoardlockedSlayer = function() {
     if (BOARDLOCKED_FORK && window.boardlockedController?.openSection) {
+        highest2ModalOpen && closeHighest2();
         onMobile && hideMobileMenu();
         window.boardlockedController.openSection('slayer');
         return;
@@ -9689,21 +9692,24 @@ let openHighest2 = function(notScrollTop) {
         highest2ModalOpen = true;
         let combatStyles = [];
         let primarySkill = [];
-        if (rules['Show Skill Tasks']) {
+        const clueOnly = BOARDLOCKED_FORK && boardlockedProgressViewScope === 'Clues';
+        if (!clueOnly && rules['Show Skill Tasks']) {
             combatStyles.push('Skills');
             skillNames.forEach((skill) => {
                 primarySkill[skill] = BOARDLOCKED_FORK ? Object.keys(boardlockedTrainingMethods(skill)).length > 0 :
                     checkPrimaryMethod(skill, globalValids, baseChunkData);
             });
         }
-        combatStyles.push('Quests');
-        combatStyles.push('Diaries');
-        combatStyles.push('Slayer');
-        if (rules['Show Skill Tasks']) {
-            combatStyles.push('Construction');
+        if (clueOnly) {
+            combatStyles.push('Clues');
+        } else {
+            combatStyles.push('Quests');
+            combatStyles.push('Diaries');
+            if (!BOARDLOCKED_FORK) combatStyles.push('Slayer');
+            if (rules['Show Skill Tasks']) combatStyles.push('Construction');
+            if (!BOARDLOCKED_FORK) combatStyles.push('Clues');
+            combatStyles.push('Shooting Stars');
         }
-        combatStyles.push('Clues');
-        combatStyles.push('Shooting Stars');
         $('.highest2-title').empty();
         $('.highest2-data').empty();
         combatStyles.forEach((combatStyle) => {
@@ -9852,12 +9858,12 @@ let openHighest2 = function(notScrollTop) {
                 $(`.${combatStyle.replaceAll(' ', '_')}-body`).append(`<div class='noscroll row total'><span class='noscroll star-region'>Total</span><span class='noscroll star-sites'>${totalPossibleSites} / ${totalSites} (${Math.round((((totalPossibleSites / totalSites) || 0) * 100) * 100) / 100}%)</span></div>`);
             }
         });
-        if (highestTab2 === undefined) {
-            highestTab2 = combatStyles[0];
-        }
+        if (!combatStyles.includes(highestTab2)) highestTab2 = combatStyles[0];
         $('.style-body').hide();
         $(`.${highestTab2}-button`).addClass('active-tab');
         $(`.${highestTab2}-body`).show();
+        $('#highest2-title').toggle(!clueOnly);
+        $('#highest2-data').toggleClass('boardlocked-single-progress', clueOnly);
         $('#highest2Modal').show();
         modalOutsideTime = Date.now();
         !notScrollTop && (document.getElementById('highest2-data').scrollTop = 0);

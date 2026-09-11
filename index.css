@@ -6329,6 +6329,10 @@ input#searchChunks {
     height: 93%;
 }
 
+.highest2-data.boardlocked-single-progress {
+    height: 100%;
+}
+
 .highest2-subtitle {
     font-size: 32px;
     font-weight: bold;
