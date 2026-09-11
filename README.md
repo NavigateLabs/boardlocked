@@ -5,7 +5,8 @@ Boardlocked is a progression mode for the Old School RuneScape
 
 The name comes from a combination of boardgame and the -locked nomer from various osrs game-modes. The idea is that each chunk is a boardgame tile, where you must move and perform one action each turn.
 
-It came from trying to improve chunklocked in certain aspects, focusing on roleplaying, smoother progression and roguelike-ish elements where a run can end up completely different from a previous one. Eventually I found that this simple rule fixed most of my problems. Since you can only perform one action per chunk, your choice really matters!
+It came from trying to improve chunklocked in certain aspects, focusing on roleplaying, smoother progression and roguelike-ish elements where a run can end up completely different from a previous one. 
+Since you can only perform one action per chunk, your choice really matters!
 
 ## Play
 
