@@ -353,7 +353,7 @@
             manualSections, manualAreas, slayerLocked, constructionLocked, passiveSkill, maxSkill,
             randomLoot, assignedXpRewards, altChallenges, userTasks, manualPrimary,
             settings.optOutSections, settings.optOutSectionsWater, state.actualLevels, state.progressionHighWater,
-            state.originOverrides, state.accessOverrides, state.acquiredEnablers]);
+            state.originOverrides, state.accessOverrides, state.acquiredEnablers, state.blockedBosses]);
     }
     function frontier() {
         const unlocked = tempChunks.unlocked || {};
@@ -442,7 +442,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl31');
+        worker = new Worker('./worker.js?v=6.9.66-bl32');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -466,7 +466,7 @@
             boardlocked: { state: { actualLevels: state.actualLevels, progressionHighWater: state.progressionHighWater,
                     originOverrides: state.originOverrides,
                     accessOverrides: state.accessOverrides, acquiredEnablers: state.acquiredEnablers,
-                    slayerMasters: state.slayerMasters },
+                    slayerMasters: state.slayerMasters, blockedBosses: state.blockedBosses },
                 checkedAllTasks, tasksMap, unlocked: tempChunks.unlocked || {} } });
         render();
     }
@@ -706,6 +706,24 @@
         onLegacyChange(); setData();
     }
 
+    function deferBoss(boss) {
+        if (!canEdit() || busy || !boss || state.blockedBosses?.[boss]) return;
+        state = R.setBossBlocked(state, boss, true);
+        state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'defer_boss', boss });
+        if (state.currentVisit && !R.canRoll(state)) state = R.recalculateCurrentVisit(state,
+            'Player deferred ' + boss + ' until their gear is ready');
+        message = boss + ' goals are waiting until you reactivate the boss.';
+        save(); schedule(); render();
+    }
+
+    function reactivateBoss(boss) {
+        if (!canEdit() || busy || !boss || !state.blockedBosses?.[boss]) return;
+        state = R.setBossBlocked(state, boss, false);
+        state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'reactivate_boss', boss });
+        message = boss + ' goals are eligible again for future visits.';
+        save(); schedule(); render();
+    }
+
     function addUnlocked() {
         if (!canEdit()) return;
         if (isPicking) return notice('Finish the existing draft before setting up unlocked chunks.');
@@ -845,6 +863,9 @@
                 advancesSkillProgression: !!task.advancesSkillProgression,
                 progressionHighWater: task.progressionHighWater,
                 progressionCeiling: task.progressionCeiling,
+                bossSources: task.bossSources || [],
+                blockedBossSources: task.blockedBossSources || [],
+                bossDeferred: !!task.bossDeferred,
                 origins: task.origins || [],
                 enablers: task.enablers || [],
                 enablerItemKey: task.enablerItemKey || null,
@@ -864,6 +885,10 @@
             }));
             const backlogButton = button(task.backlogged ? 'Unbacklog' : 'Backlog', () => backlogTask(task));
             backlogButton.disabled = !canEdit(); tools.append(backlogButton);
+            if (snapshot) for (const boss of task.bossSources || []) if (!state.blockedBosses?.[boss]) {
+                const defer = button("I can't defeat " + boss + ' with my current gear', () => deferBoss(boss));
+                defer.disabled = !canEdit() || busy; tools.append(defer);
+            }
             row.append(tools); container.append(row);
         }
     }
@@ -952,6 +977,22 @@
         }
         if (!pending.length) list.append(element('p', 'No Slayer masters are waiting for confirmation.'));
     }
+    function renderBlockedBosses() {
+        const summary = document.getElementById('bl-blocked-boss-summary');
+        const list = document.getElementById('bl-blocked-bosses');
+        if (!summary || !list) return;
+        const bosses = Object.keys(state.blockedBosses || {}).sort((a, b) => a.localeCompare(b));
+        summary.parentElement.hidden = !bosses.length;
+        summary.textContent = 'Bosses waiting for better gear' + (bosses.length ? ' (' + bosses.length + ')' : '');
+        list.replaceChildren();
+        for (const boss of bosses) {
+            const row = element('div', null, { className: 'bl-enabler-record' });
+            row.append(element('strong', boss), element('small', 'Its goals are hidden.'));
+            const reactivate = button('I am ready to fight this boss', () => reactivateBoss(boss));
+            reactivate.disabled = !canEdit() || busy; row.append(reactivate); list.append(row);
+        }
+        if (!bosses.length) list.append(element('p', 'No bosses are waiting.'));
+    }
     function render() {
         if (!panel) return;
         document.body.classList.add('bl-enabled');
@@ -981,6 +1022,7 @@
         document.getElementById('bl-sections').hidden = !busy || globalSectionsValid;
         renderEnablers();
         renderSlayerMasters();
+        renderBlockedBosses();
         document.getElementById('bl-setup-status').textContent = setupLocations.map(id => id + ': ' + (busy ? 'calculating' : pool.live.includes(id) ?
             'encounter (' + pool.byLocation[id].length + ' eligible tasks)' : 'free travel tile')).join('\n');
         renderPastTasks();
@@ -1106,7 +1148,7 @@
         if (!container || !container.parentElement.open) return;
         const query = document.getElementById('bl-task-search').value.toLowerCase();
         const history = document.getElementById('bl-show-earlier').checked;
-        const filtered = tasks.filter(t => (history || (!t.superseded && !t.completed && !t.redundant)) &&
+        const filtered = tasks.filter(t => !t.bossDeferred && (history || (!t.superseded && !t.completed && !t.redundant)) &&
             (t.taskId + ' ' + t.displayName + ' ' + t.skill + ' ' + t.origins.map(o => o.chunkId).join(' ')).toLowerCase().includes(query));
         container.replaceChildren();
         taskList(container, filtered.slice(0, 150));
@@ -1360,6 +1402,7 @@
             <div class="bl-toolbar"><select id="bl-enabler-select" aria-label="Known persistent enabler to register"><option value="">Choose a known reusable item…</option></select><button id="bl-add-enabler" type="button">Mark acquired</button></div>
             <div id="bl-enabler-list"></div><details><summary>Unclear tool requirements</summary><p>These items are not treated as reusable because their task data is unclear.</p><div id="bl-enabler-ambiguities"></div></details></details>
             <details><summary id="bl-slayer-master-summary">Slayer masters</summary><p>Masters you cannot use yet wait here. Activating one restores every goal that depends on it.</p><div id="bl-slayer-masters"></div></details>
+            <details><summary id="bl-blocked-boss-summary">Bosses waiting for better gear</summary><p>Boss goals can wait until you decide your equipment is ready.</p><div id="bl-blocked-bosses"></div></details>
             <details><summary id="bl-task-count">Other tasks &amp; progress</summary><p>Record past goals, quests, and permanent unlocks here. Routine training does not complete the current visit.</p><input id="bl-task-search" type="search" placeholder="Search task, skill, ID or chunk" aria-label="Search tasks"><label class="bl-toggle"><input type="checkbox" id="bl-show-earlier">Show completed and earlier skilling tasks</label><div id="bl-all-tasks"></div></details>
             <details><summary>Diagnostics and overrides</summary>
             <details><summary id="bl-unassigned-count">Unassigned Boardlocked Tasks</summary><div id="bl-unassigned"></div></details>
@@ -1441,6 +1484,7 @@
             startingPicker: { active: pickingStartingTile, selected: R.copy(selectedStartingCandidate) },
             enablerCatalog: R.copy(enablerCatalog), enablerAmbiguities: R.copy(enablerAmbiguities),
             slayerMasterCatalog: R.copy(slayerMasterCatalog), slayerConfirmation: R.copy(slayerConfirmation),
+            blockedBosses: R.copy(state.blockedBosses),
             rulePreset: activeRulePreset(), diagnostics: R.copy(diagnostics), sourceCounts, busy, error, generation }),
         inspectTask: id => tasks.find(task => task.taskId === id),
         inspectChunk: id => ({ locationId: String(id), current: pool.current === String(id),

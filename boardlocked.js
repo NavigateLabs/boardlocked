@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 33;
+    const VERSION = 34;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -47,7 +47,7 @@
             travelAnchorSections: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
-            slayerMasters: {},
+            slayerMasters: {}, blockedBosses: {},
             rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input, enablerRevision: input ? 0 : ENABLER_REVISION,
             startingSectionPolicy: input ? null : STARTING_SECTION_POLICY,
             initialization: { turael: true, druidicRitual: !input, varlamore: false, wilderness: false, ocean: false },
@@ -134,6 +134,15 @@
                 for (const [master, status] of Object.entries(input.slayerMasters)) {
                     if (!master || !['pending', 'usable'].includes(status)) throw new Error('Invalid Slayer master state: ' + master);
                     state.slayerMasters[master] = status;
+                }
+            }
+            if (input.blockedBosses !== undefined) {
+                if (!input.blockedBosses || Array.isArray(input.blockedBosses) || typeof input.blockedBosses !== 'object') {
+                    throw new Error('Invalid blocked boss states');
+                }
+                for (const [boss, blocked] of Object.entries(input.blockedBosses)) {
+                    if (!boss || blocked !== true) throw new Error('Invalid blocked boss state: ' + boss);
+                    state.blockedBosses[boss] = true;
                 }
             }
         }
@@ -828,8 +837,13 @@
             const origins = own(state.originOverrides, task.taskId) ? state.originOverrides[task.taskId].map(value => ({
                 ...parseLocation(value), sourceType: 'manual', sourceName: 'Manual origin', reason: 'User origin override'
             })) : task.origins;
-            const activeOrigins = origins.filter(origin => locationAvailable(origin, unlocked, sections, manualSections));
+            const blockedBossSources = (task.bossSources || []).filter(boss => state.blockedBosses?.[boss] === true);
+            const blockedBossSet = new Set(blockedBossSources);
+            const permittedOrigins = origins.filter(origin => !(origin.sourceType === 'monsters' && blockedBossSet.has(origin.sourceName)));
+            const bossDeferred = !permittedOrigins.length && blockedBossSources.length > 0;
+            const activeOrigins = permittedOrigins.filter(origin => locationAvailable(origin, unlocked, sections, manualSections));
             const activeSlayerTrainingOrigins = (task.slayerTrainingOrigins || [])
+                .filter(origin => !(origin.sourceType === 'monsters' && blockedBossSet.has(origin.sourceName)))
                 .filter(origin => locationAvailable(origin, unlocked, sections, manualSections));
             const impliedByItem = impliedEquipmentCompletion(task, completedItems, state);
             const completed = isComplete(task, legacy, state) || !!impliedByItem, backlogged = isBacklogged(task, legacy);
@@ -838,7 +852,7 @@
                 state.actualLevels?.[task.skill] || 1) : null;
             const superseded = !!task.advancesSkillProgression && task.level <= highWater;
             const progressionBlocked = !!task.advancesSkillProgression && task.level > ceiling;
-            return { ...task, origins, activeOrigins, activeSlayerTrainingOrigins,
+            return { ...task, origins, activeOrigins, blockedBossSources, bossDeferred, activeSlayerTrainingOrigins,
                 slayerTrainingAlternative: !!task.slayerTrainingAlternative && activeSlayerTrainingOrigins.length > 0,
                 completed, implicitlyCompleted: !!impliedByItem, completionEvidenceItem: impliedByItem,
                 backlogged, superseded,
@@ -848,11 +862,14 @@
                 eligibilityReason: impliedByItem ? 'Completed by obtaining ' + impliedByItem : completed ? 'Completed' : superseded ? 'At or below the highest completed ' + task.skill + ' task (level ' + highWater + ')' :
                     progressionBlocked ? 'Above the current ' + task.skill + ' progression window (next through level ' + ceiling + ')' : backlogged ? 'Backlogged' :
                     task.available === false ? task.accessResult?.reason || 'Access unavailable' : !origins.length ? 'Unassigned origin' :
+                    bossDeferred ? 'Boss deferred until you reactivate ' + blockedBossSources.join(', ') :
                     !activeOrigins.length ? 'Origin geography or section is closed' : 'Eligible',
                 whyWouldBeIneligible: completed ? [impliedByItem ? 'completed by a specific acquired equipment item' : 'completed'] : [
                     ...(superseded ? ['at or below highest completed skill-task level'] : []), ...(progressionBlocked ? ['above current progression window'] : []),
                     ...(backlogged ? ['backlogged'] : []), ...(task.available === false ? [task.accessResult?.reason || 'access unavailable'] : []),
-                    ...(!origins.length ? ['no attributed origin'] : []), ...(origins.length && !activeOrigins.length ? ['origin geography or section closed'] : [])
+                    ...(!origins.length ? ['no attributed origin'] : []), ...(bossDeferred ?
+                        ['boss deferred until manually reactivated: ' + blockedBossSources.join(', ')] : []),
+                    ...(permittedOrigins.length && !activeOrigins.length ? ['origin geography or section closed'] : [])
                 ] };
         });
         const withCatchUp = openCatchUpMilestones(adapted, state);
@@ -870,6 +887,14 @@
     function setSlayerMasterState(state, master, status) {
         if (!master || !['pending', 'usable'].includes(status)) throw new Error('Invalid Slayer master state');
         return { ...state, slayerMasters: { ...(state.slayerMasters || {}), [master]: status } };
+    }
+
+    function setBossBlocked(state, boss, blocked) {
+        if (!boss || typeof boss !== 'string' || typeof blocked !== 'boolean') throw new Error('Invalid boss state');
+        const blockedBosses = { ...(state.blockedBosses || {}) };
+        if (blocked) blockedBosses[boss] = true;
+        else delete blockedBosses[boss];
+        return { ...state, blockedBosses };
     }
 
     // Slayer weights are probabilities within one master's assignment table.
@@ -1328,6 +1353,7 @@
     }
     const snapshotTask = task => ({ name: task.name, skill: task.skill, displayName: task.displayName, level: task.level || null,
         equipmentName: task.equipmentName || null, taskClass: task.taskClass || null,
+        bossSources: task.bossSources || [],
         enablerItemKey: task.enablerItemKey || null, provesAcquiredItemKeys: task.provesAcquiredItemKeys || [],
         confirmsEquipped: !!task.confirmsEquipped, capabilities: task.capabilities || [],
         bisReason: task.bisReason || null, bisSet: task.bisSet || null,
@@ -1674,6 +1700,7 @@
     // baseChunkData is the legacy source graph. Retain it; build a memoized sidecar.
     function buildTasks({ data, valids, base, ids = {}, rules = {}, state, legacy = {}, unlocked = {}, sections = {}, manualSections = {}, annotations = {} }) {
         const codes = data.codeItems || {}, tasks = new Map(), sourceCache = new Map(), originCache = new Map();
+        const bossMonsters = new Set(Object.keys(codes.bossMonsters || {}));
         const diagnostics = [], accessDiagnostics = [], enablerModel = buildEnablerModel(data, annotations);
         const pendingCapabilities = new Map();
         const slayerProgression = slayerProgressionModel({ data, state, legacy, base, ids, unlocked, sections, manualSections });
@@ -2344,7 +2371,11 @@
                     requiredLevels: capability.satisfyingItems.find(item => item.itemKey === itemKey)?.requiredLevels || {},
                     classificationReason: capability.classificationReason })) };
         }).sort((a, b) => a.itemKey.localeCompare(b.itemKey));
-        for (const record of tasks.values()) if (!record.origins.length) diagnostics.push({ taskId: record.taskId,
+        const finalTasks = [...tasks.values()].map(record => ({ ...record,
+            bossSources: [...new Set([...(record.origins || []), ...(record.slayerTrainingOrigins || [])]
+                .filter(origin => origin.sourceType === 'monsters' &&
+                bossMonsters.has(origin.sourceName)).map(origin => origin.sourceName))].sort((a, b) => a.localeCompare(b)) }));
+        for (const record of finalTasks) if (!record.origins.length) diagnostics.push({ taskId: record.taskId,
             name: record.displayName, reason: 'No confident action/resource origin in validated source metadata. Set an origin override.' });
         if (forestry.kitItem && ((!forestryKitAcquired && !kitOrigins.length) || !forestryTreeRecords.some(record => record.validSources.length))) {
             for (const [skill, allTasks] of Object.entries(data.challenges || {})) for (const [name, meta] of Object.entries(allTasks || {})) {
@@ -2364,7 +2395,7 @@
                         reason: 'Tree object is referenced by Forestry task metadata and is outside excluded origin groups' } });
             }
         }
-        return { tasks: [...tasks.values()], unassigned: diagnostics, accessDiagnostics,
+        return { tasks: finalTasks, unassigned: diagnostics, accessDiagnostics,
             slayerMasters: slayerProgression.masterStatuses,
             enablerCatalog, enablerAmbiguities: enablerModel.ambiguous };
     }
@@ -2375,7 +2406,7 @@
         equipmentObjectiveAlternatives, isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
-        actualCombatLevel, setSlayerMasterState, slayerProgressionModel,
+        actualCombatLevel, setSlayerMasterState, setBossBlocked, slayerProgressionModel,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,

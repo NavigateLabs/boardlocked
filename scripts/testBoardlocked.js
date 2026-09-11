@@ -361,9 +361,9 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl19/);
-    assert.match(html, /boardlocked\.js\?v=50/);
-    assert.match(html, /boardlocked-ui\.js\?v=63/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl20/);
+    assert.match(html, /boardlocked\.js\?v=51/);
+    assert.match(html, /boardlocked-ui\.js\?v=64/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -810,6 +810,40 @@ test('source provenance retains multiple genuine action origins', () => {
     const origins = R.buildTasks(fixture).tasks.find(t => t.taskId === 'chop').origins;
     assert.deepEqual(origins.map(o => o.chunkId), ['2000', '1000']);
 });
+test('blocking a boss removes only that boss source and retains alternate sources', () => {
+    const fixture = sourceFixture();
+    fixture.data.codeItems.bossMonsters = { 'Test boss': true };
+    fixture.base.monsters['Test boss'] = { '1000': true };
+    fixture.base.items['Raw food']['Test boss'] = 'primary-drop';
+    const built = { ...R.buildTasks(fixture).tasks.find(t => t.taskId === 'cook'), advancesSkillProgression: false };
+    assert.deepEqual(built.bossSources, ['Test boss']);
+    const blockedState = R.setBossBlocked(fresh(), 'Test boss', true);
+    const adapted = adapt([built], {}, blockedState);
+    assert.equal(adapted[0].eligible, true, 'the nonboss Animal source remains usable');
+    assert.deepEqual(adapted[0].activeOrigins.map(source => source.sourceName), ['Animal']);
+
+    const bossOnly = { ...built, origins: built.origins.filter(source => source.sourceName === 'Test boss') };
+    const deferred = adapt([bossOnly], {}, blockedState)[0];
+    assert.equal(deferred.eligible, false);
+    assert.equal(deferred.bossDeferred, true);
+    assert.deepEqual(deferred.blockedBossSources, ['Test boss']);
+    assert.match(deferred.eligibilityReason, /reactivate Test boss/);
+});
+test('deferring the boss on an unresolved visit recalculates without completing or replacing history', () => {
+    const bossOrigin = { chunkId: '1000', sectionId: null, sourceType: 'monsters', sourceName: 'Test boss', reason: 'Boss drop' };
+    const bossTask = task('boss-drop', ['1000'], { origins: [bossOrigin], activeOrigins: [bossOrigin], bossSources: ['Test boss'] });
+    const previous = R.resolveVisit(start(adapt([task('previous', ['2000'])]), 'frontier', '2000'), new Set(['previous']));
+    let state = R.startVisit(previous, { kind: 'revisit', locationId: '1000' });
+    state = R.snapshotVisit(state, adapt([bossTask]));
+    const completedHistory = R.copy(state.visitHistory[0]);
+    state = R.setBossBlocked(state, 'Test boss', true);
+    state = R.recalculateCurrentVisit(state, 'gear is not ready');
+    state = R.snapshotVisit(state, adapt([bossTask], {}, state));
+    assert.equal(state.currentVisit.visitNumber, 2);
+    assert.equal(state.currentVisit.resolution, 'no_tasks');
+    assert.equal(state.currentVisit.resolvedTaskId, null);
+    assert.deepEqual(state.visitHistory[0], completedHistory);
+});
 test('source metadata is not mutated while deriving task origins', () => {
     const fixture = sourceFixture(), before = JSON.stringify(fixture);
     R.buildTasks(fixture); assert.equal(JSON.stringify(fixture), before);
@@ -1025,6 +1059,10 @@ test('Slayer account setup and master tasks remain independent progression entry
     assert.doesNotMatch(ui, /id="bl-level-/);
     assert.doesNotMatch(ui, /Levels &amp; skill progression/);
     assert.match(ui, /id="bl-slayer-master-summary"/);
+    assert.match(ui, /id="bl-blocked-boss-summary"/);
+    assert.match(ui, /I can't defeat /);
+    assert.match(ui, /with my current gear/);
+    assert.match(ui, /I am ready to fight this boss/);
     assert.match(ui, /id="bl-start-turael"/);
     assert.match(ui, /<summary>Instructions for getting Druidic Ritual Items<\/summary>/);
     assert.match(ui, /Complete the quest before starting\./);
@@ -1041,6 +1079,16 @@ test('Slayer master decisions survive migration and reject invalid states', () =
     const restored = R.normalizeState(state);
     assert.deepEqual(restored.slayerMasters, { Nieve: 'pending', Vannaka: 'usable' });
     assert.throws(() => R.normalizeState({ ...fresh(), slayerMasters: { Nieve: 'maybe' } }), /Invalid Slayer master state/);
+});
+
+test('boss readiness decisions survive migration and reject invalid states', () => {
+    let state = R.setBossBlocked(fresh(), 'The Hueycoatl', true);
+    state = R.setBossBlocked(state, 'The Hueycoatl', false);
+    state = R.setBossBlocked(state, 'Scurrius', true);
+    assert.deepEqual(R.normalizeState(state).blockedBosses, { Scurrius: true });
+    const old = fresh(); old.version = 33; delete old.blockedBosses;
+    assert.deepEqual(R.normalizeState(old).blockedBosses, {});
+    assert.throws(() => R.normalizeState({ ...fresh(), blockedBosses: { Scurrius: false } }), /Invalid blocked boss state/);
 });
 
 test('completed skill goals automatically provide minimum level evidence', () => {
@@ -2483,6 +2531,21 @@ test('real worker: source backlog removes tasks supplied by that monster', () =>
     const request = makeRequest(['5942']); request.backloggedSources.monsters = { 'Moss giant': true };
     const { result } = runWorker(request);
     assert.ok(!result.tasks.some(t => /curved bone|long bone|mossy key/.test(t.name)));
+});
+test('real worker: every Hueycoatl-sourced goal waits when the player defers the boss', () => {
+    const request = makeRequest(['5939']);
+    const { result } = runWorker(request);
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const open = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections,
+        request.manualSections, catalog, request.boardlocked.tasksMap);
+    const huey = open.filter(task => task.bossSources?.includes('The Hueycoatl'));
+    assert.ok(huey.length >= 8, 'production boss registry and provenance must identify the full Hueycoatl goal set');
+    assert.ok(huey.some(task => task.eligible));
+    const blockedState = R.setBossBlocked(request.boardlocked.state, 'The Hueycoatl', true);
+    const deferred = R.adaptTasks(result.tasks, {}, blockedState, request.chunks, result.sections,
+        request.manualSections, catalog, request.boardlocked.tasksMap);
+    assert.ok(!deferred.some(task => task.bossSources?.includes('The Hueycoatl') && task.eligible));
+    assert.ok(deferred.filter(task => task.bossSources?.includes('The Hueycoatl')).every(task => task.bossDeferred));
 });
 test('real worker: collection completion is ordinary snapshot completion and rates are not a cutoff', () => {
     const request = makeRequest(['5942']); request.chunkInfo.drops['Moss giant']['Curved bone']['1'] = '1/999999999';
