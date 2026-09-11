@@ -1,5 +1,5 @@
 importScripts('https://cdn.jsdelivr.net/npm/lodash@4.17.20/lodash.min.js');
-importScripts('./boardlocked-data.js?v=18', './boardlocked.js?v=58', './boardlocked-worker.js?v=20');
+importScripts('./boardlocked-data.js?v=19', './boardlocked.js?v=59', './boardlocked-worker.js?v=21');
 let nonValids = {};
 let globalValids;
 let eGlobal;
@@ -3412,6 +3412,7 @@ let calcChallenges = function(chunks, baseChunkData) {
                 });
             }
         });
+        if (blContext) questPointTotal = Math.max(questPointTotal, Number(blContext.state.startingQuestPointFloor) || 0);
         !!newValids && !!newValids['Nonskill'] && Object.keys(newValids['Nonskill']).filter((line) => { return chunkInfo['challenges']['Nonskill'].hasOwnProperty(line) && chunkInfo['challenges']['Nonskill'][line].hasOwnProperty('XpReward') }).forEach((line) => {
             Object.keys(chunkInfo['challenges']['Nonskill'][line]['XpReward']).filter((skill) => { return !passiveSkill || !passiveSkill.hasOwnProperty(skill) || passiveSkill[skill] <= 1 }).forEach((skill) => {
                 if (!skillQuestXp[skill]) {

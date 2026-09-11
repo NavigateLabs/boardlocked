@@ -58,7 +58,7 @@
                     '9524', '9525', '9526', '9527', '9528', '9773', '9774',
                     '9775', '9776', '9777', '9778', '9779', '9780', '9781',
                     '9782', '9783', '10028', '10029', '10030', '10031', '10032',
-                    '10033', '10034', '10036', '10037', '10038', '10039', '10284',
+                    '10033', '10034', '10035', '10036', '10037', '10038', '10039', '10284',
                     '10285', '10286', '10287', '10288', '10289', '10290', '10291',
                     '10292', '10293', '10294', '10296', '10297', '10542', '10543',
                     '10544', '10545', '10546', '10547', '10548', '10549', '10550',
@@ -74,7 +74,8 @@
                     '12340', '12341', '12342', '12593', '12594', '12595', '12596',
                     '12597', '12598', '12849', '12850', '12851', '12852', '12853',
                     '12854', '13105', '13106', '13107', '13108', '13109', '13110',
-                    '13361', '13362', '13363', '13364', '13365', '13366', '13622'
+                    '13361', '13362', '13363', '13364', '13365', '13366', '13617',
+                    '13618', '13619', '13621', '13622'
                 ]),
                 // Enabled separately because Children of the Sun is treated as
                 // account initialization.
@@ -84,9 +85,9 @@
                     '5172', '5173', '5420', '5421', '5422', '5423', '5424',
                     '5425', '5426', '5427', '5428', '5429', '5676', '5677',
                     '5678', '5679', '5680', '5681', '5682', '5683', '5684',
-                    '5933', '5934', '5935', '5936', '5937', '5938', '5939',
+                    '5934', '5935', '5936', '5937', '5938', '5939',
                     '5940', '6189', '6190', '6191', '6192', '6193', '6194',
-                    '6195', '6445', '6446', '6447', '6448', '6449', '6450',
+                    '6195', '6196', '6445', '6446', '6447', '6448', '6449', '6450',
                     '6451', '6701', '6702', '6703', '6704', '6705', '6706',
                     '6707', '6957', '6958', '6959', '6960', '6961', '7215',
                     '7216', '7217', '7472'
@@ -99,10 +100,17 @@
                     '12599', '12600', '12601', '12602', '12603', '12604', '12605',
                     '12855', '12856', '12857', '12858', '12859', '12860', '12861',
                     '13111', '13112', '13113', '13114', '13115', '13116', '13117',
-                    '13367', '13368', '13369', '13370', '13371', '13372'
+                    '13367', '13368', '13369', '13370', '13371', '13372', '13373'
                 ])
             }),
             startingAreaPolicies: Object.freeze({
+                standard: Object.freeze({
+                    // West Ardougne's outer land remains a valid ordinary start;
+                    // its city section is separately tagged with Plague City.
+                    sectionGroups: Object.freeze({
+                        '10035': Object.freeze([Object.freeze(['2', '3', '4'])])
+                    })
+                }),
                 varlamore: Object.freeze({
                     // 6704-1 is the ordinary Fortis surface. Only land sections
                     // in its connected map component may be selected. This
@@ -110,10 +118,6 @@
                     // fragments, and other disconnected geometry without
                     // discarding the usable part of a mixed chunk.
                     connectedTo: '6704-1',
-                    // The reviewed pool intentionally includes the theatre's
-                    // land section even though it is separate from the main
-                    // overworld component.
-                    includeLocations: Object.freeze(['5933-1']),
                     sectionGroups: Object.freeze({
                         // Section 1 contains the level-46 Hunter Guild. Section 2
                         // is the outside path between the backyard and Ortus Farm.
@@ -124,9 +128,65 @@
             // Together with startingTiles.varlamore, this accounts for every
             // chunk in rollingChunks.varlamore from the upstream map export.
             startingTileExclusions: Object.freeze({
+                standard: Object.freeze({
+                    '9017': 'Ocean tile; starting rolls are land-only.',
+                    '9772': "The usable Myths' Guild section requires Dragon Slayer II.",
+                    '11053': "Kharazi Jungle requires starting Legends' Quest.",
+                    '11059': 'The Fishing Platform requires starting Sea Slug.',
+                    '11309': "Kharazi Jungle requires starting Legends' Quest.",
+                    '11315': 'Crandor requires Dragon Slayer I access.',
+                    '11320': 'Death Plateau and its northern routes require quest access.',
+                    '11321': 'Troll Stronghold requires the troll quest line.',
+                    '11322': 'The Ice Gate area requires quest access.',
+                    '11565': "Kharazi Jungle requires starting Legends' Quest.",
+                    '11576': 'The Troll Arena route requires the troll quest line.',
+                    '11577': 'Trollheim requires partial Troll Stronghold or another gated route.',
+                    '11578': 'God Wars Dungeon requires quest access and level 60 Strength or Agility.',
+                    '11821': "Kharazi Jungle's east coast requires Legends' Quest access."
+                }),
                 varlamore: Object.freeze({
-                    '6196': 'Removed in the reviewed starting-tile audit.'
+                    '5933': 'Villa Lucens Theatre requires progress in Death on the Isle.'
                 })
+            }),
+            // The upstream section graph records most quest gates in
+            // questSections. These entries supply access gates that are known
+            // to be missing there. They are data, consumed uniformly by both
+            // automatic and player-picked starts.
+            startingAccessRequirements: Object.freeze({
+                '5677-3': Object.freeze({ Tasks: Object.freeze({ '~|Death on the Isle|~ 3': 'Quest' }) }),
+                '5678-3': Object.freeze({ Tasks: Object.freeze({ '~|Death on the Isle|~ 3': 'Quest' }) }),
+                '5933-1': Object.freeze({ Tasks: Object.freeze({ '~|Death on the Isle|~ 3': 'Quest' }) }),
+                '9772-1': Object.freeze({ Tasks: Object.freeze({ "~|Dragon Slayer II|~ Complete the quest": 'Quest' }) }),
+                '10035-1': Object.freeze({ Tasks: Object.freeze({ '~|Plague City|~ Complete the quest': 'Quest' }) }),
+                '11053-1': Object.freeze({ Tasks: Object.freeze({ "~|Legends' Quest|~ 1": 'Quest' }) }),
+                '11059-1': Object.freeze({ Tasks: Object.freeze({ '~|Sea Slug|~ 1': 'Quest' }) }),
+                '11059-2': Object.freeze({ Tasks: Object.freeze({ '~|Sea Slug|~ 1': 'Quest' }) }),
+                '11309-1': Object.freeze({ Tasks: Object.freeze({ "~|Legends' Quest|~ 1": 'Quest' }) }),
+                '11315-1': Object.freeze({ Tasks: Object.freeze({ '~|Dragon Slayer I|~ Complete the quest': 'Quest' }) }),
+                '11315-2': Object.freeze({ Tasks: Object.freeze({ '~|Dragon Slayer I|~ Complete the quest': 'Quest' }) }),
+                '11320-1': Object.freeze({ Tasks: Object.freeze({ '~|Death Plateau|~ Complete the quest': 'Quest' }) }),
+                '11320-2': Object.freeze({ Tasks: Object.freeze({ "~|My Arm's Big Adventure|~ Complete the quest": 'Quest' }) }),
+                '11320-3': Object.freeze({ Tasks: Object.freeze({ '~|Troll Stronghold|~ Complete the quest': 'Quest' }) }),
+                '11321-1': Object.freeze({ Tasks: Object.freeze({ '~|Troll Stronghold|~ Complete the quest': 'Quest' }) }),
+                '11321-2': Object.freeze({ Tasks: Object.freeze({ "~|My Arm's Big Adventure|~ Complete the quest": 'Quest' }) }),
+                '11321-3': Object.freeze({ Tasks: Object.freeze({ '~|Troll Stronghold|~ Complete the quest': 'Quest' }) }),
+                '11322-1': Object.freeze({ Tasks: Object.freeze({ '~|Desert Treasure I|~ Complete the quest': 'Quest' }) }),
+                '11322-2': Object.freeze({ Tasks: Object.freeze({ '~|Desert Treasure I|~ Complete the quest': 'Quest' }) }),
+                '11565-1': Object.freeze({ Tasks: Object.freeze({ "~|Legends' Quest|~ 1": 'Quest' }) }),
+                '11576-1': Object.freeze({ Tasks: Object.freeze({ '~|Troll Stronghold|~ Complete the quest': 'Quest' }) }),
+                '11576-2': Object.freeze({ Tasks: Object.freeze({ '~|Troll Stronghold|~ Complete the quest': 'Quest' }) }),
+                '11577': Object.freeze({ Tasks: Object.freeze({ '~|Troll Stronghold|~ Complete the quest': 'Quest' }),
+                    Skills: Object.freeze({ Agility: 15 }) }),
+                '11578-1': Object.freeze({ Tasks: Object.freeze({ '~|Troll Stronghold|~ Complete the quest': 'Quest' }),
+                    SkillAlternatives: Object.freeze([Object.freeze([Object.freeze({ Strength: 60 }), Object.freeze({ Agility: 60 })])]) }),
+                '11578-2': Object.freeze({ Tasks: Object.freeze({ '~|Troll Stronghold|~ Complete the quest': 'Quest' }),
+                    SkillAlternatives: Object.freeze([Object.freeze([Object.freeze({ Strength: 60 }), Object.freeze({ Agility: 60 })])]) }),
+                '11821-1': Object.freeze({ Tasks: Object.freeze({ "~|Legends' Quest|~ 1": 'Quest' }) })
+            }),
+            manualStartingSectionGroups: Object.freeze({
+                // Sections 3 and 4 are map-plane overlap artefacts pointing at
+                // Crandor, rather than places on the Fishing Platform.
+                '11059': Object.freeze([Object.freeze(['1'])])
             })
         }),
         resourceRepresentatives: Object.freeze({

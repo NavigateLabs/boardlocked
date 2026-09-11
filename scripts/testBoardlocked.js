@@ -46,10 +46,10 @@ test('reviewed start pools cover the selected land tiles without category overla
     const base = R.deriveStartingPool(chunkData, annotations, fresh().initialization);
     const expanded = R.deriveStartingPool(chunkData, annotations,
         { druidicRitual: true, varlamore: true, wilderness: true, ocean: true });
-    assert.equal(base.ids.length, 252);
+    assert.equal(base.ids.length, 257);
     const allConfigured = Object.values(annotations.initialization.startingTiles).flat();
     assert.deepEqual(Object.fromEntries(Object.entries(annotations.initialization.startingTiles).map(([key, ids]) => [key, ids.length])),
-        { standard: 252, varlamore: 73, wilderness: 48 });
+        { standard: 257, varlamore: 73, wilderness: 49 });
     assert.equal(new Set(allConfigured).size, allConfigured.length, 'start groups must not overlap or contain duplicates');
     assert.ok(allConfigured.every(id => chunkData.chunks[id] && chunkData.walkableChunks.map(String).includes(id)));
     const noQuest = new Set(chunkData.rollingChunks.noquest.map(String));
@@ -67,7 +67,7 @@ test('reviewed start pools cover the selected land tiles without category overla
         }
     }
     assert.ok(base.ids.includes('12850'), 'Lumbridge is a normal start');
-    for (const excluded of ['13621', '12844', '8755', '12349', '12079']) assert.ok(!base.ids.includes(excluded));
+    for (const excluded of ['12844', '8755', '12349', '12079']) assert.ok(!base.ids.includes(excluded));
     const sourceVarlamore = chunkData.rollingChunks.varlamore.map(String).sort((a, b) => Number(a) - Number(b));
     const configuredVarlamore = annotations.initialization.startingTiles.varlamore;
     const excludedVarlamore = annotations.initialization.startingTileExclusions.varlamore;
@@ -75,13 +75,13 @@ test('reviewed start pools cover the selected land tiles without category overla
         sourceVarlamore, 'every upstream Varlamore tile must be included or have an audited exclusion');
     assert.equal(expanded.groups.find(group => group.id === 'varlamore').locationIds.length, 73);
     assert.ok(expanded.ids.includes('4656'), 'Tlati Rainforest is enabled');
-    assert.ok(expanded.ids.includes('5420'), 'Aldarin is enabled');
+    assert.ok(expanded.ids.includes('5420'), 'Mistrock is enabled');
+    assert.ok(expanded.ids.includes('6196'), 'reviewed Varlamore land is enabled');
     assert.ok(expanded.ids.includes('5428'), 'Auburn Valley is enabled');
     assert.ok(expanded.ids.includes('6704'), 'Civitas illa Fortis is enabled');
     assert.ok(expanded.ids.includes('7216'), 'the accessible Colosseum exterior is enabled');
     assert.ok(expanded.ids.includes('4915'), 'reviewed Northwest Tempestus tile is enabled');
     assert.ok(expanded.ids.includes('5171'), 'reviewed Northeast Tempestus tile is enabled');
-    assert.deepEqual(expanded.arrivalSectionGroupsByLocation['5933'], [['1']], 'reviewed theatre starts on its land section');
     for (const id of Object.keys(excludedVarlamore)) assert.ok(!expanded.ids.includes(id), id + ' stays excluded');
     assert.deepEqual(expanded.arrivalSectionGroupsByLocation['4910'], [['1']], 'isolated picnic-pond island is omitted');
     assert.deepEqual(expanded.arrivalSectionGroupsByLocation['4911'], [['1', '3']], 'isolated Gemstone Crab island is omitted');
@@ -98,6 +98,20 @@ test('reviewed start pools cover the selected land tiles without category overla
         annotations.initialization.startingTiles.wilderness, 'every reviewed Wilderness tile is enabled');
     assert.ok(expanded.ids.includes('12349'), 'reviewed Mage Arena tile is enabled with Wilderness starts');
     assert.ok(expanded.ids.includes('13372'), 'reviewed Fountain of Rune tile is enabled with Wilderness starts');
+    assert.ok(expanded.ids.includes('13373'), 'reviewed Wilderness Volcano tile is enabled with Wilderness starts');
+    assert.deepEqual(base.arrivalSectionGroupsByLocation['10035'], [['2', '3', '4']],
+        'West Ardougne starts outside its quest-gated city section');
+    assert.deepEqual(base.arrivalSectionGroupsByLocation['13618'], [['1']],
+        'the free side of the River Salve is retained');
+    assert.deepEqual(base.arrivalSectionGroupsByLocation['13619'], [['3']],
+        'the free section beside the River Salve is retained');
+    assert.deepEqual(base.arrivalSectionGroupsByLocation['13621'], [['2']],
+        'the free section north of Morytania is retained');
+    assert.deepEqual(base.arrivalSectionGroupsByLocation['13622'], [['1']],
+        'an existing mixed chunk cannot start inside Priest in Peril sections');
+    for (const id of Object.keys(annotations.initialization.startingTileExclusions.standard)) {
+        assert.ok(!base.ids.includes(id), id + ' stays out of automatic starts');
+    }
     assert.ok(!expanded.ids.includes('12080'), 'legacy ocean setting cannot add an ocean start');
     assert.ok(!expanded.ids.includes('12844'), 'desert damage region stays excluded');
     assert.ok(!expanded.ids.includes('8755'), 'Prifddinas stays excluded');
@@ -365,6 +379,38 @@ test("Achilka's rowboat offers locked destinations without unlocking them", () =
     assert.equal(arrived['5424']['3'], true);
     assert.equal(arrived['5426']['1'], true);
 });
+
+test('manual starts allow every land chunk and attach the selected section requirements', () => {
+    const manual = R.deriveManualStartingPool(chunkData, annotations, fresh().actualLevels);
+    const everyLandChunk = chunkData.walkableChunks.map(String).filter(id => !R.isWaterLocation(chunkData, id)).sort();
+    assert.deepEqual([...manual.ids].sort(), everyLandChunk,
+        'the configured automatic pools do not limit player-picked starts');
+    assert.ok(manual.ids.includes('9772'), 'Myths Guild remains player-selectable');
+    assert.ok(manual.ids.includes('11053'), 'Kharazi Jungle remains player-selectable');
+    assert.ok(manual.ids.includes('11578'), 'God Wars Dungeon remains player-selectable');
+    assert.ok(!manual.ids.includes('9017'), 'pure ocean chunks remain unavailable');
+    assert.deepEqual(manual.arrivalSectionGroupsByLocation['11059'], [['1']],
+        'map-plane artefacts are not offered as Fishing Platform starts');
+
+    const myths = R.chooseStartingCandidate([{ kind: 'frontier', locationId: '9772' }], manual, () => 0);
+    assert.ok(myths.metadata.startRequirements.tasks.some(task => task.name === '~|Dragon Slayer II|~ Complete the quest'));
+    assert.ok(myths.metadata.startRequirements.questPoints >= 200,
+        'the quest-point requirement inherited through Dragon Slayer II is recorded');
+
+    const trollheim = R.chooseStartingCandidate([{ kind: 'frontier', locationId: '11577' }], manual, () => 0);
+    assert.ok(trollheim.metadata.startRequirements.tasks.some(task => task.name === '~|Troll Stronghold|~ Complete the quest'),
+        'whole-chunk requirements apply to a selected subsection');
+    assert.equal(trollheim.metadata.startRequirements.levels.Agility, 15);
+
+    const theatre = R.chooseStartingCandidate([{ kind: 'frontier', locationId: '5933' }], manual, () => 0);
+    assert.ok(theatre.metadata.startRequirements.tasks.some(task => task.name === '~|Death on the Isle|~ 3'));
+    assert.equal(theatre.metadata.startRequirements.levels.Agility, 32);
+    assert.equal(theatre.metadata.startRequirements.levels.Thieving, 34);
+
+    const gwd = R.chooseStartingCandidate([{ kind: 'frontier', locationId: '11578' }], manual, () => 0);
+    assert.equal(gwd.metadata.startRequirements.levels.Strength, 60,
+        'the cheapest tied skill alternative is deterministic');
+});
 test('Mountain Guide connects Nemus Retreat and Quetzacalli Gorge in both directions', () => {
     const fromNemus = { '5427': '5427' };
     const nemusFrontier = R.deriveConnectedFrontier(chunkData, fromNemus, chunkData.walkableChunks, {}, annotations.travelConnections);
@@ -435,16 +481,16 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=18/);
+    assert.match(html, /boardlocked-data\.js\?v=19/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl26/);
-    assert.match(html, /boardlocked\.js\?v=58/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl36/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl36/);
-    assert.match(worker, /boardlocked-data\.js\?v=18/);
-    assert.match(worker, /boardlocked\.js\?v=58/);
-    assert.match(worker, /boardlocked-worker\.js\?v=20/);
-    assert.match(html, /boardlocked-ui\.js\?v=75/);
+    assert.match(html, /boardlocked\.js\?v=59/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl37/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl37/);
+    assert.match(worker, /boardlocked-data\.js\?v=19/);
+    assert.match(worker, /boardlocked\.js\?v=59/);
+    assert.match(worker, /boardlocked-worker\.js\?v=21/);
+    assert.match(html, /boardlocked-ui\.js\?v=76/);
     assert.match(html, /boardlocked\.css\?v=20/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -2992,7 +3038,9 @@ test('manual starting-tile selection is staged behind an explicit confirmation',
     const index = fs.readFileSync(path.join(root, 'index.js'), 'utf8');
     assert.match(ui, /<button id="bl-start-pick"[^>]*>Pick starting tile<\/button>/);
     assert.match(ui, /<button id="bl-start-confirm"[^>]*>Confirm start<\/button>/);
-    assert.match(ui, /Click a marked tile on the map\./);
+    assert.match(ui, /Click any land tile on the map\./);
+    assert.match(ui, /deriveManualStartingPool/);
+    assert.match(ui, /applyStartingRequirements\(candidate\.metadata\.startRequirements\)/);
     assert.match(ui, /function handleStartingTileClick\(locationId\)/);
     assert.match(index, /handleStartingTileClick\?\.\(chunkId\)/);
     const selectBody = ui.slice(ui.indexOf('function handleStartingTileClick'), ui.indexOf('function confirmStartingTile'));

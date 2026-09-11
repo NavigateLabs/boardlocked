@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 37;
+    const VERSION = 38;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -128,6 +128,7 @@
             slayerMasters: {}, blockedBosses: {},
             rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input, enablerRevision: input ? 0 : ENABLER_REVISION,
             startingSectionPolicy: input ? null : STARTING_SECTION_POLICY,
+            startingQuestPointFloor: 0,
             initialization: { turael: true, druidicRitual: !input, varlamore: false, wilderness: false, ocean: false },
             initializationApplied: {}, initializationTaskIds: {}, initializationLevelFloors: {} };
         if (input) {
@@ -136,6 +137,12 @@
                 if (input[key] !== undefined) state[key] = copy(input[key]);
             }
             state.enabled = input.enabled;
+            if (input.startingQuestPointFloor !== undefined) {
+                if (!Number.isInteger(input.startingQuestPointFloor) || input.startingQuestPointFloor < 0) {
+                    throw new Error('Invalid starting quest-point floor');
+                }
+                state.startingQuestPointFloor = input.startingQuestPointFloor;
+            }
             state.startingSectionPolicy = input.startingSectionPolicy === STARTING_SECTION_POLICY ? STARTING_SECTION_POLICY : null;
             state.progressionInitialized = input.version >= 4 && input.progressionInitialized === true;
             state.rulePresetInitialized = input.version >= 2 && input.rulePresetInitialized === true;
@@ -288,10 +295,100 @@
         return { ...copy(payload), boardlockedState: normalizeState(payload.boardlockedState) };
     }
 
-    function deriveStartingSections(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}) {
+    function startingLocationKey(locationId, sectionId = null) {
+        return String(locationId) + (sectionId && sectionId !== '0' ? '-' + sectionId : '');
+    }
+
+    function directStartingRequirements(data = {}, annotations = {}, locationId, sectionId = null) {
+        const id = String(locationId), keys = sectionId && sectionId !== '0' ? [id, startingLocationKey(id, sectionId)] : [id];
+        const requirements = keys.map(key => {
+            const annotated = annotations.initialization?.startingAccessRequirements?.[key] || {};
+            const Tasks = { ...(annotated.Tasks || {}) };
+            for (const quest of data.questSections?.[key] || []) Tasks[quest] = 'Quest';
+            return {
+                Tasks,
+                Skills: { ...(annotated.Skills || {}) },
+                SkillAlternatives: copy(annotated.SkillAlternatives || [])
+            };
+        });
+        return mergeStartingRequirements(requirements);
+    }
+
+    function mergeStartingRequirements(requirements = []) {
+        const merged = { Tasks: {}, Skills: {}, SkillAlternatives: [] };
+        for (const requirement of requirements) {
+            Object.assign(merged.Tasks, requirement?.Tasks || {});
+            for (const [skill, level] of Object.entries(requirement?.Skills || {})) {
+                merged.Skills[skill] = Math.max(merged.Skills[skill] || 1, Number(level) || 1);
+            }
+            merged.SkillAlternatives.push(...copy(requirement?.SkillAlternatives || []));
+        }
+        return merged;
+    }
+
+    function resolveStartingRequirements(data = {}, requirement = {}, currentLevels = {}) {
+        const tasks = [], seen = new Set(), levels = { ...(requirement.Skills || {}) };
+        let questPoints = 0, combatLevel = 0, totalLevel = 0;
+        const addLevels = source => {
+            for (const [skill, level] of Object.entries(source || {})) {
+                if (SKILLS.includes(skill)) levels[skill] = Math.max(levels[skill] || 1, Number(level) || 1);
+            }
+        };
+        const visit = (name, skill) => {
+            const key = skill + '\u0000' + name;
+            if (seen.has(key)) return;
+            seen.add(key);
+            const meta = data.challenges?.[skill]?.[name];
+            tasks.push({ name, skill });
+            if (!meta) return;
+            addLevels({ ...meta.Skills, ...meta.SkillsNeeded });
+            questPoints = Math.max(questPoints, Number(meta.QuestPointsNeeded) || 0);
+            combatLevel = Math.max(combatLevel, Number(meta.CombatLevelNeeded) || 0);
+            totalLevel = Math.max(totalLevel, Number(meta.TotalLevelNeeded) || 0);
+            for (const [sub, category] of Object.entries(meta.Tasks || {})) {
+                if (category !== 'Quest' && category !== 'Diary') continue;
+                const choices = expand(sub, data.codeItems?.tasksPlus || {});
+                if (sub.includes('[+]x')) choices.forEach(choice => visit(choice, category));
+                else if (choices.length) visit(choices[0], category);
+            }
+        };
+        for (const [name, skill] of Object.entries(requirement.Tasks || {})) visit(name, skill);
+        for (const alternatives of requirement.SkillAlternatives || []) {
+            const choices = Array.isArray(alternatives) ? alternatives : [alternatives];
+            const best = choices.slice().sort((a, b) => {
+                const cost = choice => Object.entries(choice || {}).reduce((sum, [skill, level]) =>
+                    sum + Math.max(0, Number(level) - Number(currentLevels[skill] || 1)), 0);
+                return cost(a) - cost(b);
+            })[0];
+            addLevels(best);
+        }
+        return { tasks, levels, questPoints, combatLevel, totalLevel };
+    }
+
+    function automaticStartingRequirementsAllowed(data = {}, annotations = {}, options = {}, locationId, sectionId = null) {
+        const requirement = directStartingRequirements(data, annotations, locationId, sectionId);
+        const allowedQuestBases = new Set();
+        for (const [option, baseQuest] of Object.entries(annotations.initialization?.questBaseNames || {})) {
+            if (options[option] === true) allowedQuestBases.add(baseQuest);
+        }
+        for (const [name, skill] of Object.entries(requirement.Tasks)) {
+            const meta = data.challenges?.[skill]?.[name];
+            if (skill !== 'Quest' || !meta?.BaseQuest || !allowedQuestBases.has(meta.BaseQuest)) return false;
+        }
+        const availableLevels = Object.fromEntries(SKILLS.map(skill => [skill, 1]));
+        for (const [option, floors] of Object.entries(annotations.initialization?.levelFloors || {})) {
+            if (!options[option]) continue;
+            for (const [skill, level] of Object.entries(floors)) availableLevels[skill] = Math.max(availableLevels[skill] || 1, level);
+        }
+        if (Object.entries(requirement.Skills).some(([skill, level]) => (availableLevels[skill] || 1) < level)) return false;
+        return requirement.SkillAlternatives.every(alternatives => (Array.isArray(alternatives) ? alternatives : [alternatives])
+            .some(choice => Object.entries(choice || {}).every(([skill, level]) => (availableLevels[skill] || 1) >= level)));
+    }
+
+    function deriveStartingSections(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}, sectionAllowed = () => true) {
         const id = String(locationId), sectionMap = data.sections?.[id] || {};
         const water = medium === 'water';
-        const matching = Object.keys(sectionMap).filter(section => section !== '0' && section.startsWith('W') === water);
+        const matching = Object.keys(sectionMap).filter(section => section !== '0' && section.startsWith('W') === water && sectionAllowed(section));
         if (!matching.length) return [];
         const allowed = new Set((allowedChunkIds.length ? allowedChunkIds : Object.keys(data.sections || {})).map(String));
         const viable = matching.filter(section => (sectionMap[section] || []).some(rawTarget => {
@@ -361,9 +458,12 @@
         return { state: next, changed: true, removedSections };
     }
 
-    function deriveStartingSectionGroups(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}) {
+    function deriveStartingSectionGroups(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}, sectionAllowed = () => true) {
         const id = String(locationId), sectionMap = data.sections?.[id] || {};
-        const viable = deriveStartingSections(data, id, medium, allowedChunkIds, blacklisted);
+        const matching = Object.keys(sectionMap).filter(section => section !== '0' && section.startsWith('W') === (medium === 'water'));
+        if (!matching.length) return sectionAllowed(null) ? [[]] : [];
+        const viable = deriveStartingSections(data, id, medium, allowedChunkIds, blacklisted, sectionAllowed);
+        if (!viable.length) return [];
         if (viable.length < 2) return [viable];
         const allowed = new Set((allowedChunkIds.length ? allowedChunkIds : Object.keys(data.sections || {})).map(String));
         const exits = Object.fromEntries(viable.map(section => [section, new Set((sectionMap[section] || []).map(rawTarget => {
@@ -460,7 +560,8 @@
             for (const rawId of configured[group] || []) {
                 const id = String(rawId);
                 if (!walkable.has(id) || isWaterLocation(data, id) || own(blacklisted, id) || own(groupByLocation, id)) continue;
-                let sectionGroups = deriveStartingSectionGroups(data, id, 'land', [...walkable], blacklisted);
+                let sectionGroups = deriveStartingSectionGroups(data, id, 'land', [...walkable], blacklisted,
+                    section => automaticStartingRequirementsAllowed(data, annotations, options, id, section));
                 const configuredSections = policy.sectionGroups?.[id];
                 if (configuredSections) {
                     const permitted = new Set(configuredSections.flat().map(String));
@@ -479,6 +580,35 @@
             if (groupIds.length) groups.push({ id: group, medium: 'land', locationIds: groupIds });
         }
         return { ids, groups, groupByLocation, arrivalSectionsByLocation, arrivalSectionGroupsByLocation };
+    }
+
+    function deriveManualStartingPool(data = {}, annotations = {}, currentLevels = {}, blacklisted = {}) {
+        const walkable = new Set((data.walkableChunks || []).map(String));
+        const ids = [], groupByLocation = {}, arrivalSectionsByLocation = {}, arrivalSectionGroupsByLocation = {};
+        const startRequirementsByLocation = {};
+        for (const id of walkable) {
+            if (isWaterLocation(data, id) || own(blacklisted, id)) continue;
+            const landSections = Object.keys(data.sections?.[id] || {}).filter(section => section !== '0' && !section.startsWith('W'));
+            // A manual start may use isolated land and must choose one exact
+            // section, so it cannot accidentally inherit a neighboring gated
+            // section or discard a section merely because it has no map exit.
+            let sectionGroups = landSections.length ? landSections.map(section => [section]) : [[]];
+            const configured = annotations.initialization?.manualStartingSectionGroups?.[id];
+            if (configured) {
+                const permitted = new Set(configured.flat().map(String));
+                sectionGroups = sectionGroups.map(group => group.filter(section => permitted.has(section))).filter(group => group.length);
+                if (!sectionGroups.length && configured.some(group => group.length === 0)) sectionGroups = [[]];
+            }
+            if (!sectionGroups.length) continue;
+            ids.push(id); groupByLocation[id] = 'manual';
+            arrivalSectionGroupsByLocation[id] = sectionGroups;
+            arrivalSectionsByLocation[id] = sectionGroups[0];
+            startRequirementsByLocation[id] = sectionGroups.map(group => resolveStartingRequirements(data,
+                mergeStartingRequirements((group.length ? group : [null]).map(section =>
+                    directStartingRequirements(data, annotations, id, section))), currentLevels));
+        }
+        return { ids, groups: ids.length ? [{ id: 'manual', medium: 'land', locationIds: ids }] : [], groupByLocation,
+            arrivalSectionsByLocation, arrivalSectionGroupsByLocation, startRequirementsByLocation };
     }
 
     // Initial groups receive equal odds, then every tile within the selected
@@ -500,7 +630,9 @@
         if (sectionRoll < 0 || sectionRoll >= 1) throw new Error('Random source must return [0, 1)');
         const sectionIndex = Math.floor(sectionRoll * sectionGroups.length);
         return { ...candidate, metadata: { ...(candidate.metadata || {}), startGroup: group.id,
-            startRegionIndex: sectionIndex, arrivalMedium: group.medium, entrySections: [...sectionGroups[sectionIndex]] } };
+            startRegionIndex: sectionIndex, arrivalMedium: group.medium, entrySections: [...sectionGroups[sectionIndex]],
+            startRequirements: copy(startingPool.startRequirementsByLocation?.[candidate.locationId]?.[sectionIndex] ||
+                { tasks: [], levels: {}, questPoints: 0, combatLevel: 0, totalLevel: 0 }) } };
     }
 
     function sanitizeLegacySnapshot(input = {}, ruleKeys = [], settingKeys = []) {
@@ -574,7 +706,7 @@
         }
         return ids;
     }
-    function completedQuestProgress(data = {}, legacy = {}, ids = {}, startingQuestPoints = 1) {
+    function completedQuestProgress(data = {}, legacy = {}, ids = {}, startingQuestPoints = 1, questPointFloor = 0) {
         const progress = {}, completedFinals = new Set();
         let questPointTotal = Number(startingQuestPoints) || 0;
         const completed = [];
@@ -591,7 +723,7 @@
             if (completedFinals.has(meta.BaseQuest) || own(meta, 'QuestPoints')) continue;
             (progress[meta.BaseQuest] ||= []).push(name);
         }
-        return { questProgress: progress, questPointTotal };
+        return { questProgress: progress, questPointTotal: Math.max(questPointTotal, Number(questPointFloor) || 0) };
     }
     function taskMetadata(name, skill, meta, ids = {}) {
         const categories = meta.Category || [];
@@ -1795,8 +1927,9 @@
         const completed = (name, skill) => isComplete({ name, skill, taskId: taskId(name, skill, ids) }, legacy);
         const completedQuests = new Set(Object.entries(data.challenges.Quest || {}).filter(([name, task]) =>
             task.QuestPoints !== undefined && completed(name, 'Quest')).map(([, task]) => task.BaseQuest));
-        const actualPoints = Object.entries(data.challenges.Quest || {}).reduce((sum, [name, task]) => sum +
-            (completed(name, 'Quest') ? Number(task.QuestPoints || 0) : 0), 0);
+        const actualPoints = Math.max(Number(state.startingQuestPointFloor) || 0,
+            Object.entries(data.challenges.Quest || {}).reduce((sum, [name, task]) => sum +
+                (completed(name, 'Quest') ? Number(task.QuestPoints || 0) : 0), 0));
         const combat = () => Math.floor((state.actualLevels.Defence + state.actualLevels.Hitpoints + Math.floor(state.actualLevels.Prayer / 2)) / 4 +
             .325 * Math.max(state.actualLevels.Attack + state.actualLevels.Strength, Math.floor(state.actualLevels.Ranged * 1.5), Math.floor(state.actualLevels.Magic * 1.5)));
         function task(name, skill, visiting = new Set()) {
@@ -2788,7 +2921,8 @@
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,
-        migrateStartingSections, deriveStartingPool, chooseStartingCandidate, canRoll,
+        migrateStartingSections, directStartingRequirements, mergeStartingRequirements, resolveStartingRequirements,
+        automaticStartingRequirementsAllowed, deriveStartingPool, deriveManualStartingPool, chooseStartingCandidate, canRoll,
         startVisit, slayerMasterConfirmationForVisit, snapshotVisit, addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });

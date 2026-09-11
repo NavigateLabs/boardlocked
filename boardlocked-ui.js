@@ -13,6 +13,7 @@
     let enablerCatalog = [], enablerAmbiguities = [], slayerMasterCatalog = [], slayerConfirmation = null;
     let pool = R.derivePool([], {}, [], null), travelGraph = null, signature = '', previousUnlocked = null;
     let startingPool = { ids: [], groups: [], groupByLocation: {} };
+    let manualStartingPool = { ids: [], groups: [], groupByLocation: {} };
     let pickingStartingTile = false, selectedStartingCandidate = null;
     let focusedPanelDetails = null;
     let panel = null, message = '', dataReady = false;
@@ -361,7 +362,8 @@
             manualSections, manualAreas, slayerLocked, constructionLocked, passiveSkill, maxSkill,
             randomLoot, assignedXpRewards, altChallenges, userTasks, manualPrimary,
             settings.optOutSections, settings.optOutSectionsWater, state.actualLevels, state.progressionHighWater,
-            state.originOverrides, state.accessOverrides, state.acquiredEnablers, state.blockedBosses]);
+            state.originOverrides, state.accessOverrides, state.acquiredEnablers, state.blockedBosses,
+            state.startingQuestPointFloor]);
     }
     function frontier() {
         const unlocked = tempChunks.unlocked || {};
@@ -416,8 +418,8 @@
         travelGraph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed,
             BoardlockedData.travelConnections);
         pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, travelGraph, state.travelAnchor, state.travelAnchorSections);
-        if (selectedStartingCandidate && !pool.candidates.some(candidate => candidate.kind === 'frontier' &&
-            candidate.locationId === selectedStartingCandidate.locationId)) selectedStartingCandidate = null;
+        const selectedPool = pickingStartingTile ? manualStartingPool : startingPool;
+        if (selectedStartingCandidate && !selectedPool.ids?.includes(selectedStartingCandidate.locationId)) selectedStartingCandidate = null;
         if (hasStarted()) syncDisplayedFrontier(pool.candidates.filter(candidate => candidate.kind === 'frontier')
             .map(candidate => candidate.locationId));
         else syncDisplayedFrontier([]);
@@ -450,7 +452,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl36');
+        worker = new Worker('./worker.js?v=6.9.66-bl37');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -528,7 +530,9 @@
         if (hasStarted()) return notice('A starting tile has already been chosen.');
         if (busy || error || !dataReady) return notice('Still checking starting tiles. Try again in a moment.');
         rebuild();
-        if (!pool.candidates.some(candidate => candidate.kind === 'frontier')) return notice('There are no starting tiles available.');
+        manualStartingPool = R.deriveManualStartingPool(chunkInfo, BoardlockedData, state.actualLevels,
+            tempChunks.blacklisted || {});
+        if (!manualStartingPool.ids.length) return notice('There are no land tiles available.');
         pickingStartingTile = true;
         selectedStartingCandidate = null;
         message = '';
@@ -548,12 +552,11 @@
         }
         rebuild();
         const id = String(locationId);
-        const candidate = pool.candidates.find(entry => entry.kind === 'frontier' && entry.locationId === id);
-        if (!candidate || !startingPool.ids.includes(id)) {
-            notice('Choose one of the highlighted starting tiles.');
+        if (!manualStartingPool.ids.includes(id)) {
+            notice('Choose a land tile on the map.');
             return true;
         }
-        selectedStartingCandidate = R.chooseStartingCandidate([candidate], startingPool);
+        selectedStartingCandidate = R.chooseStartingCandidate([{ kind: 'frontier', locationId: id }], manualStartingPool);
         message = '';
         render(); drawCanvas();
         return true;
@@ -564,18 +567,41 @@
         if (busy || error || !dataReady) return notice('Still checking starting tiles. Try again in a moment.');
         const selected = selectedStartingCandidate;
         rebuild();
-        const current = pool.candidates.find(candidate => candidate.kind === 'frontier' &&
-            candidate.locationId === selected.locationId);
-        if (!current || !startingPool.ids.includes(current.locationId)) {
+        manualStartingPool = R.deriveManualStartingPool(chunkInfo, BoardlockedData, state.actualLevels,
+            tempChunks.blacklisted || {});
+        if (!manualStartingPool.ids.includes(selected.locationId)) {
             selectedStartingCandidate = null;
-            notice('That tile is no longer available. Choose another marked tile.');
+            notice('That tile is no longer available. Choose another land tile.');
             drawCanvas();
             return;
         }
-        const candidate = { ...current, metadata: { ...(current.metadata || {}), ...(selected.metadata || {}) } };
+        const candidate = { kind: 'frontier', locationId: selected.locationId, metadata: { ...(selected.metadata || {}) } };
+        applyStartingRequirements(candidate.metadata.startRequirements);
         pickingStartingTile = false;
         selectedStartingCandidate = null;
         begin(candidate);
+    }
+    function applyStartingRequirements(requirements = {}) {
+        const addedTasks = [];
+        for (const task of requirements.tasks || []) {
+            const id = R.taskId(task.name, task.skill, tasksMap);
+            if (R.completionIds(legacy(), tasksMap).has(id)) continue;
+            (checkedAllTasks[task.skill] ||= {})[task.name] = true;
+            addedTasks.push({ ...task, taskId: id });
+        }
+        const addedLevels = {};
+        for (const [skill, level] of Object.entries(requirements.levels || {})) {
+            if (!R.SKILLS.includes(skill) || state.actualLevels[skill] >= level) continue;
+            state.actualLevels[skill] = level;
+            addedLevels[skill] = level;
+        }
+        state.startingQuestPointFloor = Math.max(state.startingQuestPointFloor || 0,
+            Number(requirements.questPoints) || 0);
+        if (addedTasks.length || Object.keys(addedLevels).length || requirements.questPoints) {
+            state.adminHistory.push({ timestamp: new Date().toISOString(), action: 'apply_manual_start_requirements',
+                tasks: addedTasks, levels: addedLevels, questPointFloor: state.startingQuestPointFloor });
+            forceUpdatePluginOutput = true;
+        }
     }
     function begin(candidate) {
         setPanelOpen(true);
@@ -1084,12 +1110,23 @@
         document.getElementById('bl-start-actions').hidden = pickingStartingTile;
         document.getElementById('bl-start-picker').hidden = !pickingStartingTile;
         const startPickButton = document.getElementById('bl-start-pick');
-        startPickButton.disabled = rollButton.disabled;
+        startPickButton.disabled = busy || !!error || !dataReady || !canEdit();
         const startConfirmButton = document.getElementById('bl-start-confirm');
-        startConfirmButton.disabled = !selectedStartingCandidate || rollButton.disabled;
+        startConfirmButton.disabled = !selectedStartingCandidate || busy || !!error || !dataReady || !canEdit();
         const startChoice = document.getElementById('bl-start-choice');
+        const selectedRequirements = selectedStartingCandidate?.metadata?.startRequirements || {};
+        const requirementParts = [];
+        const questNames = new Set((selectedRequirements.tasks || []).filter(task => task.skill === 'Quest')
+            .map(task => chunkInfo.challenges?.Quest?.[task.name]?.BaseQuest).filter(Boolean));
+        if (questNames.size) requirementParts.push(questNames.size + (questNames.size === 1 ? ' quest' : ' quests'));
+        const levelNames = Object.entries(selectedRequirements.levels || {}).map(([skill, level]) => skill + ' ' + level);
+        if (levelNames.length) requirementParts.push(levelNames.join(', '));
+        if (selectedRequirements.questPoints) requirementParts.push(selectedRequirements.questPoints + ' Quest Points');
+        const selectedArea = selectedStartingCandidate?.metadata?.entrySections || [];
         startChoice.textContent = selectedStartingCandidate ? 'Selected: ' + selectedStartingCandidate.locationId +
-            (label(selectedStartingCandidate.locationId) ? ' — ' + label(selectedStartingCandidate.locationId) : '') : 'No tile selected yet.';
+            (label(selectedStartingCandidate.locationId) ? ' — ' + label(selectedStartingCandidate.locationId) : '') +
+            (selectedArea.length ? ' · Area ' + selectedArea.join(' + ') : '') +
+            (requirementParts.length ? ' · Adds ' + requirementParts.join(' · ') : ' · No added requirements') : 'No tile selected yet.';
         $('.pick').prop('disabled', rollButton.disabled).text(rollButton.textContent);
         const visit = state.currentVisit;
         document.getElementById('bl-visit-title').textContent = visit ? '#' + visit.visitNumber + ' · ' + visit.locationId + ' — ' + visit.chunkName :
@@ -1350,7 +1387,7 @@
         context.save();
         if (!hasStarted()) {
             if (!pickingStartingTile) { context.restore(); return; }
-            const candidateIds = pool.candidates.filter(candidate => candidate.kind === 'frontier').map(candidate => candidate.locationId);
+            const candidateIds = manualStartingPool.ids || [];
             for (const id of candidateIds) {
                 const point = convertToXY(id), sizeX = totalZoom * imgW / rowSize, sizeY = totalZoom * imgH / (fullSize / rowSize);
                 const x = dragTotalX + point.x * sizeX, y = dragTotalY + point.y * sizeY;
@@ -1374,15 +1411,6 @@
                 context.setLineDash([]);
                 if (selected || hovered) {
                     context.strokeRect(x + 4, y + 4, sizeX - 8, sizeY - 8);
-                } else {
-                    const inset = 5, corner = Math.max(6, Math.min(14, Math.min(sizeX, sizeY) * .18));
-                    const left = x + inset, right = x + sizeX - inset, top = y + inset, bottom = y + sizeY - inset;
-                    context.beginPath();
-                    context.moveTo(left, top + corner); context.lineTo(left, top); context.lineTo(left + corner, top);
-                    context.moveTo(right - corner, top); context.lineTo(right, top); context.lineTo(right, top + corner);
-                    context.moveTo(right, bottom - corner); context.lineTo(right, bottom); context.lineTo(right - corner, bottom);
-                    context.moveTo(left + corner, bottom); context.lineTo(left, bottom); context.lineTo(left, bottom - corner);
-                    context.stroke();
                 }
             }
             context.restore();
@@ -1435,7 +1463,7 @@
             <label class="bl-start-option"><input id="bl-start-wilderness" type="checkbox"><span><strong>Wilderness starts</strong><small>Adds wilderness tiles.</small></span></label>
             </div><p id="bl-start-summary" class="bl-muted"></p>
             <div id="bl-start-actions"><button id="bl-start-roll" class="bl-primary" type="button">Roll starting tile</button><button id="bl-start-pick" class="bl-start-pick" type="button">Pick starting tile</button></div>
-            <div id="bl-start-picker" class="bl-start-picker" hidden><p><strong>Click a marked tile on the map.</strong> You can change your pick before confirming.</p><p id="bl-start-choice" class="bl-start-choice" aria-live="polite"></p><div class="bl-start-picker-actions"><button id="bl-start-confirm" class="bl-primary" type="button">Confirm start</button><button id="bl-start-cancel" type="button">Cancel</button></div></div></section>
+            <div id="bl-start-picker" class="bl-start-picker" hidden><p><strong>Click any land tile on the map.</strong> You can change your pick before confirming. Required quests and skill levels will be added to the run.</p><p id="bl-start-choice" class="bl-start-choice" aria-live="polite"></p><div class="bl-start-picker-actions"><button id="bl-start-confirm" class="bl-primary" type="button">Confirm start</button><button id="bl-start-cancel" type="button">Cancel</button></div></div></section>
             <div id="bl-mode-content" hidden>
             <button id="bl-roll" class="bl-primary" type="button">Roll next location</button>
             <button id="bl-sections" type="button" hidden>Choose accessible sections</button>

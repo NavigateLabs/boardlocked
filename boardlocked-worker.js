@@ -263,7 +263,7 @@ function blOutput(highestOverallCompleted = {}, equipmentScores = {}) {
         manualSections, annotations: BoardlockedData, dropRates: dropRatesGlobal });
     const completedQuest = Boardlocked.completedQuestProgress(chunkInfo, {
         completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks
-    }, blContext.tasksMap);
+    }, blContext.tasksMap, 1, blContext.state.startingQuestPointFloor);
     Object.keys(baseChunkData.items).forEach(name => blPresentItems.add(name.replace(/\*.*$/, '')));
     const sourceDiagnostics = [...blSourceDiagnostics.values()].filter(gate => {
         if (gate.type !== 'Items') return true;
