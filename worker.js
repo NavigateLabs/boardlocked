@@ -1,5 +1,5 @@
 importScripts('https://cdn.jsdelivr.net/npm/lodash@4.17.20/lodash.min.js');
-importScripts('./boardlocked-data.js?v=22', './boardlocked.js?v=68', './boardlocked-worker.js?v=24');
+importScripts('./boardlocked-data.js?v=23', './boardlocked.js?v=69', './boardlocked-worker.js?v=25');
 let nonValids = {};
 let globalValids;
 let eGlobal;
@@ -307,7 +307,7 @@ onmessage = function(e) {
         baseChunkData = gatherChunksInfo(chunks);
         type === 'current' && postMessage({ type: 'loading-update', percentage: '5%' });
         globalValids = calcChallenges(chunks, baseChunkData);
-        baseChunkData = tempChunkData;
+        baseChunkData = blRestoreClueProgressionSources(tempChunkData);
         type === 'current' && postMessage({ type: 'loading-update', percentage: '95%' });
         highestOverall = calcBIS();
 

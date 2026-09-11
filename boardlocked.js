@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 42;
+    const VERSION = 43;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -336,6 +336,12 @@
         return String(locationId) + (sectionId && sectionId !== '0' ? '-' + sectionId : '');
     }
 
+    function annotatedSectionGates(annotations = {}, locationId, sectionId = null) {
+        const id = String(locationId), keys = sectionId && sectionId !== '0' ?
+            [id, startingLocationKey(id, sectionId)] : [id];
+        return keys.map(key => annotations.sectionAccessRequirements?.[key]).filter(Boolean);
+    }
+
     function directStartingRequirements(data = {}, annotations = {}, locationId, sectionId = null) {
         const id = String(locationId), keys = sectionId && sectionId !== '0' ? [id, startingLocationKey(id, sectionId)] : [id];
         const requirements = keys.map(key => {
@@ -348,6 +354,10 @@
                 SkillAlternatives: copy(annotated.SkillAlternatives || [])
             };
         });
+        for (const gate of annotatedSectionGates(annotations, id, sectionId)) {
+            const groups = Array.isArray(gate.requirements) ? gate.requirements : gate.requirements ? [gate.requirements] : [];
+            requirements.push({ Tasks: Object.assign({}, ...groups), Skills: {}, SkillAlternatives: [] });
+        }
         return mergeStartingRequirements(requirements);
     }
 
@@ -466,33 +476,37 @@
 
     function migrateCurrentArrival(data, state, unlocked, accessibleSections = {}, connectionAllowed = () => true, travelConnections = []) {
         const visit = state.currentVisit;
-        if (!visit || visit.kind !== 'new' || visit.visitNumber <= 1 || !Array.isArray(visit.arrivalSections)) {
-            return { state, changed: false, removedSections: [] };
+        if (!visit || visit.visitNumber <= 1 || !Array.isArray(visit.arrivalSections)) {
+            return { state, changed: false, removedSections: [], addedSections: [] };
         }
-        const media = new Set(visit.arrivalSections.map(section => section.startsWith('W') ? 'water' : 'land'));
-        if (media.size < 2) return { state, changed: false, removedSections: [] };
         const previous = (state.visitHistory || []).filter(item => item.visitNumber < visit.visitNumber)
             .sort((a, b) => b.visitNumber - a.visitNumber)[0];
         const target = parseLocation(visit.locationId)?.chunkId, previousId = parseLocation(previous?.locationId)?.chunkId;
-        if (!target || !previousId || target === previousId) return { state, changed: false, removedSections: [] };
+        if (!target || !previousId || target === previousId) return { state, changed: false, removedSections: [], addedSections: [] };
         const before = { ...(unlocked || {}) };
         delete before[target];
-        if (!own(before, previousId)) return { state, changed: false, removedSections: [] };
+        if (!own(before, previousId)) return { state, changed: false, removedSections: [], addedSections: [] };
         const graph = buildTravelGraph(data, before, accessibleSections, [target], connectionAllowed, travelConnections);
         const pool = derivePool([target], before, [], null, graph, previousId,
             Array.isArray(previous.arrivalSections) ? previous.arrivalSections : null);
         const candidate = pool.candidates.find(item => item.kind === 'frontier' && item.locationId === target);
         const valid = candidate?.metadata?.entrySections || [];
-        const kept = visit.arrivalSections.filter(section => valid.includes(section));
-        if (!kept.length || kept.length === visit.arrivalSections.length) return { state, changed: false, removedSections: [] };
-        const removedSections = visit.arrivalSections.filter(section => !kept.includes(section));
-        const arrivalMedium = kept.every(section => section.startsWith('W')) ? 'water' :
-            kept.some(section => section.startsWith('W')) ? 'mixed' : 'land';
-        const nextVisit = { ...visit, arrivalSections: kept, arrivalMedium };
-        const next = journal({ ...state, travelAnchorSections: state.travelAnchor === target ? kept : state.travelAnchorSections }, nextVisit);
-        next.adminHistory = [...next.adminHistory, { timestamp: new Date().toISOString(), action: 'remove_invalid_arrival_sections',
-            locationId: target, sectionIds: removedSections, reason: 'No port connects these land and water routes' }];
-        return { state: next, changed: true, removedSections };
+        if (!valid.length) return { state, changed: false, removedSections: [], addedSections: [] };
+        const overlap = visit.arrivalSections.filter(section => valid.includes(section));
+        const desired = overlap.length ? overlap : valid;
+        if (desired.length === visit.arrivalSections.length && desired.every(section => visit.arrivalSections.includes(section))) {
+            return { state, changed: false, removedSections: [], addedSections: [] };
+        }
+        const removedSections = visit.arrivalSections.filter(section => !desired.includes(section));
+        const addedSections = desired.filter(section => !visit.arrivalSections.includes(section));
+        const arrivalMedium = desired.every(section => section.startsWith('W')) ? 'water' :
+            desired.some(section => section.startsWith('W')) ? 'mixed' : 'land';
+        const nextVisit = { ...visit, arrivalSections: desired, arrivalMedium };
+        const next = journal({ ...state, travelAnchorSections: state.travelAnchor === target ? desired : state.travelAnchorSections }, nextVisit);
+        next.adminHistory = [...next.adminHistory, { timestamp: new Date().toISOString(), action: 'repair_invalid_arrival_sections',
+            locationId: target, removedSectionIds: removedSections, addedSectionIds: addedSections,
+            reason: 'Arrival sections no longer match an accessible route' }];
+        return { state: next, changed: true, removedSections, addedSections };
     }
 
     function deriveStartingSectionGroups(data = {}, locationId, medium = 'land', allowedChunkIds = [], blacklisted = {}, sectionAllowed = () => true) {
@@ -1014,6 +1028,18 @@
         if (!definition) return { tier, valid: false, satisfied: false, targets: [], selfCycle: false, step: null };
         const rewards = clueRewardCatalog(data, legacy, state, ids).rewards;
         const rewardByItem = new Map(rewards.map(reward => [reward.key, reward]));
+        const cycleItems = clueStepCycleItems(data, tier, definition, rewardByItem, base);
+        const requirementsSatisfied = own(valids.Nonskill || {}, definition.name) && valids.Nonskill[definition.name] !== false;
+        // The worker exposes active clue rewards as possible item sources so
+        // they can participate in BiS and dependency calculations. A step
+        // cannot use an unowned reward from the clue currently being held,
+        // however, so a same-tier reward cycle must remain blocked even when
+        // the legacy validity graph considers that reward obtainable.
+        return { tier, valid: true, satisfied: requirementsSatisfied && cycleItems.length === 0,
+            targets: clueStepTargets(data, tier, lock, ids), selfCycle: cycleItems.length > 0, cycleItems,
+            step: definition };
+    }
+    function clueStepCycleItems(data = {}, tier, definition, rewardByItem = new Map(), base = {}) {
         const meta = data.challenges?.Nonskill?.[definition.name] || {};
         const cycleItems = [];
         for (const raw of meta.Items || []) {
@@ -1025,15 +1051,7 @@
                 alternatives.every(reward => reward.ownerTier === tier && !reward.completed) &&
                 itemAlternatives.every(name => !hasOrdinarySource(name))) cycleItems.push(raw);
         }
-        const requirementsSatisfied = own(valids.Nonskill || {}, definition.name) && valids.Nonskill[definition.name] !== false;
-        // The worker exposes active clue rewards as possible item sources so
-        // they can participate in BiS and dependency calculations. A step
-        // cannot use an unowned reward from the clue currently being held,
-        // however, so a same-tier reward cycle must remain blocked even when
-        // the legacy validity graph considers that reward obtainable.
-        return { tier, valid: true, satisfied: requirementsSatisfied && cycleItems.length === 0,
-            targets: clueStepTargets(data, tier, lock, ids), selfCycle: cycleItems.length > 0, cycleItems,
-            step: definition };
+        return cycleItems;
     }
     function resourceRepresentativeMetadata(name, skill, meta, annotations = {}) {
         const ignored = new Set(annotations.resourceRepresentatives?.ignoredPrimaryResources?.[skill] || []);
@@ -2370,6 +2388,18 @@
         return { task, all, diagnostics, completed, actualQuestPoints: actualPoints, actualCombatLevel: combat() };
     }
 
+    function sectionAccessAllowed(data = {}, annotations = {}, state = {}, legacy = {}, ids = {}, rules = {}, locationId, access = null) {
+        const parsed = parseLocation(locationId);
+        if (!parsed?.sectionId) return true;
+        const exact = parsed.chunkId + '-' + parsed.sectionId, overrideKey = 'section:' + exact;
+        if (own(state.accessOverrides || {}, overrideKey)) return state.accessOverrides[overrideKey] === true;
+        const gates = annotatedSectionGates(annotations, parsed.chunkId, parsed.sectionId);
+        if (!gates.length) return true;
+        const evaluator = access || createAccess(data, state, legacy, ids, rules, () => true);
+        return gates.every(gate => evaluator.all(Array.isArray(gate.requirements) ? gate.requirements :
+            gate.requirements ? [gate.requirements] : []));
+    }
+
     // baseChunkData is the legacy source graph. Retain it; build a memoized sidecar.
     function buildTasks({ data, valids, base, ids = {}, rules = {}, state, legacy = {}, unlocked = {}, sections = {}, manualSections = {},
         annotations = {}, dropRates = {} }) {
@@ -2388,7 +2418,7 @@
         const clueRewards = clueRewardCatalog(data, legacy, state, ids);
         const clueRewardByTaskId = new Map(clueRewards.rewards.map(reward => [reward.taskId, reward]));
         const clueRewardByItem = new Map(clueRewards.rewards.map(reward => [reward.key, reward]));
-        const clueSourceCache = new Map();
+        const clueSourceCache = new Map(), completableClueStepCache = new Map();
         const clueConfig = annotations.clues || {};
         const clueEquipmentTiersByItem = new Map();
         for (const [tier, itemNames] of Object.entries(clueConfig.equipmentRewardsByTier || {})) {
@@ -2398,6 +2428,13 @@
                 clueEquipmentTiersByItem.set(key, [...(clueEquipmentTiersByItem.get(key) || []), tier]);
             }
         }
+        const clueItemTiersByItem = new Map(clueRewards.rewards.map(reward =>
+            [reward.key, [...reward.sourceTiers]]));
+        for (const [itemKey, tiers] of clueEquipmentTiersByItem) {
+            clueItemTiersByItem.set(itemKey, [...new Set([...(clueItemTiersByItem.get(itemKey) || []), ...tiers])]);
+        }
+        const completedClueItems = new Set(clueRewards.rewards.filter(reward => reward.completed).map(reward => reward.key));
+        const obtainedItems = completedEquipmentItems(legacy, state, ids);
         const masterClueInputs = clueConfig.masterInputs || ['easy', 'medium', 'hard', 'elite'];
         const masterClueSource = clueConfig.masterPersistentSource || 'Watson';
         let trainingAnalysisReady = false, trainingSupportedSkills = new Set(), trainingEvidenceSkills = new Set(),
@@ -2528,12 +2565,6 @@
             if (result.length) sourceCache.set(key, result);
             return result;
         }
-        function clueTierCanGenerate(tier) {
-            if (!CLUE_TIERS.includes(tier) || state.clueLocks?.[tier] || Number(state.clueTaskCooldown) > 0 ||
-                clueRewards.tiers[tier]?.complete) return false;
-            if (tier === 'master') return masterClueInputs.every(input => clueRewards.tiers[input]?.complete);
-            return true;
-        }
         function clueTierSourceOrigins(tier, visiting = new Set()) {
             if (clueSourceCache.has(tier)) return clueSourceCache.get(tier);
             const result = tier === 'master' ?
@@ -2543,6 +2574,50 @@
                 reason: tier[0].toUpperCase() + tier.slice(1) + ' clue source · ' + source.reason })));
             if (unique.length) clueSourceCache.set(tier, unique);
             return unique;
+        }
+        let clueActivation = null, calculatingClueActivation = false;
+        const clueItemOrdinarilyAvailable = name => Object.entries(base.items?.[canonicalItemKey(name)] ||
+            base.items?.[canonicalItemKey(name) + '*'] || {}).some(([, type]) => type !== 'clue-reward');
+        function clueStepSupportedByTiers(definition, availableTiers) {
+            if (!own(valids.Nonskill || {}, definition.name) || valids.Nonskill[definition.name] === false) return false;
+            const meta = data.challenges?.Nonskill?.[definition.name] || {};
+            for (const raw of meta.Items || []) {
+                const alternatives = expand(raw, codes.itemsPlus);
+                const available = alternatives.some(name => {
+                    const key = comparableItemKey(name);
+                    if (clueItemOrdinarilyAvailable(name) || obtainedItems.has(key) || completedClueItems.has(key)) return true;
+                    return (clueItemTiersByItem.get(key) || []).some(sourceTier => availableTiers.has(sourceTier));
+                });
+                if (!available) return false;
+            }
+            return true;
+        }
+        function calculateClueActivation() {
+            if (clueActivation) return clueActivation;
+            if (calculatingClueActivation) return { active: new Set(), steps: new Map() };
+            calculatingClueActivation = true;
+            const active = new Set(CLUE_TIERS.filter(tier => clueRewards.tiers[tier]?.complete));
+            const steps = new Map(), catalogs = new Map(CLUE_TIERS.map(tier => [tier, clueStepCatalog(data, tier, ids)]));
+            let changed = true;
+            while (changed) {
+                changed = false;
+                for (const tier of CLUE_TIERS) {
+                    if (active.has(tier) || clueRewards.tiers[tier]?.complete || !clueTierSourceOrigins(tier).length ||
+                        (tier === 'master' && !masterClueInputs.every(input => clueRewards.tiers[input]?.complete))) continue;
+                    const supported = catalogs.get(tier).filter(step => clueStepSupportedByTiers(step, active));
+                    if (!supported.length) continue;
+                    active.add(tier); steps.set(tier, supported); changed = true;
+                }
+            }
+            for (const tier of CLUE_TIERS) if (!steps.has(tier)) steps.set(tier, []);
+            calculatingClueActivation = false;
+            clueActivation = { active, steps };
+            return clueActivation;
+        }
+        function clueTierCanGenerate(tier) {
+            if (!CLUE_TIERS.includes(tier) || state.clueLocks?.[tier] || Number(state.clueTaskCooldown) > 0 ||
+                clueRewards.tiers[tier]?.complete) return false;
+            return calculateClueActivation().active.has(tier);
         }
         function taskOrigins(name, skill, visiting = new Set()) {
             const key = 'task:' + skill + ':' + name;
@@ -3438,9 +3513,14 @@
                 const sourceOrigins = clueTierSourceOrigins(tier);
                 const progress = clueRewards.tiers[tier];
                 const blocked = !!state.clueLocks?.[tier];
+                if (!completableClueStepCache.has(tier)) completableClueStepCache.set(tier,
+                    calculateClueActivation().steps.get(tier) || []);
+                const completableStepCount = completableClueStepCache.get(tier).length;
                 return [tier, { ...progress, blocked, lock: clueLocks[tier] || null, sourceOrigins,
                     repeatableSource: sourceOrigins.length > 0,
-                    generating: !progress.complete && !blocked && !state.clueTaskCooldown && sourceOrigins.length > 0,
+                    completableStepCount, stepAvailable: completableStepCount > 0,
+                    generating: !progress.complete && !blocked && !state.clueTaskCooldown &&
+                        sourceOrigins.length > 0 && completableStepCount > 0,
                     sourceKind: tier === 'master' ? 'watson' : 'direct-drop' }];
             }))
         };
@@ -3464,7 +3544,7 @@
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,
-        migrateStartingSections, directStartingRequirements, mergeStartingRequirements, resolveStartingRequirements,
+        migrateStartingSections, directStartingRequirements, mergeStartingRequirements, resolveStartingRequirements, sectionAccessAllowed,
         automaticStartingRequirementsAllowed, deriveStartingPool, deriveManualStartingPool, startingCandidateForRegion,
         chooseStartingCandidate, canRoll,
         startVisit, slayerMasterConfirmationForVisit, snapshotVisit, addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,

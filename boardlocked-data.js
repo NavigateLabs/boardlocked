@@ -89,7 +89,7 @@
                     '5940', '6189', '6190', '6191', '6192', '6193', '6194',
                     '6195', '6196', '6445', '6446', '6447', '6448', '6449', '6450',
                     '6451', '6701', '6702', '6703', '6704', '6705', '6706',
-                    '6707', '6957', '6958', '6959', '6960', '6961', '7215',
+                    '6957', '6958', '6959', '6960', '6961', '7215',
                     '7216', '7217', '7472'
                 ]),
                 // Enabled separately because Wilderness risk is an account choice.
@@ -145,7 +145,8 @@
                     '11821': "Kharazi Jungle's east coast requires Legends' Quest access."
                 }),
                 varlamore: Object.freeze({
-                    '5933': 'Villa Lucens Theatre requires progress in Death on the Isle.'
+                    '5933': 'Villa Lucens Theatre requires progress in Death on the Isle.',
+                    '6707': 'The Twilight Temple approach requires Twilight Emissary robes from The Heart of Darkness.'
                 })
             }),
             // The upstream section graph records most quest gates in
@@ -224,6 +225,27 @@
             // take it. Keep every other small-net source available.
             'Small fishing net': Object.freeze({
                 '6195-1': 'The wrecked-boat pickup cannot be taken.'
+            })
+        }),
+        // Actual-progress gates for map sections whose access condition is
+        // absent from the upstream section graph. The same annotation governs
+        // travel, task sources, and player-picked starting requirements.
+        sectionAccessRequirements: Object.freeze({
+            // The Tower of Ascension remains open for The Heart of Darkness.
+            // Finishing its trials grants the disguise used to enter the
+            // Twilight Temple, so the following quest step cannot be blocked
+            // by the protected temple sections themselves.
+            '6706-1': Object.freeze({
+                requirements: Object.freeze([Object.freeze({ '~|The Heart of Darkness|~ 3': 'Quest' })]),
+                reason: 'Requires the Twilight Emissary robes obtained during The Heart of Darkness'
+            }),
+            '6707-1': Object.freeze({
+                requirements: Object.freeze([Object.freeze({ '~|The Heart of Darkness|~ 3': 'Quest' })]),
+                reason: 'Requires the Twilight Emissary robes obtained during The Heart of Darkness'
+            }),
+            '6707-2': Object.freeze({
+                requirements: Object.freeze([Object.freeze({ '~|The Heart of Darkness|~ 3': 'Quest' })]),
+                reason: 'Requires the Twilight Emissary robes obtained during The Heart of Darkness'
             })
         }),
         travelConnections: Object.freeze([

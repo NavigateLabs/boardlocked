@@ -9,6 +9,11 @@ let blStructuralGates = new Set();
 let blClueRewards = null;
 let blClueEquipmentTiers = new Map();
 
+function blLegacyProgress() {
+    return { completedChallenges, checkedChallenges, checkedAllTasks: blContext?.checkedAllTasks,
+        manualEquipment, backlog };
+}
+
 function blInitialize(request) {
     blContext = request.boardlocked || null;
     blSourceDiagnostics = new Map();
@@ -19,10 +24,7 @@ function blInitialize(request) {
     blClueRewards = null;
     blClueEquipmentTiers = new Map();
     if (!blContext) return;
-    blClueRewards = Boardlocked.clueRewardCatalog(chunkInfo, {
-        completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
-        manualEquipment, backlog
-    }, blContext.state, blContext.tasksMap);
+    blClueRewards = Boardlocked.clueRewardCatalog(chunkInfo, blLegacyProgress(), blContext.state, blContext.tasksMap);
     const collectionRewardKeys = new Set(blClueRewards.rewards.map(reward => reward.key));
     for (const [tier, itemNames] of Object.entries(BoardlockedData.clues?.equipmentRewardsByTier || {})) {
         for (const itemName of itemNames) {
@@ -31,10 +33,8 @@ function blInitialize(request) {
             blClueEquipmentTiers.set(key, [...(blClueEquipmentTiers.get(key) || []), tier]);
         }
     }
-    blAccess = Boardlocked.createAccess(chunkInfo, blContext.state, {
-        completedChallenges, checkedChallenges, checkedAllTasks: blContext.checkedAllTasks,
-        manualEquipment, backlog
-    }, blContext.tasksMap, rules, blLocationAllowed);
+    blAccess = Boardlocked.createAccess(chunkInfo, blContext.state, blLegacyProgress(),
+        blContext.tasksMap, rules, blLocationAllowed);
     if (rules['Collection Log']) {
         for (const meta of Object.values(chunkInfo.challenges.Extra || {})) {
             if (!meta.Category?.includes('Collection Log') ||
@@ -48,7 +48,8 @@ function blInitialize(request) {
 function blLocationAllowed(location) {
     const parsed = Boardlocked.parseLocation(location);
     if (parsed) return Boardlocked.locationAvailable(parsed, chunks, unlockedSections, manualSections) &&
-        blContext.state.accessOverrides['section:' + location] !== false;
+        Boardlocked.sectionAccessAllowed(chunkInfo, BoardlockedData, blContext.state, blLegacyProgress(),
+            blContext.tasksMap, rules, location, blAccess);
     return !!chunks[location] && manualAreas[location] !== false &&
         blContext.state.accessOverrides['area:' + location] !== false;
 }
@@ -67,6 +68,50 @@ function blSourceAllowed(type, name, location) {
     return allowed;
 }
 
+function blAddDirectClueMonsterSources(base) {
+    const directClueTiers = (BoardlockedData.clues?.tiers || Boardlocked.CLUE_TIERS)
+        .filter(tier => tier !== 'master');
+    for (const monster of Object.keys(base.monsters)) for (const rawDrop of Object.keys(chunkInfo.drops[monster] || {})) {
+        const drops = dropTables[rawDrop] ? Object.keys(dropTables[rawDrop]) : [rawDrop];
+        for (const tier of directClueTiers) {
+            const clue = 'Clue scroll (' + tier + ')';
+            if (drops.includes(clue)) (base.items[clue] ||= {})[monster] ||= 'clue-drop';
+        }
+    }
+    return base;
+}
+
+function blAddVirtualClueRewardSources(base) {
+    const masterInputs = BoardlockedData.clues?.masterInputs || ['easy', 'medium', 'hard', 'elite'];
+    const masterSource = BoardlockedData.clues?.masterPersistentSource || 'Watson';
+    const clueSourceAvailable = tier => {
+        if (blContext.state.clueLocks?.[tier] || blContext.state.clueTaskCooldown || blClueRewards.tiers?.[tier]?.complete) return false;
+        if (tier === 'master') return masterInputs.every(input => blClueRewards.tiers?.[input]?.complete) &&
+            !!base.npcs?.[masterSource] && Object.keys(base.npcs[masterSource]).length > 0;
+        return Object.keys(base.items?.['Clue scroll (' + tier + ')'] || {}).length > 0;
+    };
+    // Virtual reward entries let the existing BiS scorer compare clue gear.
+    // buildTasks resolves their real origin through the tier's scroll source;
+    // these entries never turn caskets into persistent Master sources.
+    for (const reward of blClueRewards.rewards) if (!reward.completed && clueSourceAvailable(reward.ownerTier)) {
+        (base.items[reward.itemKey] ||= {})['Clue scroll (' + reward.ownerTier + ')'] = 'clue-reward';
+    }
+    for (const [tier, itemNames] of Object.entries(BoardlockedData.clues?.equipmentRewardsByTier || {})) {
+        if (!clueSourceAvailable(tier)) continue;
+        for (const itemName of itemNames) {
+            const key = Boardlocked.canonicalItemKey(itemName).replaceAll('#', '/').toLowerCase();
+            if (!blClueEquipmentTiers.has(key)) continue;
+            (base.items[itemName] ||= {})['Clue scroll (' + tier + ')'] = 'clue-reward';
+        }
+    }
+    return base;
+}
+
+function blRestoreClueProgressionSources(base) {
+    if (!blContext) return base;
+    return blAddVirtualClueRewardSources(blAddDirectClueMonsterSources(base));
+}
+
 function blFilterSources(base) {
     if (!blContext) return base;
     for (const [field, type] of [['monsters', 'Monsters'], ['objects', 'Objects'], ['npcs', 'NPCs'], ['shops', 'Shops']]) {
@@ -75,6 +120,12 @@ function blFilterSources(base) {
             if (!Object.keys(locations).length) delete base[field][name];
         }
     }
+    // Clue availability is a Boardlocked progression rule, so direct monster
+    // clue drops must survive the legacy rare/secondary-drop filters. This is
+    // derived from every accessible monster rather than patched per monster.
+    // Master clues remain Watson-driven; incidental casket Masters are recorded
+    // separately by the player and never become persistent map sources.
+    blAddDirectClueMonsterSources(base);
     for (const [name, sources] of Object.entries(base.items)) {
         for (const source of Object.keys(sources)) {
             if (!Boardlocked.itemSourceAllowed(BoardlockedData, name, source)) delete sources[source];
@@ -117,29 +168,7 @@ function blFilterSources(base) {
             }
         }
     }
-    const masterInputs = BoardlockedData.clues?.masterInputs || ['easy', 'medium', 'hard', 'elite'];
-    const masterSource = BoardlockedData.clues?.masterPersistentSource || 'Watson';
-    const clueSourceAvailable = tier => {
-        if (blContext.state.clueLocks?.[tier] || blContext.state.clueTaskCooldown || blClueRewards.tiers?.[tier]?.complete) return false;
-        if (tier === 'master') return masterInputs.every(input => blClueRewards.tiers?.[input]?.complete) &&
-            !!base.npcs?.[masterSource] && Object.keys(base.npcs[masterSource]).length > 0;
-        return Object.keys(base.items?.['Clue scroll (' + tier + ')'] || {}).length > 0;
-    };
-    // Virtual reward entries let the existing BiS scorer compare clue gear.
-    // buildTasks resolves their real origin through the tier's scroll source;
-    // these entries never turn caskets into persistent Master sources.
-    for (const reward of blClueRewards.rewards) if (!reward.completed && clueSourceAvailable(reward.ownerTier)) {
-        (base.items[reward.itemKey] ||= {})['Clue scroll (' + reward.ownerTier + ')'] = 'clue-reward';
-    }
-    for (const [tier, itemNames] of Object.entries(BoardlockedData.clues?.equipmentRewardsByTier || {})) {
-        if (!clueSourceAvailable(tier)) continue;
-        for (const itemName of itemNames) {
-            const key = Boardlocked.canonicalItemKey(itemName).replaceAll('#', '/').toLowerCase();
-            if (!blClueEquipmentTiers.has(key)) continue;
-            (base.items[itemName] ||= {})['Clue scroll (' + tier + ')'] = 'clue-reward';
-        }
-    }
-    return base;
+    return blAddVirtualClueRewardSources(base);
 }
 
 function blActualPrerequisites(skill, name) {

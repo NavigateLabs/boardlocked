@@ -315,12 +315,17 @@
             // profiles and imported histories never gain a quest retroactively.
             if (sourceVersion < 6 && !hasStarted()) state.initialization.druidicRitual = true;
             if (!state.enablersInitialized) state = R.recoverAcquiredEnablers(state, legacy(), chunkInfo, tasksMap, BoardlockedData);
+            const arrivalAccess = actualAccessEvaluator();
             const arrivalMigration = sourceVersion < R.VERSION ? R.migrateCurrentArrival(chunkInfo, state,
-                tempChunks.unlocked || {}, manualSections, completedConnectionAllowed,
-                BoardlockedData.travelConnections) : { state, changed: false, removedSections: [] };
+                tempChunks.unlocked || {}, manualSections,
+                (from, to, connection) => completedConnectionAllowed(from, to, connection, arrivalAccess),
+                BoardlockedData.travelConnections) : { state, changed: false, removedSections: [], addedSections: [] };
             state = arrivalMigration.state;
             if (arrivalMigration.changed) for (const section of arrivalMigration.removedSections) {
                 if (manualSections[state.currentVisit.locationId]?.[section] === true) delete manualSections[state.currentVisit.locationId][section];
+            }
+            if (arrivalMigration.changed) for (const section of arrivalMigration.addedSections) {
+                (manualSections[state.currentVisit.locationId] ||= {})[section] = true;
             }
             const latestNoTaskVisit = state.currentVisit?.status === 'resolved' && state.currentVisit.resolution === 'no_tasks';
             const recalculatingUpdatedVisit = sourceVersion < R.VERSION && !!state.currentVisit &&
@@ -349,7 +354,7 @@
             if (upgradeBoardlockedPreset() || initializationChanged || assumedSetupChanged || arrivalMigration.changed || startSectionMigration.changed || anchorSectionsMigrated || recoveredBrowserBackup || sourceVersion < R.VERSION ||
                 (!localStorage.getItem(key) && localStorage.getItem(legacyStorageKey()))) save();
             if (recoveredBrowserBackup) message = 'Recovered the previous browser backup because the newest save could not be read. Download a backup now.';
-            else if (arrivalMigration.changed) message = 'Removed a land arrival that was not connected to the ocean by a port.';
+            else if (arrivalMigration.changed) message = 'Updated the current arrival to an accessible section.';
             else if (recalculatingUpdatedVisit) message = 'The active visit is being recalculated for the updated task rules.';
         } catch (err) { state = boardlockedState(); loadFailure = true; fail(new Error('Saved state was not overwritten. ' + err.message)); }
         setPanelOpen(true);
@@ -402,7 +407,15 @@
         }
         return [];
     }
-    function travelConnectionAllowed(from, to) {
+    function actualAccessEvaluator() {
+        return R.createAccess(chunkInfo, state, legacy(), tasksMap, rules, () => true);
+    }
+    function annotatedSectionsAllowed(from, to, access) {
+        return [from, to].every(location => R.sectionAccessAllowed(chunkInfo, BoardlockedData, state,
+            legacy(), tasksMap, rules, location, access));
+    }
+    function travelConnectionAllowed(from, to, _connection, access = actualAccessEvaluator()) {
+        if (!annotatedSectionsAllowed(from, to, access)) return false;
         const limits = chunkInfo.sectionsLimits || {};
         for (const key of [from + ' to ' + to, to + ' to ' + from]) {
             const tasks = limits[key]?.Tasks;
@@ -410,7 +423,8 @@
         }
         return true;
     }
-    function completedConnectionAllowed(from, to) {
+    function completedConnectionAllowed(from, to, _connection, access = actualAccessEvaluator()) {
+        if (!annotatedSectionsAllowed(from, to, access)) return false;
         const done = R.completionIds(legacy(), tasksMap), limits = chunkInfo.sectionsLimits || {};
         for (const key of [from + ' to ' + to, to + ' to ' + from]) {
             const requirements = limits[key]?.Tasks;
@@ -432,7 +446,9 @@
         state = R.resolveVisit(state, completed);
         const unlocked = tempChunks.unlocked || {}, boundary = frontier();
         state.travelAnchor = R.inferTravelAnchor(state, unlocked, chunkOrder);
-        travelGraph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary, travelConnectionAllowed,
+        const access = actualAccessEvaluator();
+        travelGraph = R.buildTravelGraph(chunkInfo, unlocked, sections, boundary,
+            (from, to, connection) => travelConnectionAllowed(from, to, connection, access),
             BoardlockedData.travelConnections);
         pool = R.derivePool(boundary, unlocked, tasks, state.currentVisit, travelGraph, state.travelAnchor, state.travelAnchorSections);
         const selectedPool = pickingStartingTile ? manualStartingPool : startingPool;
@@ -466,13 +482,16 @@
         // Imported histories may omit derived section state. Starting from only
         // explicitly proven sections prevents an unlocked land route from
         // silently opening a parallel water route (or the reverse).
+        const access = actualAccessEvaluator();
         const strictSections = R.inferConnectedSections(chunkInfo, tempChunks.unlocked || {},
-            request.manualSections || {}, completedConnectionAllowed, BoardlockedData.travelConnections);
+            request.manualSections || {},
+            (from, to, connection) => completedConnectionAllowed(from, to, connection, access),
+            BoardlockedData.travelConnections);
         for (const [key, allowed] of Object.entries(state.accessOverrides)) if (key.startsWith('section:') && allowed === false) {
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl44');
+        worker = new Worker('./worker.js?v=6.9.66-bl45');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1447,7 +1466,8 @@
             const row = element('section', null, { className: 'bl-clue-tier' });
             const heading = element('div', null, { className: 'bl-clue-tier-heading' });
             let stateLabel = status.complete ? 'Complete' : status.blocked ? 'Blocked' : status.generating ? 'Active' :
-                status.repeatableSource && state.clueTaskCooldown ? 'Waiting' : 'No source';
+                status.repeatableSource && !status.stepAvailable ? 'No step' :
+                    status.repeatableSource && state.clueTaskCooldown ? 'Waiting' : 'No source';
             heading.append(element('strong', clueTierLabel(tier)), element('span', stateLabel,
                 { className: 'bl-clue-state is-' + stateLabel.toLowerCase().replace(' ', '-') }));
             row.append(heading, element('small', status.completed + ' of ' + status.total + ' rewards obtained'));
@@ -1498,8 +1518,10 @@
             } else {
                 const locations = new Set((status.sourceOrigins || []).map(origin => origin.chunkId));
                 row.append(element('small', status.generating ? locations.size + (locations.size === 1 ? ' unlocked source tile' : ' unlocked source tiles') +
-                    ' can generate this tier’s reward goals.' : status.repeatableSource && state.clueTaskCooldown ?
-                    'An unlocked source will generate reward goals again after the next non-clue goal.' : tier === 'master' ?
+                    ' can generate this tier’s reward goals.' : status.repeatableSource && !status.stepAvailable ?
+                    'No step from this clue tier can currently be completed in the unlocked area.' :
+                    status.repeatableSource && state.clueTaskCooldown ?
+                        'An unlocked source will generate reward goals again after the next non-clue goal.' : tier === 'master' ?
                     'Master clue goals require Watson and completed easy, medium, hard, and elite reward pools.' :
                     'No usable source for this clue tier is in the unlocked area.'));
                 if (status.repeatableSource || Number(state.incidentalClues?.[tier]) > 0) {
@@ -1984,7 +2006,7 @@
             <p id="bl-storage-label"></p><p id="bl-message" role="status" aria-live="polite"></p>
             <section id="bl-start-setup" class="bl-start-setup"><h3>Start a new account</h3>
             <div class="bl-start-grid bl-start-recommended">
-            <label class="bl-start-option"><input id="bl-start-turael" type="checkbox"><span><strong>Turael setup <em>recommended</em></strong><small>Talk to Turael and check his options to unlock other Slayer masters. Cancel any assignment.</small></span></label>
+            <label class="bl-start-option"><input id="bl-start-turael" type="checkbox"><span><strong>Turael setup <em>recommended</em></strong><small>Talk to Turael in Burthorpe about Slayer to unlock other Slayer masters. Cancel any assignment.</small></span></label>
             <label class="bl-start-option"><input id="bl-start-druidicRitual" type="checkbox"><span><strong>Druidic Ritual <em>recommended</em></strong><small>Complete the quest before starting.</small></span></label>
             </div>
             <details class="bl-start-instructions"><summary>Instructions for getting Druidic Ritual Items</summary><ol class="bl-start-route"><li>Pick up the iron dagger near Lumbridge.</li><li>Kill a level-3 rat in Lumbridge Swamp for raw rat meat.</li><li>Buy raw chicken and raw beef from Wydin’s Food Store in Port Sarim.</li><li>Talk to Veos and travel to Kourend, then talk to him again to travel to Land’s End.</li><li>Flinch the bear cub from the outside corner of the house and take its meat.</li><li>Complete Druidic Ritual with the <a href="https://oldschool.runescape.wiki/w/Druidic_Ritual" target="_blank" rel="noopener noreferrer">OSRS Wiki quest guide</a>.</li></ol><figure><img src="./resources/boardlocked-bear-flinch.jpg" alt="Player standing on the outside corner of the house with the bear cub nearby" loading="lazy"><figcaption>Attack once, return to the outside corner, and wait for the bear’s health bar to disappear. Repeat until it dies.</figcaption></figure></details>

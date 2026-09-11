@@ -102,7 +102,7 @@ body.bl-start-picking #canvas { cursor: crosshair !important; }
 #bl-panel .bl-clue-state { flex: none; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: bold; }
 #bl-panel .bl-clue-state.is-active, #bl-panel .bl-clue-state.is-complete { color: #0f5132; background: #d1e7dd; }
 #bl-panel .bl-clue-state.is-blocked { color: #842029; background: #f8d7da; }
-#bl-panel .bl-clue-state.is-waiting, #bl-panel .bl-clue-state.is-no-source { color: #654b00; background: #fff0bd; }
+#bl-panel .bl-clue-state.is-waiting, #bl-panel .bl-clue-state.is-no-source, #bl-panel .bl-clue-state.is-no-step { color: #654b00; background: #fff0bd; }
 #bl-panel .bl-clue-lock-editor, #bl-panel .bl-clue-incidental-rewards { margin: 6px 0 0; padding: 6px 8px; border: 1px solid #8885; border-radius: 5px; }
 #bl-panel .bl-clue-lock-editor input { box-sizing: border-box; width: 100%; padding: 6px; color: inherit; background: var(--color4, #fff); border: 1px solid #888; border-radius: 4px; font: inherit; }
 #bl-panel .bl-clue-lock-editor button { width: 100%; }

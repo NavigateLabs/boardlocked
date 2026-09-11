@@ -49,7 +49,7 @@ test('reviewed start pools cover the selected land tiles without category overla
     assert.equal(base.ids.length, 257);
     const allConfigured = Object.values(annotations.initialization.startingTiles).flat();
     assert.deepEqual(Object.fromEntries(Object.entries(annotations.initialization.startingTiles).map(([key, ids]) => [key, ids.length])),
-        { standard: 257, varlamore: 73, wilderness: 49 });
+        { standard: 257, varlamore: 72, wilderness: 49 });
     assert.equal(new Set(allConfigured).size, allConfigured.length, 'start groups must not overlap or contain duplicates');
     assert.ok(allConfigured.every(id => chunkData.chunks[id] && chunkData.walkableChunks.map(String).includes(id)));
     const noQuest = new Set(chunkData.rollingChunks.noquest.map(String));
@@ -73,7 +73,7 @@ test('reviewed start pools cover the selected land tiles without category overla
     const excludedVarlamore = annotations.initialization.startingTileExclusions.varlamore;
     assert.deepEqual([...configuredVarlamore, ...Object.keys(excludedVarlamore)].sort((a, b) => Number(a) - Number(b)),
         sourceVarlamore, 'every upstream Varlamore tile must be included or have an audited exclusion');
-    assert.equal(expanded.groups.find(group => group.id === 'varlamore').locationIds.length, 73);
+    assert.equal(expanded.groups.find(group => group.id === 'varlamore').locationIds.length, 72);
     assert.ok(expanded.ids.includes('4656'), 'Tlati Rainforest is enabled');
     assert.ok(expanded.ids.includes('5420'), 'Mistrock is enabled');
     assert.ok(expanded.ids.includes('6196'), 'reviewed Varlamore land is enabled');
@@ -92,7 +92,7 @@ test('reviewed start pools cover the selected land tiles without category overla
     assert.deepEqual(expanded.arrivalSectionGroupsByLocation['6191'], [['2']], 'Hunter Guild start stays on the outside path');
     assert.deepEqual(expanded.arrivalSectionGroupsByLocation['7216'], [['1', '2']], 'Colosseum arena is omitted');
     const withoutFortisAnchor = R.deriveStartingPool(chunkData, annotations, { varlamore: true }, { '6704': true });
-    assert.equal(withoutFortisAnchor.groups.find(group => group.id === 'varlamore').locationIds.length, 72,
+    assert.equal(withoutFortisAnchor.groups.find(group => group.id === 'varlamore').locationIds.length, 71,
         'blacklisting the reference tile removes only that tile, not the region it identifies');
     assert.deepEqual(expanded.groups.find(group => group.id === 'wilderness').locationIds,
         annotations.initialization.startingTiles.wilderness, 'every reviewed Wilderness tile is enabled');
@@ -494,17 +494,17 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=22/);
+    assert.match(html, /boardlocked-data\.js\?v=23/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl31/);
-    assert.match(html, /boardlocked\.js\?v=68/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl44/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl44/);
-    assert.match(worker, /boardlocked-data\.js\?v=22/);
-    assert.match(worker, /boardlocked\.js\?v=68/);
-    assert.match(worker, /boardlocked-worker\.js\?v=24/);
-    assert.match(html, /boardlocked-ui\.js\?v=86/);
-    assert.match(html, /boardlocked\.css\?v=25/);
+    assert.match(html, /boardlocked\.js\?v=69/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl45/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl45/);
+    assert.match(worker, /boardlocked-data\.js\?v=23/);
+    assert.match(worker, /boardlocked\.js\?v=69/);
+    assert.match(worker, /boardlocked-worker\.js\?v=25/);
+    assert.match(html, /boardlocked-ui\.js\?v=87/);
+    assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -2794,6 +2794,9 @@ test('clue rewards have one highest-tier owner and old duplicate completions sti
 
 test('direct clue sources expose collection rewards and every strict clue-equipment upgrade', () => {
     const request = usePreset(makeRequest(['4651']), 'Boardlocked Chunker');
+    request.chunkInfo.challenges.Nonskill['Test completable beginner clue step'] = {
+        ClueTier: 'beginner', Chunks: ['4651']
+    };
     const adaptResult = result => R.adaptTasks(result.tasks,
         { checkedAllTasks: request.boardlocked.checkedAllTasks }, request.boardlocked.state, request.chunks,
         result.sections, request.manualSections, R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap),
@@ -2838,6 +2841,9 @@ test('Master clue tasks use sustainable Watson inputs while caskets remain incid
         'a lower-tier clue source never manufactures persistent Master goals');
 
     const request = usePreset(makeRequest(['6455']), 'Boardlocked Chunker');
+    request.chunkInfo.challenges.Nonskill['Test completable master clue step'] = {
+        ClueTier: 'master', Chunks: ['6455']
+    };
     const catalog = R.clueRewardCatalog(request.chunkInfo, {}, request.boardlocked.state, request.boardlocked.tasksMap);
     request.boardlocked.checkedAllTasks = { Extra: {} };
     for (const reward of catalog.rewards.filter(reward => ['easy', 'medium', 'hard', 'elite'].includes(reward.ownerTier))) {
@@ -2877,6 +2883,115 @@ test('same-tier clue reward dependencies expose a general deadlock escape', () =
     assert.equal(obtainableElsewhere.satisfied, true);
 });
 
+test('direct monster clue drops bypass legacy rarity filters', () => {
+    const request = usePreset(makeRequest(['5684']), 'Boardlocked Chunker');
+    request.chunkInfo.challenges.Nonskill['Test completable medium clue step'] = {
+        ClueTier: 'medium', Chunks: ['5684']
+    };
+    const result = runWorker(request).result;
+    assert.equal(result.clueStatus.tiers.medium.repeatableSource, true);
+    assert.equal(result.clueStatus.tiers.medium.generating, true);
+    assert.ok(result.clueStatus.tiers.medium.sourceOrigins.some(origin => origin.sourceName === 'Guard'));
+    assert.ok(result.tasks.some(task => task.available && task.clueReward?.ownerTier === 'medium'));
+});
+
+test('clue rewards wait until an unlocked clue step is completable', () => {
+    const request = usePreset(makeRequest(['5684']), 'Boardlocked Chunker');
+    for (const meta of Object.values(request.chunkInfo.challenges.Nonskill)) {
+        if (String(meta.ClueTier || '').toLowerCase() === 'medium') delete meta.ClueTier;
+    }
+    const result = runWorker(request).result, status = result.clueStatus.tiers.medium;
+    assert.equal(status.repeatableSource, true, 'the accessible monster still supplies medium clues');
+    assert.equal(status.completableStepCount, 0);
+    assert.equal(status.stepAvailable, false);
+    assert.equal(status.generating, false);
+    assert.equal(result.tasks.some(task => task.available && task.clueReward?.ownerTier === 'medium'), false);
+});
+
+test('a clue tier cannot make its own only completable step possible', () => {
+    const request = usePreset(makeRequest(['5684']), 'Boardlocked Chunker');
+    for (const meta of Object.values(request.chunkInfo.challenges.Nonskill)) {
+        if (String(meta.ClueTier || '').toLowerCase() === 'medium') delete meta.ClueTier;
+    }
+    request.chunkInfo.challenges.Nonskill['Test medium step requiring its own reward'] = {
+        ClueTier: 'medium', Chunks: ['5684'], Items: ['Ranger boots']
+    };
+    const result = runWorker(request).result, status = result.clueStatus.tiers.medium;
+    assert.equal(status.repeatableSource, true);
+    assert.equal(status.stepAvailable, false,
+        'an unowned medium reward cannot make the medium clue pool available');
+    assert.equal(status.generating, false);
+});
+
+test('an active lower clue tier may supply an item for a higher-tier step', () => {
+    const request = usePreset(makeRequest(['4651', '5684']), 'Boardlocked Chunker');
+    for (const meta of Object.values(request.chunkInfo.challenges.Nonskill)) {
+        if (['beginner', 'medium'].includes(String(meta.ClueTier || '').toLowerCase())) delete meta.ClueTier;
+    }
+    request.chunkInfo.challenges.Nonskill['Test completable beginner clue step'] = {
+        ClueTier: 'beginner', Chunks: ['4651']
+    };
+    request.chunkInfo.challenges.Nonskill['Test medium step using a beginner reward'] = {
+        ClueTier: 'medium', Chunks: ['5684'], Items: ['Bear feet']
+    };
+    const result = runWorker(request).result;
+    assert.equal(result.clueStatus.tiers.beginner.generating, true);
+    assert.equal(result.clueStatus.tiers.medium.generating, true,
+        'the fixed-point calculation should allow progress from an already-active clue tier');
+});
+
+test('Twilight emissary sources unlock with the quest step that awards the robes', () => {
+    const request = usePreset(makeRequest(['6450', '6706']), 'Boardlocked Chunker');
+    request.chunkInfo.challenges.Nonskill['Test completable medium clue step'] = {
+        ClueTier: 'medium', Chunks: ['6706']
+    };
+    let result = runWorker(request).result;
+    assert.equal(result.sections['6450']['1'], true,
+        'the Tower of Ascension and the quest route to the robes remain accessible');
+    assert.equal(result.clueStatus.tiers.medium.sourceOrigins.some(origin => origin.chunkId === '6706' &&
+        ['Emissary Acolyte', 'Emissary Chosen'].includes(origin.sourceName)), false);
+
+    const questStep = '~|The Heart of Darkness|~ 3';
+    ((request.checkedAllTasks ||= {}).Quest ||= {})[questStep] = true;
+    (request.boardlocked.checkedAllTasks.Quest ||= {})[questStep] = true;
+    result = runWorker(request).result;
+    assert.ok(result.clueStatus.tiers.medium.sourceOrigins.some(origin =>
+        origin.chunkId === '6706' && ['Emissary Acolyte', 'Emissary Chosen'].includes(origin.sourceName)));
+    assert.equal(result.clueStatus.tiers.medium.generating, true);
+    assert.equal(result.sections['6706']['1'], true,
+        'the robe-granting quest step opens the protected temple section');
+});
+
+test('Twilight Temple section access is shared by travel and manual-start requirements', () => {
+    const state = fresh(), legacy = {}, ids = require('../tasksMap.json');
+    assert.equal(R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, '6706-1'), false);
+    const requirement = R.directStartingRequirements(chunkData, annotations, '6706', '1');
+    assert.equal(requirement.Tasks['~|The Heart of Darkness|~ 3'], 'Quest');
+    const done = { checkedAllTasks: { Quest: { '~|The Heart of Darkness|~ 3': true } } };
+    assert.equal(R.sectionAccessAllowed(chunkData, annotations, state, done, ids, {}, '6706-1'), true);
+    assert.equal(R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, '6706-2'), true,
+        'the outside statue section does not inherit the temple gate');
+    const graph = R.buildTravelGraph(chunkData, { '6450': '6450' }, { '6450': { '1': true } }, ['6706'],
+        (from, to) => [from, to].every(location =>
+            R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, location)));
+    assert.ok(graph.sectionGraph['6450-1'].includes('6706-2'), 'the outside approach remains reachable');
+    assert.ok(!graph.sectionGraph['6450-1'].includes('6706-1'), 'travel cannot enter the protected temple section');
+
+    let imported = R.startVisit(state, { kind: 'frontier', locationId: '6451', metadata: { entrySections: ['1'] } });
+    imported = R.snapshotVisit(imported, []);
+    imported = R.startVisit(imported, { kind: 'revisit', locationId: '6706', metadata: { entrySections: ['1'] } });
+    const migrated = R.migrateCurrentArrival(chunkData, imported,
+        { '6450': '6450', '6451': '6451', '6706': '6706' },
+        { '6450': { '1': true }, '6451': { '1': true }, '6706': { '1': true } },
+        (from, to) => [from, to].every(location =>
+            R.sectionAccessAllowed(chunkData, annotations, state, legacy, ids, {}, location)));
+    assert.equal(migrated.changed, true);
+    assert.deepEqual(migrated.removedSections, ['1']);
+    assert.deepEqual(migrated.addedSections, ['2']);
+    assert.deepEqual(migrated.state.currentVisit.arrivalSections, ['2'],
+        'an old protected arrival moves to the reachable outside section instead of trapping the run');
+});
+
 test('clue UI groups reward goals and keeps each tier lock independent', () => {
     const ui = fs.readFileSync(path.join(__dirname, '..', 'boardlocked-ui.js'), 'utf8');
     const css = fs.readFileSync(path.join(__dirname, '..', 'boardlocked.css'), 'utf8');
@@ -2899,11 +3014,13 @@ test('clue UI groups reward goals and keeps each tier lock independent', () => {
         'BiS goals with two source kinds are rendered under both their ordinary and clue origins');
     assert.match(ui, /I received a Master clue from a casket/);
     assert.match(ui, /An unlocked source will generate reward goals again after the next non-clue goal/);
+    assert.match(ui, /No step from this clue tier can currently be completed in the unlocked area/);
     assert.match(ui, /Discard this deadlocked clue/);
     assert.match(ui, /action: 'auto_unlock_clue_tier'/);
     assert.match(ui, /checkedAllTasks\.Extra.*clueReward\.name/s,
         'a merged BiS checkbox must also record the canonical clue reward task');
     assert.match(css, /\.bl-clue-state\.is-blocked/);
+    assert.match(css, /\.bl-clue-state\.is-no-step/);
     assert.match(css, /\.bl-clue-task-lock/);
 });
 
