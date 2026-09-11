@@ -481,16 +481,16 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=19/);
+    assert.match(html, /boardlocked-data\.js\?v=20/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl28/);
-    assert.match(html, /boardlocked\.js\?v=60/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl38/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl38/);
-    assert.match(worker, /boardlocked-data\.js\?v=19/);
-    assert.match(worker, /boardlocked\.js\?v=60/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl29/);
+    assert.match(html, /boardlocked\.js\?v=61/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl39/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl39/);
+    assert.match(worker, /boardlocked-data\.js\?v=20/);
+    assert.match(worker, /boardlocked\.js\?v=61/);
     assert.match(worker, /boardlocked-worker\.js\?v=22/);
-    assert.match(html, /boardlocked-ui\.js\?v=78/);
+    assert.match(html, /boardlocked-ui\.js\?v=79/);
     assert.match(html, /boardlocked\.css\?v=21/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -938,14 +938,14 @@ test('source provenance retains multiple genuine action origins', () => {
     const origins = R.buildTasks(fixture).tasks.find(t => t.taskId === 'chop').origins;
     assert.deepEqual(origins.map(o => o.chunkId), ['2000', '1000']);
 });
-test('blocking a boss removes only that boss source and retains alternate sources', () => {
+test('blocking an encounter removes only that source and retains alternate sources', () => {
     const fixture = sourceFixture();
     fixture.data.codeItems.bossMonsters = { 'Test boss': true };
     fixture.base.monsters['Test boss'] = { '1000': true };
     fixture.base.items['Raw food']['Test boss'] = 'primary-drop';
     const built = { ...R.buildTasks(fixture).tasks.find(t => t.taskId === 'cook'), advancesSkillProgression: false };
-    assert.deepEqual(built.bossSources, ['Test boss']);
-    const blockedState = R.setBossBlocked(fresh(), 'Test boss', true);
+    assert.deepEqual(built.encounterSources, ['Test boss']);
+    const blockedState = R.setEncounterBlocked(fresh(), 'Test boss', true);
     const adapted = adapt([built], {}, blockedState);
     assert.equal(adapted[0].eligible, true, 'the nonboss Animal source remains usable');
     assert.deepEqual(adapted[0].activeOrigins.map(source => source.sourceName), ['Animal']);
@@ -953,18 +953,19 @@ test('blocking a boss removes only that boss source and retains alternate source
     const bossOnly = { ...built, origins: built.origins.filter(source => source.sourceName === 'Test boss') };
     const deferred = adapt([bossOnly], {}, blockedState)[0];
     assert.equal(deferred.eligible, false);
-    assert.equal(deferred.bossDeferred, true);
-    assert.deepEqual(deferred.blockedBossSources, ['Test boss']);
+    assert.equal(deferred.encounterDeferred, true);
+    assert.deepEqual(deferred.blockedEncounterSources, ['Test boss']);
     assert.match(deferred.eligibilityReason, /reactivate Test boss/);
 });
-test('deferring the boss on an unresolved visit recalculates without completing or replacing history', () => {
+test('deferring an encounter on an unresolved visit recalculates without completing or replacing history', () => {
     const bossOrigin = { chunkId: '1000', sectionId: null, sourceType: 'monsters', sourceName: 'Test boss', reason: 'Boss drop' };
-    const bossTask = task('boss-drop', ['1000'], { origins: [bossOrigin], activeOrigins: [bossOrigin], bossSources: ['Test boss'] });
+    const bossTask = task('boss-drop', ['1000'], { origins: [bossOrigin], activeOrigins: [bossOrigin],
+        bossSources: ['Test boss'], encounterSources: ['Test boss'] });
     const previous = R.resolveVisit(start(adapt([task('previous', ['2000'])]), 'frontier', '2000'), new Set(['previous']));
     let state = R.startVisit(previous, { kind: 'revisit', locationId: '1000' });
     state = R.snapshotVisit(state, adapt([bossTask]));
     const completedHistory = R.copy(state.visitHistory[0]);
-    state = R.setBossBlocked(state, 'Test boss', true);
+    state = R.setEncounterBlocked(state, 'Test boss', true);
     state = R.recalculateCurrentVisit(state, 'gear is not ready');
     state = R.snapshotVisit(state, adapt([bossTask], {}, state));
     assert.equal(state.currentVisit.visitNumber, 2);
@@ -972,7 +973,7 @@ test('deferring the boss on an unresolved visit recalculates without completing 
     assert.equal(state.currentVisit.resolvedTaskId, null);
     assert.deepEqual(state.visitHistory[0], completedHistory);
 
-    state = R.setBossBlocked(state, 'Test boss', false);
+    state = R.setEncounterBlocked(state, 'Test boss', false);
     state = R.recalculateCurrentVisit(state, 'gear is ready', undefined, { reopenNoTasks: true });
     state = R.snapshotVisit(state, adapt([bossTask], {}, state));
     assert.equal(state.currentVisit.status, 'task_required');
@@ -1254,6 +1255,9 @@ test('Slayer account setup and master tasks remain independent progression entry
     assert.match(ui, /tasks hidden\. Restore them under/);
     assert.match(ui, /className: 'bl-boss-heading'/);
     assert.match(ui, /I can't defeat this boss with my current gear/);
+    assert.match(ui, /Encounters waiting for better gear/);
+    assert.equal(annotations.encounterReadiness.sources['Gemstone Crab'].deferLabel,
+        "I can't earn Gemstone Crab rewards with my current gear");
     assert.match(ui, /waiting\.open = true/);
     assert.match(ui, /I am ready to fight this boss/);
     assert.match(ui, /id="bl-start-turael"/);
@@ -1299,14 +1303,14 @@ test('Slayer master decisions survive migration and reject invalid states', () =
     assert.throws(() => R.normalizeState({ ...fresh(), slayerMasters: { Nieve: 'maybe' } }), /Invalid Slayer master state/);
 });
 
-test('boss readiness decisions survive migration and reject invalid states', () => {
-    let state = R.setBossBlocked(fresh(), 'The Hueycoatl', true);
-    state = R.setBossBlocked(state, 'The Hueycoatl', false);
-    state = R.setBossBlocked(state, 'Scurrius', true);
-    assert.deepEqual(R.normalizeState(state).blockedBosses, { Scurrius: true });
-    const old = fresh(); old.version = 33; delete old.blockedBosses;
-    assert.deepEqual(R.normalizeState(old).blockedBosses, {});
-    assert.throws(() => R.normalizeState({ ...fresh(), blockedBosses: { Scurrius: false } }), /Invalid blocked boss state/);
+test('encounter readiness decisions migrate old boss locks and reject invalid states', () => {
+    let state = R.setEncounterBlocked(fresh(), 'The Hueycoatl', true);
+    state = R.setEncounterBlocked(state, 'The Hueycoatl', false);
+    state = R.setEncounterBlocked(state, 'Scurrius', true);
+    assert.deepEqual(R.normalizeState(state).blockedEncounters, { Scurrius: true });
+    const old = fresh(); old.version = 38; old.blockedBosses = { 'The Hueycoatl': true }; delete old.blockedEncounters;
+    assert.deepEqual(R.normalizeState(old).blockedEncounters, { 'The Hueycoatl': true });
+    assert.throws(() => R.normalizeState({ ...fresh(), blockedEncounters: { Scurrius: false } }), /Invalid blocked encounter state/);
 });
 
 test('completed skill goals automatically provide minimum level evidence', () => {
@@ -3065,6 +3069,36 @@ test('real worker: every Hueycoatl-sourced goal waits when the player defers the
         request.manualSections, catalog, request.boardlocked.tasksMap);
     assert.ok(!deferred.some(task => task.bossSources?.includes('The Hueycoatl') && task.eligible));
     assert.ok(deferred.filter(task => task.bossSources?.includes('The Hueycoatl')).every(task => task.bossDeferred));
+});
+test('real worker: competitive encounter readiness covers every Gemstone Crab resource task', () => {
+    const locations = ['4910', '4911', '4912', '5166', '5167', '5424', '5425', '5426', '5427', '5428',
+        '5682', '5683', '5684', '5938', '5939', '5940', '6195', '6196', '6450', '6451', '6706', '6707'];
+    const request = usePreset(makeRequest(locations), 'Boardlocked Chunker');
+    request.manualSections = { '4911': { '1': true }, '5424': { '3': true } };
+    request.boardlocked.state.progressionHighWater.Crafting = 1;
+    request.boardlocked.state.progressionHighWater.Fletching = 1;
+    request.boardlocked.state.acquiredEnablers.Chisel = { manual: true };
+    request.boardlocked.state.acquiredEnablers['Bronze pickaxe'] = { manual: true };
+    request.boardlocked.state.enablersInitialized = true;
+    const { result } = runWorker(request);
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const calculate = state => R.adaptTasks(result.tasks, {}, state, request.chunks, result.sections,
+        request.manualSections, catalog, request.boardlocked.tasksMap, request.chunkInfo);
+    const open = calculate(request.boardlocked.state);
+    const opalTips = open.find(task => task.name === 'Cut ~|opal bolt tips|~');
+    assert.ok(opalTips?.eligible, 'the imported-run opal task begins available from Gemstone Crab loot');
+    assert.deepEqual(opalTips.encounterSources, ['Gemstone Crab']);
+    assert.equal(opalTips.encounterDetails['Gemstone Crab'].kind, 'competitive-reward');
+    const blocked = calculate(R.setEncounterBlocked(request.boardlocked.state, 'Gemstone Crab', true));
+    const crabTasks = blocked.filter(task => task.encounterSources?.includes('Gemstone Crab'));
+    assert.ok(crabTasks.length > 1, 'resource provenance finds all goals fed by the encounter rather than one named task');
+    assert.ok(crabTasks.every(task => !task.activeOrigins.some(origin => origin.sourceName === 'Gemstone Crab')),
+        'blocking the encounter removes that source from every downstream task');
+    const crabOnlyIds = new Set(open.filter(task => task.encounterSources?.includes('Gemstone Crab') &&
+        task.origins.every(origin => origin.sourceName === 'Gemstone Crab')).map(task => task.taskId));
+    assert.ok(blocked.filter(task => crabOnlyIds.has(task.taskId)).every(task => !task.eligible && task.encounterDeferred));
+    assert.ok(crabTasks.some(task => task.activeOrigins.length && !task.encounterDeferred),
+        'a task with an independent non-crab source keeps that route');
 });
 test('real worker: collection completion is ordinary snapshot completion and rates are not a cutoff', () => {
     const request = makeRequest(['5942']); request.chunkInfo.drops['Moss giant']['Curved bone']['1'] = '1/999999999';

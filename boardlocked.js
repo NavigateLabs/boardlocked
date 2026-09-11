@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 38;
+    const VERSION = 39;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -125,7 +125,7 @@
             travelAnchorSections: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
-            slayerMasters: {}, blockedBosses: {},
+            slayerMasters: {}, blockedEncounters: {},
             rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input, enablerRevision: input ? 0 : ENABLER_REVISION,
             startingSectionPolicy: input ? null : STARTING_SECTION_POLICY,
             startingQuestPointFloor: 0,
@@ -221,13 +221,14 @@
                     state.slayerMasters[master] = status;
                 }
             }
-            if (input.blockedBosses !== undefined) {
-                if (!input.blockedBosses || Array.isArray(input.blockedBosses) || typeof input.blockedBosses !== 'object') {
-                    throw new Error('Invalid blocked boss states');
+            const blockedSources = input.blockedEncounters !== undefined ? input.blockedEncounters : input.blockedBosses;
+            if (blockedSources !== undefined) {
+                if (!blockedSources || Array.isArray(blockedSources) || typeof blockedSources !== 'object') {
+                    throw new Error('Invalid blocked encounter states');
                 }
-                for (const [boss, blocked] of Object.entries(input.blockedBosses)) {
-                    if (!boss || blocked !== true) throw new Error('Invalid blocked boss state: ' + boss);
-                    state.blockedBosses[boss] = true;
+                for (const [encounter, blocked] of Object.entries(blockedSources)) {
+                    if (!encounter || blocked !== true) throw new Error('Invalid blocked encounter state: ' + encounter);
+                    state.blockedEncounters[encounter] = true;
                 }
             }
         }
@@ -1104,13 +1105,15 @@
             const origins = own(state.originOverrides, task.taskId) ? state.originOverrides[task.taskId].map(value => ({
                 ...parseLocation(value), sourceType: 'manual', sourceName: 'Manual origin', reason: 'User origin override'
             })) : task.origins;
-            const blockedBossSources = (task.bossSources || []).filter(boss => state.blockedBosses?.[boss] === true);
-            const blockedBossSet = new Set(blockedBossSources);
-            const permittedOrigins = origins.filter(origin => !(origin.sourceType === 'monsters' && blockedBossSet.has(origin.sourceName)));
-            const bossDeferred = !permittedOrigins.length && blockedBossSources.length > 0;
+            const encounterSources = task.encounterSources || task.bossSources || [];
+            const blockedState = state.blockedEncounters || state.blockedBosses || {};
+            const blockedEncounterSources = encounterSources.filter(encounter => blockedState[encounter] === true);
+            const blockedEncounterSet = new Set(blockedEncounterSources);
+            const permittedOrigins = origins.filter(origin => !blockedEncounterSet.has(origin.sourceName));
+            const encounterDeferred = !permittedOrigins.length && blockedEncounterSources.length > 0;
             const activeOrigins = permittedOrigins.filter(origin => locationAvailable(origin, unlocked, sections, manualSections));
             const activeSlayerTrainingOrigins = (task.slayerTrainingOrigins || [])
-                .filter(origin => !(origin.sourceType === 'monsters' && blockedBossSet.has(origin.sourceName)))
+                .filter(origin => !blockedEncounterSet.has(origin.sourceName))
                 .filter(origin => locationAvailable(origin, unlocked, sections, manualSections));
             const impliedByItem = impliedEquipmentCompletion(task, completedItems, state);
             const impliedByBetterEquipment = superiorEquipmentCompletion(task, completedItems, data, state);
@@ -1121,7 +1124,10 @@
                 state.actualLevels?.[task.skill] || 1) : null;
             const superseded = !!task.advancesSkillProgression && task.level <= highWater;
             const progressionBlocked = !!task.usesSkillLevelWindow && task.level > ceiling;
-            return { ...task, origins, activeOrigins, blockedBossSources, bossDeferred, activeSlayerTrainingOrigins,
+            return { ...task, origins, activeOrigins, blockedEncounterSources, encounterDeferred,
+                // Keep the old names on calculated tasks so completed visit
+                // snapshots and older integrations remain readable.
+                blockedBossSources: blockedEncounterSources, bossDeferred: encounterDeferred, activeSlayerTrainingOrigins,
                 slayerTrainingAlternative: !!task.slayerTrainingAlternative && activeSlayerTrainingOrigins.length > 0,
                 completed, implicitlyCompleted: !!impliedByItem || !!impliedByBetterEquipment,
                 completionEvidenceItem: impliedByBetterEquipment || impliedByItem,
@@ -1133,13 +1139,13 @@
                 eligibilityReason: impliedByItem ? 'Completed by obtaining ' + impliedByItem : completed ? 'Completed' : superseded ? 'At or below the highest completed ' + task.skill + ' task (level ' + highWater + ')' :
                     progressionBlocked ? 'Above the current ' + task.skill + ' progression window (next through level ' + ceiling + ')' : backlogged ? 'Backlogged' :
                     task.available === false ? task.accessResult?.reason || 'Access unavailable' : !origins.length ? 'Unassigned origin' :
-                    bossDeferred ? 'Boss deferred until you reactivate ' + blockedBossSources.join(', ') :
+                    encounterDeferred ? 'Encounter deferred until you reactivate ' + blockedEncounterSources.join(', ') :
                     !activeOrigins.length ? 'Origin geography or section is closed' : 'Eligible',
                 whyWouldBeIneligible: completed ? [impliedByItem ? 'completed by a specific acquired equipment item' : 'completed'] : [
                     ...(superseded ? ['at or below highest completed skill-task level'] : []), ...(progressionBlocked ? ['above current progression window'] : []),
                     ...(backlogged ? ['backlogged'] : []), ...(task.available === false ? [task.accessResult?.reason || 'access unavailable'] : []),
-                    ...(!origins.length ? ['no attributed origin'] : []), ...(bossDeferred ?
-                        ['boss deferred until manually reactivated: ' + blockedBossSources.join(', ')] : []),
+                    ...(!origins.length ? ['no attributed origin'] : []), ...(encounterDeferred ?
+                        ['encounter deferred until manually reactivated: ' + blockedEncounterSources.join(', ')] : []),
                     ...(permittedOrigins.length && !activeOrigins.length ? ['origin geography or section closed'] : [])
                 ] };
         });
@@ -1240,13 +1246,16 @@
             master: definition.master, assignment: definition.assignment, family: definition.family, matches };
     }
 
-    function setBossBlocked(state, boss, blocked) {
-        if (!boss || typeof boss !== 'string' || typeof blocked !== 'boolean') throw new Error('Invalid boss state');
-        const blockedBosses = { ...(state.blockedBosses || {}) };
-        if (blocked) blockedBosses[boss] = true;
-        else delete blockedBosses[boss];
-        return { ...state, blockedBosses };
+    function setEncounterBlocked(state, encounter, blocked) {
+        if (!encounter || typeof encounter !== 'string' || typeof blocked !== 'boolean') throw new Error('Invalid encounter state');
+        const blockedEncounters = { ...(state.blockedEncounters || state.blockedBosses || {}) };
+        if (blocked) blockedEncounters[encounter] = true;
+        else delete blockedEncounters[encounter];
+        const updated = { ...state, blockedEncounters };
+        delete updated.blockedBosses;
+        return updated;
     }
+    const setBossBlocked = setEncounterBlocked;
 
     // Slayer weights are probabilities within one master's assignment table.
     // They are reported for diagnostics, but never compared between masters.
@@ -1729,7 +1738,8 @@
     }
     const snapshotTask = task => ({ name: task.name, skill: task.skill, displayName: task.displayName, level: task.level || null,
         equipmentName: task.equipmentName || null, taskClass: task.taskClass || null,
-        bossSources: task.bossSources || [],
+        bossSources: task.bossSources || [], encounterSources: task.encounterSources || task.bossSources || [],
+        encounterDetails: task.encounterDetails || {},
         enablerItemKey: task.enablerItemKey || null, provesAcquiredItemKeys: task.provesAcquiredItemKeys || [],
         confirmsEquipped: !!task.confirmsEquipped, capabilities: task.capabilities || [],
         bisReason: task.bisReason || null, bisSet: task.bisSet || null,
@@ -2079,6 +2089,14 @@
         annotations = {}, dropRates = {} }) {
         const codes = data.codeItems || {}, tasks = new Map(), sourceCache = new Map(), originCache = new Map();
         const bossMonsters = new Set(Object.keys(codes.bossMonsters || {}));
+        const annotatedEncounters = annotations.encounterReadiness?.sources || {};
+        const encounterDetails = Object.fromEntries([
+            ...[...bossMonsters].map(name => [name, { sourceTypes: ['monsters'], kind: 'boss',
+                deferLabel: "I can't defeat this boss with my current gear",
+                restoreLabel: 'I am ready to fight this boss', waitingText: 'Its goals are hidden.' }]),
+            ...Object.entries(annotatedEncounters).map(([name, detail]) => [name, { ...detail,
+                sourceTypes: [...(detail.sourceTypes || ['monsters'])] }])
+        ]);
         const diagnostics = [], accessDiagnostics = [], enablerModel = buildEnablerModel(data, annotations);
         const taskCatalog = buildTaskCatalog(data, ids), dependencyDiagnostics = new Map();
         let trainingAnalysisReady = false, trainingSupportedSkills = new Set(), trainingEvidenceSkills = new Set(),
@@ -2961,10 +2979,15 @@
                     requiredLevels: capability.satisfyingItems.find(item => item.itemKey === itemKey)?.requiredLevels || {},
                     classificationReason: capability.classificationReason })) };
         }).sort((a, b) => a.itemKey.localeCompare(b.itemKey));
-        const finalTasks = [...tasks.values()].map(record => ({ ...record,
-            bossSources: [...new Set([...(record.origins || []), ...(record.slayerTrainingOrigins || [])]
-                .filter(origin => origin.sourceType === 'monsters' &&
-                bossMonsters.has(origin.sourceName)).map(origin => origin.sourceName))].sort((a, b) => a.localeCompare(b)) }));
+        const finalTasks = [...tasks.values()].map(record => {
+            const allOrigins = [...(record.origins || []), ...(record.slayerTrainingOrigins || [])];
+            const sources = [...new Set(allOrigins.filter(origin => encounterDetails[origin.sourceName]?.sourceTypes
+                .includes(origin.sourceType)).map(origin => origin.sourceName))].sort((a, b) => a.localeCompare(b));
+            return { ...record,
+                bossSources: sources.filter(source => bossMonsters.has(source)),
+                encounterSources: sources,
+                encounterDetails: Object.fromEntries(sources.map(source => [source, encounterDetails[source]])) };
+        });
         for (const record of finalTasks) if (!record.origins.length) diagnostics.push({ taskId: record.taskId,
             name: record.displayName, reason: 'No confident action/resource origin in validated source metadata. Set an origin override.' });
         if (forestry.kitItem && ((!forestryKitAcquired && !kitOrigins.length) || !forestryTreeRecords.some(record => record.validSources.length))) {
@@ -2998,7 +3021,7 @@
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
         deriveProgressionHighWater, completedSkillProgress, trainingMethodsAtOrBelow,
         initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
-        actualCombatLevel, setSlayerMasterState, setBossBlocked, slayerLockDefinition, slayerLockTargets, slayerLockStatus, slayerProgressionModel,
+        actualCombatLevel, setSlayerMasterState, setEncounterBlocked, setBossBlocked, slayerLockDefinition, slayerLockTargets, slayerLockStatus, slayerProgressionModel,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,

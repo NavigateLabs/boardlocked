@@ -258,6 +258,20 @@
                 endpoints: Object.freeze(['11316-1', '12082-1'])
             })
         ]),
+        encounterReadiness: Object.freeze({
+            // Bosses receive the default combat-readiness controls from the
+            // upstream boss registry. These entries cover other encounters
+            // whose rewards require gear-dependent personal contribution.
+            sources: Object.freeze({
+                'Gemstone Crab': Object.freeze({
+                    sourceTypes: Object.freeze(['monsters']),
+                    kind: 'competitive-reward',
+                    deferLabel: "I can't earn Gemstone Crab rewards with my current gear",
+                    restoreLabel: 'I can earn Gemstone Crab rewards now',
+                    waitingText: 'Its reward-dependent goals are hidden.'
+                })
+            })
+        }),
         persistentEnablers: Object.freeze({
             // codeItems.tools is mostly reusable implements, but these entries are
             // consumed inputs. The upstream data has no persistence flag for them.
