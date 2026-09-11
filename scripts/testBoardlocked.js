@@ -355,6 +355,54 @@ test("Achilka's rowboat offers locked destinations without unlocking them", () =
     assert.equal(arrived['5424']['3'], true);
     assert.equal(arrived['5426']['1'], true);
 });
+test('Mountain Guide connects Nemus Retreat and Quetzacalli Gorge in both directions', () => {
+    const fromNemus = { '5427': '5427' };
+    const nemusFrontier = R.deriveConnectedFrontier(chunkData, fromNemus, chunkData.walkableChunks, {}, annotations.travelConnections);
+    assert.ok(nemusFrontier.includes('5938'));
+    const nemusGraph = R.buildTravelGraph(chunkData, fromNemus, { '5427': { '1': true } }, nemusFrontier,
+        () => true, annotations.travelConnections);
+    assert.ok(nemusGraph.sectionGraph['5427-1'].includes('5938-1'));
+
+    const fromGorge = { '5938': '5938' };
+    const gorgeFrontier = R.deriveConnectedFrontier(chunkData, fromGorge, chunkData.walkableChunks, {}, annotations.travelConnections);
+    assert.ok(gorgeFrontier.includes('5427'));
+    const gorgeGraph = R.buildTravelGraph(chunkData, fromGorge, { '5938': { '1': true } }, gorgeFrontier,
+        () => true, annotations.travelConnections);
+    assert.ok(gorgeGraph.sectionGraph['5938-1'].includes('5427-1'));
+});
+test('manual transport edges require an explicitly free round trip', () => {
+    const data = { sections: { '1000': { '1': [] }, '2000': { '1': [] } } };
+    const unlocked = { '1000': '1000' }, allowed = ['1000', '2000'];
+    for (const connection of [
+        { id: 'one-way', eligibility: 'one-way', endpoints: ['1000-1', '2000-1'] },
+        { id: 'paid', eligibility: 'paid-round-trip', endpoints: ['1000-1', '2000-1'] },
+        { id: 'unreviewed', endpoints: ['1000-1', '2000-1'] }
+    ]) {
+        assert.deepEqual(R.deriveConnectedFrontier(data, unlocked, allowed, {}, [connection]), [], connection.id);
+        const graph = R.buildTravelGraph(data, unlocked, { '1000': { '1': true } }, ['2000'], () => true, [connection]);
+        assert.ok(!graph.sectionGraph['1000-1'].includes('2000-1'), connection.id);
+    }
+    assert.ok(annotations.travelConnections.every(connection => connection.eligibility === 'free-round-trip'),
+        'every configured transport must state that its return journey is free and guaranteed');
+
+    const distant = { chunks: { '1000': {}, '3000': {} }, sections: {
+        '1000': { '1': ['3000-1'] },
+        '3000': { '1': ['1000-1'] }
+    } };
+    assert.deepEqual(R.deriveConnectedFrontier(distant, unlocked, ['1000', '3000']), [],
+        'a distant source-map edge is not assumed to be free or reversible');
+    const audited = [{ id: 'audited', eligibility: 'free-round-trip', endpoints: ['1000-1', '3000-1'] }];
+    assert.deepEqual(R.deriveConnectedFrontier(distant, unlocked, ['1000', '3000'], {}, audited), ['3000']);
+
+    const paidGraph = R.buildTravelGraph(chunkData, { '10547': '10547' }, { '10547': { '1': true } },
+        ['11058', '11570'], () => true, annotations.travelConnections);
+    assert.ok(!paidGraph.sectionGraph['10547-1'].includes('11058-1'));
+    assert.ok(!paidGraph.sectionGraph['10547-1'].includes('11570-1'));
+    const wildernessGraph = R.buildTravelGraph(chunkData, { '12603': '12603' }, { '12603': { '1': true } },
+        ['12349'], () => true, annotations.travelConnections);
+    assert.ok(!wildernessGraph.sectionGraph['12603-1'].includes('12349'),
+        'the one-way Wilderness destination cannot become a roll edge');
+});
 test('the UI uses transport routes when rebuilding imported map candidates', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'boardlocked-ui.js'), 'utf8');
     const importRebuild = source.match(/function rebuildImportedFrontier\(\)[\s\S]*?\n    }/)[0];
@@ -377,14 +425,14 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=17/);
+    assert.match(html, /boardlocked-data\.js\?v=18/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl25/);
-    assert.match(html, /boardlocked\.js\?v=57/);
+    assert.match(html, /boardlocked\.js\?v=58/);
     assert.match(index, /worker\.js\?v=6\.9\.66-bl36/g);
     assert.match(ui, /worker\.js\?v=6\.9\.66-bl36/);
-    assert.match(worker, /boardlocked-data\.js\?v=17/);
-    assert.match(worker, /boardlocked\.js\?v=57/);
+    assert.match(worker, /boardlocked-data\.js\?v=18/);
+    assert.match(worker, /boardlocked\.js\?v=58/);
     assert.match(worker, /boardlocked-worker\.js\?v=20/);
     assert.match(html, /boardlocked-ui\.js\?v=75/);
     assert.match(html, /boardlocked\.css\?v=20/);

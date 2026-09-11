@@ -170,7 +170,32 @@
             Object.freeze({
                 id: 'achilka-rowboat',
                 label: "Achilka's rowboat",
+                eligibility: 'free-round-trip',
                 endpoints: Object.freeze(['4912', '5424-3', '5426-1'])
+            }),
+            Object.freeze({
+                id: 'nemus-quetzacalli-mountain-guide',
+                label: 'Mountain Guide',
+                eligibility: 'free-round-trip',
+                endpoints: Object.freeze(['5427-1', '5938-1'])
+            }),
+            Object.freeze({
+                id: 'veos-port-sarim-piscarilius',
+                label: "Veos's ship",
+                eligibility: 'free-round-trip',
+                endpoints: Object.freeze(['7225-1', '12082-1'])
+            }),
+            Object.freeze({
+                id: 'port-sarim-void-knights',
+                label: "Squire's boat",
+                eligibility: 'free-round-trip',
+                endpoints: Object.freeze(['10537-1', '12082-1'])
+            }),
+            Object.freeze({
+                id: 'port-sarim-entrana',
+                label: 'Monks of Entrana boat',
+                eligibility: 'free-round-trip',
+                endpoints: Object.freeze(['11316-1', '12082-1'])
             })
         ]),
         persistentEnablers: Object.freeze({

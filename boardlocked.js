@@ -1163,6 +1163,11 @@
     function travelConnectionPairs(connections = []) {
         const pairs = [];
         for (const connection of connections || []) {
+            // The tracker does not record coins or consumable travel supplies.
+            // Only an explicitly verified, cost-free return route may create a
+            // roll edge; all other transports stay excluded rather than risk
+            // leaving the player unable to return to their unlocked world.
+            if (connection?.eligibility !== 'free-round-trip') continue;
             const endpoints = [...new Set((connection?.endpoints || []).map(value => {
                 const parsed = parseLocation(value);
                 return parsed ? parsed.chunkId + (parsed.sectionId ? '-' + parsed.sectionId : '') : null;
@@ -1172,6 +1177,18 @@
             }
         }
         return pairs;
+    }
+
+    function localMapConnection(data, from, to) {
+        // Small isolated graph fixtures and callers without the map catalog do
+        // not have enough information to classify a link as transportation.
+        if (!data?.chunks) return true;
+        const left = parseLocation(from), right = parseLocation(to);
+        if (!left || !right) return false;
+        const leftId = Number(left.chunkId), rightId = Number(right.chunkId);
+        const leftX = Math.floor(leftId / 256), rightX = Math.floor(rightId / 256);
+        const leftY = leftId % 256, rightY = rightId % 256;
+        return Math.abs(leftX - rightX) <= 1 && Math.abs(leftY - rightY) <= 1;
     }
 
     function buildTravelGraph(data, unlocked, accessibleSections = {}, frontier = [], connectionAllowed = () => true, travelConnections = []) {
@@ -1211,6 +1228,10 @@
                     const target = parseLocation(rawTarget);
                     if (!target || !allowedChunks.has(target.chunkId)) continue;
                     const to = target.chunkId + (target.sectionId ? '-' + target.sectionId : '');
+                    // Long-distance section links are transports in the source
+                    // map. They need an audited free-round-trip annotation
+                    // instead of inheriting the walking graph's two-way edge.
+                    if (!localMapConnection(data, from, to)) continue;
                     connect(from, to);
                 }
             }
@@ -1232,7 +1253,9 @@
     function deriveConnectedFrontier(data, unlocked, allowedChunkIds = [], blacklisted = {}, travelConnections = []) {
         const allowed = new Set(allowedChunkIds.map(String)), found = new Set();
         for (const [fromChunk, sectionMap] of Object.entries(data.sections || {})) {
-            for (const connections of Object.values(sectionMap || {})) for (const rawTarget of connections || []) {
+            for (const [fromSection, connections] of Object.entries(sectionMap || {})) for (const rawTarget of connections || []) {
+                const from = fromChunk + (fromSection === '0' ? '' : '-' + fromSection);
+                if (!localMapConnection(data, from, rawTarget)) continue;
                 const target = parseLocation(rawTarget)?.chunkId;
                 if (!target || own(unlocked, fromChunk) === own(unlocked, target)) continue;
                 const lockedId = own(unlocked, fromChunk) ? target : fromChunk;
@@ -1266,6 +1289,7 @@
                         if (!target || !own(unlocked, target.chunkId)) continue;
                         const from = fromChunk + (fromSection === '0' ? '' : '-' + fromSection);
                         const to = target.chunkId + (target.sectionId ? '-' + target.sectionId : '');
+                        if (!localMapConnection(data, from, to)) continue;
                         if (!mediumConnectionAllowed(data, from, to) || !connectionAllowed(from, to) || !target.sectionId ||
                             inferred[target.chunkId]?.[target.sectionId] === true ||
                             inferred[target.chunkId]?.[target.sectionId] === false) continue;
