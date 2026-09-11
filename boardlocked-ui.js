@@ -493,7 +493,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl49');
+        worker = new Worker('./worker.js?v=6.9.66-bl50');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1019,7 +1019,7 @@
             checkbox.addEventListener('change', () => complete(task, checkbox.checked));
             checkLabel.append(checkbox, element('span', (task.level ? '[' + task.level + '] ' : '') + task.displayName));
             row.append(checkLabel);
-            if (!task.eligible) row.append(element('small', task.eligibilityReason || (task.completed ? 'Completed' : 'No longer eligible')));
+            if (!task.eligible && !task.completed) row.append(element('small', task.eligibilityReason || 'No longer eligible'));
             const tools = element('details', null, { className: 'bl-task-tools' });
             tools.append(element('summary', 'Details & options'));
             tools.append(element('pre', JSON.stringify({
@@ -1061,8 +1061,11 @@
             row.append(tools);
             return row;
         };
-        const ordered = R.clueTaskListPresentations(list).sort((a, b) => Number(!encounterGroup(a).length) - Number(!encounterGroup(b).length) ||
-            group(a).localeCompare(group(b)) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName));
+        const clueOriginFilter = snapshot && state.currentVisit ?
+            origin => R.originMatchesVisit(origin, state.currentVisit) : null;
+        const ordered = R.clueTaskListPresentations(list, clueOriginFilter)
+            .sort((a, b) => Number(!encounterGroup(a).length) - Number(!encounterGroup(b).length) ||
+                group(a).localeCompare(group(b)) || (a.level || 0) - (b.level || 0) || a.displayName.localeCompare(b.displayName));
         const categories = new Map();
         for (const task of ordered) {
             const category = group(task);

@@ -505,13 +505,13 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=25/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=73/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl49/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl49/);
+    assert.match(html, /boardlocked\.js\?v=74/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl50/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl50/);
     assert.match(worker, /boardlocked-data\.js\?v=25/);
-    assert.match(worker, /boardlocked\.js\?v=73/);
+    assert.match(worker, /boardlocked\.js\?v=74/);
     assert.match(worker, /boardlocked-worker\.js\?v=27/);
-    assert.match(html, /boardlocked-ui\.js\?v=91/);
+    assert.match(html, /boardlocked-ui\.js\?v=92/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -706,7 +706,7 @@ test('tasks activated after snapshot do not join the current visit', () => {
 test('visit rows retain their snapshotted group when later rules add clue provenance', () => {
     const live = task('armour', ['1000'], {
         skill: 'BiS', taskClass: 'bis', displayName: '[Melee upgrade body] Obtain and wear armour',
-        clueReward: { tier: 'medium', itemName: 'Armour', collection: false }
+        equipmentName: 'Armour', activeOrigins: [origin('1000'), { ...origin('2000'), clueTier: 'medium' }]
     });
     const saved = { name: live.name, skill: 'BiS', taskClass: 'bis',
         displayName: '[Melee upgrade body] Obtain and wear armour' };
@@ -714,6 +714,14 @@ test('visit rows retain their snapshotted group when later rules add clue proven
     assert.equal(displayed.clueReward, null,
         'an older ordinary visit candidate must not move into a clue group after reload');
     assert.equal(displayed.eligible, true, 'current eligibility remains live rather than snapshotted');
+    const currentVisitPresentations = R.clueTaskListPresentations([displayed],
+        candidateOrigin => R.originMatchesVisit(candidateOrigin, { locationId: '1000', arrivalSections: [] }));
+    assert.equal(currentVisitPresentations.some(task => task.clueReward), false,
+        'a clue source in another unlocked tile must not add a clue row to this visit');
+    const clueVisitPresentations = R.clueTaskListPresentations([displayed],
+        candidateOrigin => R.originMatchesVisit(candidateOrigin, { locationId: '2000', arrivalSections: [] }));
+    assert.equal(clueVisitPresentations.some(task => task.clueReward?.tier === 'medium'), true,
+        'the same mixed-source BiS retains its clue presentation at the actual clue-source visit');
 });
 test('resolved visits hide alternatives invalidated by newer source rules', () => {
     const visit = { status: 'resolved', resolution: 'task_completed', resolvedTaskId: 'done' };
@@ -3222,8 +3230,8 @@ test('clue UI groups reward goals and keeps each tier lock independent', () => {
     assert.match(ui, /Choose automatic unlock tile/);
     assert.match(ui, /function handleClueTargetTileClick\(locationId\)/);
     assert.match(index, /handleClueTargetTileClick/);
-    assert.match(ui, /R\.clueTaskListPresentations\(list\)/,
-        'BiS goals with two source kinds are rendered under both their ordinary and clue origins');
+    assert.match(ui, /R\.clueTaskListPresentations\(list, clueOriginFilter\)/,
+        'mixed-source BiS goals use clue presentations only at the current clue-source visit');
     assert.match(ui, /I received a Master clue from a casket/);
     assert.match(ui, /I received a ' \+ label \+ ' clue incidentally/,
         'every tier can record a clue obtained from a non-generating source');

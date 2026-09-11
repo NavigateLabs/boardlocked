@@ -899,9 +899,10 @@
         const match = /^Clue scroll \((beginner|easy|medium|hard|elite|master)\)$/.exec(origin?.sourceName || '');
         return match?.[1] || null;
     }
-    function clueTaskPresentations(task) {
+    function clueTaskPresentations(task, activeClueOriginFilter = null) {
         if (task?.skill !== 'BiS' || task.clueReward || task.completed || task.eligible === false) return [task];
-        const activeClueOrigins = (task.activeOrigins || []).filter(clueTierFromOrigin);
+        const activeClueOrigins = (task.activeOrigins || []).filter(origin => clueTierFromOrigin(origin) &&
+            (!activeClueOriginFilter || activeClueOriginFilter(origin, task)));
         const activeOrdinaryOrigins = (task.activeOrigins || []).filter(origin => !clueTierFromOrigin(origin));
         if (!activeClueOrigins.length) return [task];
         const allClueOrigins = (task.origins || []).filter(clueTierFromOrigin);
@@ -916,8 +917,8 @@
             [{ ...task, origins: allOrdinaryOrigins, activeOrigins: activeOrdinaryOrigins }, ...cluePresentations] :
             cluePresentations;
     }
-    function clueTaskListPresentations(tasks = []) {
-        const presentations = tasks.flatMap(clueTaskPresentations);
+    function clueTaskListPresentations(tasks = [], activeClueOriginFilter = null) {
+        const presentations = tasks.flatMap(task => clueTaskPresentations(task, activeClueOriginFilter));
         const clueBis = new Set(presentations.filter(task => task.skill === 'BiS' && task.clueReward?.itemKey)
             .map(task => task.clueReward.tier + '|' + comparableItemKey(task.clueReward.itemKey)));
         return presentations.filter(task => !(task.taskClass === 'collection' && task.skill !== 'BiS' &&
@@ -2114,10 +2115,13 @@
         if (visit?.status !== 'resolved') return true;
         return task.taskId === visit.resolvedTaskId || task.completed || task.eligible !== false;
     }
-    function taskMatchesVisit(task, visit) {
+    function originMatchesVisit(origin, visit) {
         const arrivalSections = new Set(visit.arrivalSections || []);
-        return task.activeOrigins?.some(origin => origin.chunkId === visit.locationId &&
-            (!arrivalSections.size || !origin.sectionId || arrivalSections.has(origin.sectionId)));
+        return origin?.chunkId === visit.locationId &&
+            (!arrivalSections.size || !origin.sectionId || arrivalSections.has(origin.sectionId));
+    }
+    function taskMatchesVisit(task, visit) {
+        return task.activeOrigins?.some(origin => originMatchesVisit(origin, visit));
     }
     function slayerMasterConfirmationForVisit(tasks, visit) {
         if (visit?.status !== 'pending_calculation') return null;
@@ -3943,7 +3947,7 @@
         migrateStartingSections, directStartingRequirements, mergeStartingRequirements, resolveStartingRequirements, sectionAccessAllowed,
         automaticStartingRequirementsAllowed, deriveStartingPool, deriveManualStartingPool, startingCandidateForRegion,
         chooseStartingCandidate, canRoll,
-        startVisit, slayerMasterConfirmationForVisit, snapshotVisit, mergeVisitTaskForDisplay, visitTaskVisible,
+        startVisit, slayerMasterConfirmationForVisit, snapshotVisit, mergeVisitTaskForDisplay, visitTaskVisible, originMatchesVisit,
         addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });
