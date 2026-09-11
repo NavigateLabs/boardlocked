@@ -144,6 +144,21 @@
                 Object.freeze({ skill: 'Smithing', outputIncludes: 'keel parts', family: 'ship-parts' })
             ])
         }),
+        trainingSupply: Object.freeze({
+            // Some renewable producers yield one item and then enter a local
+            // cooldown. They can satisfy a one-time objective, but only a
+            // sufficiently large group at one location can support training.
+            // Pools are deliberately location-local: identical producers in a
+            // distant chunk do not shorten one another's recovery cycle.
+            localCooldownProducers: Object.freeze([
+                Object.freeze({
+                    tasks: Object.freeze(['Shear alpaca*', 'Shear sheep*']),
+                    sourceType: 'npcs',
+                    sources: Object.freeze(['Alpaca', 'Sheep']),
+                    minimumLocalCount: 5
+                })
+            ])
+        }),
         unavailableItemSources: Object.freeze({
             // Although the wreck visually contains this item, accounts cannot
             // take it. Keep every other small-net source available.

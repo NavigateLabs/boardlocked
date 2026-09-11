@@ -2224,11 +2224,29 @@
             const found = Object.entries(spawns).find(([name]) => comparableItemKey(name) === comparableItemKey(itemName));
             return Number(found?.[1] || 0);
         };
+        const sourceField = Object.freeze({ npcs: 'NPC', objects: 'Object', monsters: 'Monster', shops: 'Shop', spawn: 'Spawn' });
+        const localSourceCount = (origin, names) => {
+            const chunk = data.chunks?.[origin.chunkId];
+            if (!chunk) return 0;
+            const container = origin.sectionId ? chunk.Sections?.[origin.sectionId] : chunk;
+            const sources = container?.[sourceField[origin.sourceType]] || {};
+            const wanted = new Set((names || []).map(comparableItemKey));
+            return Object.entries(sources).reduce((total, [name, count]) =>
+                total + (wanted.has(comparableItemKey(name)) ? Number(count || 0) : 0), 0);
+        };
+        const producerSupportsTraining = (name, skill, origins) => {
+            const matching = (annotations.trainingSupply?.localCooldownProducers || []).filter(rule =>
+                (!rule.skill || rule.skill === skill) && (rule.tasks || []).includes(name));
+            if (!matching.length) return true;
+            return matching.some(rule => origins.some(origin => origin.sourceType === rule.sourceType &&
+                (rule.sources || []).some(source => comparableItemKey(source) === comparableItemKey(origin.sourceName)) &&
+                localSourceCount(origin, rule.sources) >= Number(rule.minimumLocalCount || 1)));
+        };
         function directRepeatableItem(itemName) {
-            const entries = itemSourceEntries(itemName), totalSpawns = entries
-                .filter(([, type]) => String(type).includes('spawn'))
-                .reduce((sum, [source]) => sum + spawnCount(itemName, source), 0);
-            if (totalSpawns >= 2) return true;
+            const entries = itemSourceEntries(itemName);
+            // Separate distant spawn points are separate waiting cycles. Only
+            // one local pile containing multiple copies establishes training.
+            if (entries.some(([source, type]) => String(type).includes('spawn') && spawnCount(itemName, source) >= 2)) return true;
             return entries.some(([source, type]) => {
                 if (type === 'shop' && base.shops?.[source]) return true;
                 if (String(type).includes('drop')) {
@@ -2252,7 +2270,9 @@
             while (changed && passes++ < allTasks.length + SKILLS.length) {
                 changed = false;
                 for (const { name, skill, meta } of allTasks) {
-                    if (!own(valids[skill] || {}, name) || !taskOrigins(name, skill).length) continue;
+                    if (!own(valids[skill] || {}, name)) continue;
+                    const origins = taskOrigins(name, skill);
+                    if (!origins.length) continue;
                     const level = Number(meta.Level || 1), known = knownSkillLevel(skill);
                     if (SKILLS.includes(skill) && level > known &&
                         (!trainingSupportedSkills.has(skill) || level > skillCeiling(skill))) continue;
@@ -2274,7 +2294,7 @@
                         trainingSupportedSkills.add(skill); methods.set(skill, new Set([name])); changed = true;
                     } else if (SKILLS.includes(skill) && meta.Primary === true && !meta.NoXp && level <= known &&
                         trainingSupportedSkills.has(skill)) methods.get(skill)?.add(name);
-                    if (meta.Output) {
+                    if (meta.Output && producerSupportsTraining(name, skill, origins)) {
                         const output = comparableItemKey(meta.Output);
                         if (!repeatableItems.has(output)) { repeatableItems.add(output); changed = true; }
                     }

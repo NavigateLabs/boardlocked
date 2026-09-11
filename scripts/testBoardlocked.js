@@ -362,14 +362,14 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=16/);
+    assert.match(html, /boardlocked-data\.js\?v=17/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl24/);
-    assert.match(html, /boardlocked\.js\?v=55/);
+    assert.match(html, /boardlocked\.js\?v=56/);
     assert.match(index, /worker\.js\?v=6\.9\.66-bl35/g);
     assert.match(ui, /worker\.js\?v=6\.9\.66-bl35/);
-    assert.match(worker, /boardlocked-data\.js\?v=16/);
-    assert.match(worker, /boardlocked\.js\?v=55/);
+    assert.match(worker, /boardlocked-data\.js\?v=17/);
+    assert.match(worker, /boardlocked\.js\?v=56/);
     assert.match(worker, /boardlocked-worker\.js\?v=19/);
     assert.match(html, /boardlocked-ui\.js\?v=74/);
     assert.match(html, /boardlocked\.css\?v=20/);
@@ -1637,6 +1637,142 @@ test('one item spawn permits one objective but cannot establish a training loop'
     const mineAndFurnace = calculate([...baseChunks, '12849']);
     assert.ok(mineAndFurnace); assert.equal(mineAndFurnace.available, true,
         'repeatable copper and tin plus the existing furnace create a real Smithing training loop');
+});
+
+test('distant item spawns do not combine into a local training supply', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges.Cooking = {
+        Cook: { Items: ['Raw food*'], Objects: ['Cooking object[+]'], Level: 1, Primary: true, Output: 'Cooked food' },
+        Better: { Objects: ['Fire'], Level: 15, Primary: true }
+    };
+    fixture.data.chunks = {
+        '1000': { Spawn: { 'Raw food': 1 }, Object: { Fire: 1 } },
+        '2000': { Spawn: { 'Raw food': 1 } }
+    };
+    fixture.base.items = { 'Raw food': { '1000': 'spawn', '2000': 'spawn' } };
+    fixture.valids = { Cooking: { Cook: 1, Better: 15 } };
+    fixture.ids = { Cook: 'cook', Better: 'better' };
+    fixture.state.progressionHighWater.Cooking = 1;
+    fixture.state.progressionInitialized = true;
+    fixture.unlocked = { '1000': '1000', '2000': '2000' };
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Cook').available, true,
+        'one local spawn still supplies its one-time objective');
+    assert.equal(tasks.find(task => task.name === 'Better').available, false,
+        'one spawn in each of two distant chunks is not one usable rotation');
+
+    fixture.data.chunks['1000'].Spawn['Raw food'] = 2;
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Better').available, true,
+        'multiple copies at one location establish a local supply');
+});
+
+test('single-charge producers need a sufficiently large local pool for training', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges = {
+        Crafting: {
+            Spin: { Items: ['Wool*'], Objects: ['Spinning wheel'], Level: 1, Primary: true, Output: 'Ball of wool' },
+            Advanced: { Objects: ['Spinning wheel'], Level: 11, Primary: true }
+        },
+        Nonskill: {
+            'Shear alpaca*': { Items: ['Shears'], NPCs: ['Alpaca'], Output: 'Wool' }
+        }, Extra: {}, Quest: {}, Diary: {}
+    };
+    fixture.data.chunks = {
+        '1000': { NPC: { Alpaca: 1 }, Object: { 'Spinning wheel': 1 } },
+        '2000': { NPC: { Alpaca: 4 } }
+    };
+    fixture.base = {
+        objects: { 'Spinning wheel': { '1000': true } },
+        monsters: {}, shops: {},
+        npcs: { Alpaca: { '1000': true, '2000': true } },
+        items: { Wool: { 'Shear alpaca*': 'primary-Nonskill' } }
+    };
+    fixture.valids = { Crafting: { Spin: 1, Advanced: 11 }, Nonskill: { 'Shear alpaca*': true } };
+    fixture.ids = { Spin: 'spin', Advanced: 'advanced', 'Shear alpaca*': 'shear' };
+    fixture.state.progressionHighWater.Crafting = 1;
+    fixture.state.progressionInitialized = true;
+    fixture.state.acquiredEnablers.Shears = { manual: true };
+    fixture.unlocked = { '1000': '1000', '2000': '2000' };
+    fixture.annotations = annotations;
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Spin').available, true,
+        'one alpaca still supplies the one-time wool objective');
+    assert.equal(tasks.find(task => task.name === 'Advanced').available, false);
+    assert.match(tasks.find(task => task.name === 'Advanced').accessResult.reason,
+        /No repeatable Crafting training method/);
+
+    fixture.data.chunks['1000'].NPC.Alpaca = 5;
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Advanced').available, true,
+        'a sufficient group in one location supports the training chain');
+});
+
+test('unclassified producers retain their normal repeatable training behavior', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges = {
+        Crafting: {
+            Process: { Items: ['Bucket of milk*'], Objects: ['Churn'], Level: 1, Primary: true, Output: 'Dairy product' },
+            Advanced: { Objects: ['Churn'], Level: 11, Primary: true }
+        },
+        Nonskill: {
+            'Milk dairy buffalo*': { Items: ['Bucket'], NPCs: ['Dairy Buffalo'], Output: 'Bucket of milk' }
+        }, Extra: {}, Quest: {}, Diary: {}
+    };
+    fixture.data.chunks = {
+        '1000': { NPC: { 'Dairy Buffalo': 1 }, Object: { Churn: 1 } }
+    };
+    fixture.base = {
+        objects: { Churn: { '1000': true } }, monsters: {}, shops: {},
+        npcs: { 'Dairy Buffalo': { '1000': true } },
+        items: { 'Bucket of milk': { 'Milk dairy buffalo*': 'primary-Nonskill' } }
+    };
+    fixture.valids = { Crafting: { Process: 1, Advanced: 11 }, Nonskill: { 'Milk dairy buffalo*': true } };
+    fixture.ids = { Process: 'process', Advanced: 'advanced', 'Milk dairy buffalo*': 'milk' };
+    fixture.state.progressionHighWater.Crafting = 1;
+    fixture.state.progressionInitialized = true;
+    fixture.state.acquiredEnablers.Bucket = { manual: true };
+    fixture.unlocked = { '1000': '1000' };
+    fixture.annotations = annotations;
+    const tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Advanced').available, true,
+        'new producer types stay usable until their actual supply mechanic is classified');
+});
+
+test('ordinary shop stock and alternative shop paths remain sustainable training supplies', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges.Crafting = {
+        Melt: { Items: ['Bucket of sand*', 'Soda ash*'], Objects: ['Furnace'], Level: 1, Primary: true, Output: 'Molten glass' },
+        Blow: { Items: ['Molten glass*', 'Glassblowing pipe'], Level: 1, Primary: true, Output: 'Glass item' },
+        Advanced: { Objects: ['Furnace'], Level: 11, Primary: true }
+    };
+    fixture.data.challenges.Nonskill = {
+        Limited: { NPCs: ['Alpaca'], Output: 'Soda ash' }
+    };
+    fixture.data.chunks = {
+        '1000': { NPC: { Alpaca: 1 }, Object: { Furnace: 1 }, Shop: { Charter: true } }
+    };
+    fixture.base = {
+        objects: { Furnace: { '1000': true } }, monsters: {}, npcs: { Alpaca: { '1000': true } },
+        shops: { Charter: { '1000': true } },
+        items: {
+            'Bucket of sand': { Charter: 'shop' },
+            'Soda ash': { Limited: 'primary-Nonskill', Charter: 'shop' },
+            'Molten glass': { Melt: 'primary-Crafting' }
+        }
+    };
+    fixture.valids = { Crafting: { Melt: 1, Blow: 1, Advanced: 11 }, Nonskill: { Limited: true } };
+    fixture.ids = { Melt: 'melt', Blow: 'blow', Advanced: 'advanced', Limited: 'limited' };
+    fixture.state.progressionHighWater.Crafting = 1;
+    fixture.state.progressionInitialized = true;
+    fixture.state.acquiredEnablers['Glassblowing pipe'] = { manual: true };
+    fixture.unlocked = { '1000': '1000' };
+    fixture.annotations = { trainingSupply: { localCooldownProducers: [{
+        tasks: ['Limited'], sourceType: 'npcs', sources: ['Alpaca'], minimumLocalCount: 5
+    }] } };
+    const tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Advanced').available, true,
+        'the normal shop path overrides the limited NPC path');
 });
 
 test('a rare one-time ingredient does not prove a repeatable training route', () => {
