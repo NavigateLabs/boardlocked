@@ -865,9 +865,10 @@
                     const heading = element('div', null, { className: 'bl-boss-heading' });
                     heading.append(element('h4', category));
                     for (const boss of bosses) {
-                        const defer = element('button', bosses.length === 1 ? 'Hide tasks until ready' : 'Hide ' + boss + ' tasks',
+                        const defer = element('button', bosses.length === 1 ? "I can't defeat this boss with my current gear" :
+                            "I can't defeat " + boss + ' with my current gear',
                             { type: 'button', className: 'bl-boss-defer', onclick: () => deferBoss(boss) });
-                        defer.setAttribute('aria-label', 'Hide ' + boss + ' tasks until I am ready');
+                        defer.setAttribute('aria-label', "I can't defeat " + boss + ' with my current gear');
                         defer.title = 'Hide these boss tasks until you reactivate them';
                         defer.disabled = !canEdit() || busy; heading.append(defer);
                     }
