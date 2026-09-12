@@ -7,6 +7,7 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const R = require('../boardlocked');
 const annotations = require('../boardlocked-data');
+const monsterCombatLevels = require('../boardlocked-combat-data');
 const chunkData = require('../chunkpicker-chunkinfo-export.json');
 const { makeRequest, usePreset, runWorker, declaration, declarationFrom } = require('./boardlockedTestHarness');
 const testShardCount = Math.max(1, Number.parseInt(process.env.BOARDLOCKED_TEST_SHARD_COUNT || '1', 10));
@@ -502,16 +503,18 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-data\.js\?v=25/);
+    assert.match(html, /boardlocked-combat-data\.js\?v=1/);
+    assert.match(html, /boardlocked-data\.js\?v=26/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=79/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl55/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl55/);
-    assert.match(worker, /boardlocked-data\.js\?v=25/);
-    assert.match(worker, /boardlocked\.js\?v=79/);
-    assert.match(worker, /boardlocked-worker\.js\?v=29/);
-    assert.match(html, /boardlocked-ui\.js\?v=97/);
+    assert.match(html, /boardlocked\.js\?v=80/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl57/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl57/);
+    assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
+    assert.match(worker, /boardlocked-data\.js\?v=26/);
+    assert.match(worker, /boardlocked\.js\?v=80/);
+    assert.match(worker, /boardlocked-worker\.js\?v=31/);
+    assert.match(html, /boardlocked-ui\.js\?v=98/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -2190,6 +2193,115 @@ test('rare supplies remain valid for reward goals and registered encounter activ
     tasks = R.buildTasks(fixture).tasks;
     assert.equal(tasks.find(task => task.name === 'Ordinary').available, true,
         'after registering the reward, the encounter decision governs its downstream ordinary goals');
+});
+
+test('ordinary monster completions advance one shared combat frontier and level 60 releases it', () => {
+    let state = fresh();
+    const barbarian = { taskId: 'barbarian-drop', combatProgressionCutoff: 60,
+        origins: [{ chunkId: '1000', sectionId: null, sourceType: 'monsters', sourceName: 'Barbarian' }],
+        activeOrigins: [{ chunkId: '1000', sectionId: null, sourceType: 'monsters', sourceName: 'Barbarian' }],
+        combatEvidenceSources: [{ monster: 'Barbarian', level: 23 }] };
+    state = R.recordCombatTaskCompletion(state, barbarian, '1000', '2026-01-01T00:00:00.000Z');
+    assert.deepEqual(state.combatProgression, { frontier: 23, mature: false, evidence: [{
+        monster: 'Barbarian', level: 23, taskId: 'barbarian-drop', completedAt: '2026-01-01T00:00:00.000Z'
+    }] });
+    const mixed = { ...barbarian, taskId: 'mixed-source', activeOrigins: [...barbarian.activeOrigins,
+        { chunkId: '1000', sectionId: null, sourceType: 'shops', sourceName: 'Weapon shop' }],
+        combatEvidenceSources: [{ monster: 'Barbarian', level: 55 }] };
+    assert.equal(R.recordCombatTaskCompletion(state, mixed, '1000'), state,
+        'an alternative non-monster source cannot manufacture combat evidence');
+    const threshold = { ...barbarian, taskId: 'threshold',
+        combatEvidenceSources: [{ monster: 'Threshold creature', level: 64 }],
+        origins: [{ chunkId: '1000', sectionId: null, sourceType: 'monsters', sourceName: 'Threshold monster' }],
+        activeOrigins: [{ chunkId: '1000', sectionId: null, sourceType: 'monsters', sourceName: 'Threshold monster' }] };
+    threshold.combatEvidenceSources[0].monster = 'Threshold monster';
+    state = R.recordCombatTaskCompletion(state, threshold, '1000');
+    assert.equal(state.combatProgression.frontier, 60);
+    assert.equal(state.combatProgression.mature, true, 'crossing 60 does not require an exactly level-60 monster');
+    assert.deepEqual(R.normalizeState(state).combatProgression, state.combatProgression);
+    const oldState = fresh();
+    oldState.version = 51;
+    delete oldState.combatProgression;
+    assert.deepEqual(R.normalizeState(oldState).combatProgression,
+        { frontier: 60, mature: true, evidence: [] },
+        'old saves retain their pre-rule unrestricted combat graph because they have no historical monster evidence');
+});
+
+test('every mapped ordinary monster resource source has combat-level data or a dedicated progression system', () => {
+    const sources = new Set();
+    for (const chunk of Object.values(chunkData.chunks || {})) {
+        Object.keys(chunk.Monster || {}).forEach(monster => sources.add(monster));
+        for (const section of Object.values(chunk.Sections || {})) {
+            Object.keys(section.Monster || {}).forEach(monster => sources.add(monster));
+        }
+    }
+    const bosses = new Set(Object.keys(chunkData.codeItems?.bossMonsters || {}));
+    const encounters = new Set(Object.keys(annotations.encounterReadiness?.sources || {}));
+    const missing = [...sources].filter(monster => Object.keys(chunkData.drops?.[monster] || {}).length &&
+        monsterCombatLevels[monster] == null && monsterCombatLevels[monster.replace(/\[\+\]$/, '')] == null &&
+        !bosses.has(monster) && !encounters.has(monster) && Number(chunkData.slayerMonsters?.[monster] || 1) <= 1);
+    assert.deepEqual(missing.sort(), []);
+});
+
+test('combat source gating removes every Hill Giant reward until food supports the ten-level step', () => {
+    const calculate = (chunks, frontier, mature = false) => {
+        const request = usePreset(makeRequest(chunks), 'Boardlocked Chunker');
+        request.boardlocked.state.combatProgression = { frontier, mature, evidence: [] };
+        const result = runWorker(request).result;
+        const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+        const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
+            result.sections, request.manualSections, catalog, request.boardlocked.tasksMap, request.chunkInfo);
+        return { result, tasks };
+    };
+    let current = calculate(['5688'], 18);
+    assert.equal(current.result.combatProgression.foodReady, false);
+    assert.equal(current.result.combatProgression.nextMonsterLimit, 18);
+    assert.equal(current.tasks.some(task => task.origins.some(origin => origin.sourceName === 'Hill Giant')), false);
+    current = calculate(['5942', '5688'], 18);
+    assert.equal(current.result.combatProgression.foodReady, true, 'repeatable chicken and a fire establish food');
+    assert.equal(current.result.combatProgression.nextMonsterLimit, 28);
+    assert.ok(current.tasks.some(task => task.origins.some(origin => origin.sourceName === 'Hill Giant')));
+    current = calculate(['5688'], 60, true);
+    assert.equal(current.result.combatProgression.nextMonsterLimit, null);
+    assert.ok(current.tasks.some(task => task.origins.some(origin => origin.sourceName === 'Hill Giant')),
+        'post-cutoff ordinary monster sources have no numerical ceiling');
+});
+
+test('combat evidence gives quests the same ten-level window and resource skills need renewable supplies', () => {
+    const state = fresh();
+    state.combatProgression = { frontier: 23, mature: false, evidence: [] };
+    const data = { challenges: { Quest: {
+        Near: { Skills: { Strength: 33 }, Chunks: ['1000'] },
+        Far: { Skills: { Strength: 34 }, Chunks: ['1000'] },
+        'Near combat': { Skills: { Combat: 33 }, Chunks: ['1000'] },
+        'Far combat': { Skills: { Combat: 34 }, Chunks: ['1000'] }
+    }, Extra: {}, BiS: {} }, chunks: { '1000': {} },
+    codeItems: { itemsPlus: {}, chunksPlus: {}, tasksPlus: {}, objectsPlus: {}, npcsPlus: {}, monstersPlus: {}, bossMonsters: {} },
+    equipment: {}, drops: {}, taskUnlocks: { Items: {} }, slayerMonsters: {} };
+    const fixture = { data, valids: { Quest: { Near: true, Far: true, 'Near combat': true, 'Far combat': true }, Extra: {}, BiS: {} },
+        base: { objects: {}, npcs: {}, monsters: {}, shops: {}, items: {} },
+        rules: { 'Show Quest Tasks': true }, state, unlocked: { '1000': '1000' }, annotations };
+    const result = R.buildTasks(fixture);
+    assert.equal(result.tasks.find(task => task.name === 'Near').available, true);
+    assert.equal(result.tasks.find(task => task.name === 'Far').available, false);
+    assert.match(result.tasks.find(task => task.name === 'Far').accessResult.reason, /through 33/);
+    assert.equal(result.tasks.find(task => task.name === 'Near combat').available, true);
+    assert.equal(result.tasks.find(task => task.name === 'Far combat').available, false,
+        'the Combat pseudo-skill follows the same inferred frontier');
+    fixture.state.combatProgression = { frontier: 60, mature: true, evidence: [] };
+    assert.equal(R.buildTasks(fixture).tasks.find(task => task.name === 'Far combat').available, true,
+        'after the cutoff, explicit combat-level requirements are unrestricted');
+
+    const supply = chunks => {
+        const request = usePreset(makeRequest(chunks), 'Boardlocked Chunker');
+        request.boardlocked.state.combatProgression = { frontier: 1, mature: false, evidence: [] };
+        return runWorker(request).result.combatProgression.trainingSupply;
+    };
+    assert.deepEqual(supply(['5942']), { Ranged: false, Magic: false, Prayer: true },
+        'repeatable bones activate Prayer without inventing arrows or runes');
+    const lumbridge = supply(['12850']);
+    assert.equal(lumbridge.Ranged, true, 'a compatible weapon and renewable ammunition activate Ranged');
+    assert.equal(lumbridge.Magic, true, 'renewable mind plus elemental runes or a staff activate Magic');
 });
 
 test('a task in one disconnected section does not block a free route through another section', () => {

@@ -203,7 +203,8 @@ function blActualPrerequisites(skill, name) {
     // The action's level may require training. Only quest/diary progress is
     // substituted here; source-access levels are handled by blAccess separately.
     if (meta?.QuestPointsNeeded > blAccess.actualQuestPoints) return false;
-    if (meta?.CombatLevelNeeded > blAccess.actualCombatLevel) return false;
+    if (meta?.CombatLevelNeeded > Boardlocked.combatProgressionRequirementLevel(
+        blContext.state, blAccess.actualCombatLevel)) return false;
     if (meta?.TotalLevelNeeded > Object.values(blContext.state.actualLevels).reduce((sum, level) => sum + level, 0)) return false;
     return Object.entries(meta?.Tasks || {}).filter(([, category]) => category === 'Quest' || category === 'Diary')
         .every(([sub, category]) => Boardlocked.expand(sub, tasksPlus).some(n => blAccess.task(n, category).allowed));

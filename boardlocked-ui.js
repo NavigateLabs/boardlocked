@@ -493,7 +493,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl55');
+        worker = new Worker('./worker.js?v=6.9.66-bl57');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -561,7 +561,7 @@
                     accessOverrides: state.accessOverrides, acquiredEnablers: state.acquiredEnablers,
                     slayerMasters: state.slayerMasters, blockedEncounters: state.blockedEncounters,
                     clueLocks: state.clueLocks, clueTaskCooldown: state.clueTaskCooldown,
-                    incidentalClues: state.incidentalClues },
+                    incidentalClues: state.incidentalClues, combatProgression: state.combatProgression },
                 checkedAllTasks, tasksMap, unlocked: tempChunks.unlocked || {} } });
         render();
     }
@@ -799,6 +799,7 @@
             if (task.taskClass === 'enabler' && task.enablerItemKey) delete state.acquiredEnablers[task.enablerItemKey];
         } else {
             (target[task.skill] ||= {})[task.taskClass === 'enabler' ? task.taskId : task.name] = true;
+            state = R.recordCombatTaskCompletion(state, task, state.currentVisit?.locationId || null);
             if (clueReward) (checkedAllTasks.Extra ||= {})[clueReward.name] = true;
             if (task.clueReward && !task.clueReward.incidental) state.clueTaskCooldown = 1;
             else if (!task.clueReward) state.clueTaskCooldown = 0;

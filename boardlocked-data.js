@@ -1,9 +1,10 @@
 /* Small local annotations for rules the upstream task metadata cannot express. */
 (function (root, factory) {
-    const data = factory();
+    const combatData = typeof module === 'object' && module.exports ? require('./boardlocked-combat-data') : root.BoardlockedCombatData;
+    const data = factory(combatData || {});
     if (typeof module === 'object' && module.exports) module.exports = data;
     else root.BoardlockedData = data;
-})(typeof self !== 'undefined' ? self : globalThis, function () {
+})(typeof self !== 'undefined' ? self : globalThis, function (monsterCombatLevels) {
     'use strict';
     return Object.freeze({
         initialization: Object.freeze({
@@ -218,6 +219,33 @@
                     sources: Object.freeze(['Alpaca', 'Sheep']),
                     minimumLocalCount: 5
                 })
+            ])
+        }),
+        combatProgression: Object.freeze({
+            cutoff: 60,
+            window: 10,
+            monsterCombatLevels,
+            // Any locally repeatable ordinary food is enough to make the
+            // next ten-level combat step reasonable. These groups deliberately
+            // describe food, rather than particular shops or monsters.
+            foodGroups: Object.freeze(['FishMeatVeggies[+]', 'Enakhra\'s Lament food[+]']),
+            prayerResourceGroups: Object.freeze(['Bones[+]']),
+            prayerResourceItems: Object.freeze([
+                'Fiendish ashes', 'Vile ashes', 'Malicious ashes', 'Abyssal ashes', 'Infernal ashes'
+            ]),
+            // Ranged ammunition is renewable when a compatible ordinary weapon
+            // and one of these families has a repeatable source. Consumable
+            // thrown weapons are detected from equipment metadata separately.
+            rangedFamilies: Object.freeze([
+                Object.freeze({ weaponPattern: '(^|[^s])bow$', ammunitionPattern: 'arrow' }),
+                Object.freeze({ weaponPattern: 'crossbow$', ammunitionPattern: 'bolt' })
+            ]),
+            magicCatalyticItems: Object.freeze(['Mind rune']),
+            magicElementalGroup: 'Elemental rune[+]',
+            magicElementalStaves: Object.freeze([
+                'Staff of air', 'Staff of water', 'Staff of earth', 'Staff of fire',
+                'Air battlestaff', 'Water battlestaff', 'Earth battlestaff', 'Fire battlestaff',
+                'Mystic air staff', 'Mystic water staff', 'Mystic earth staff', 'Mystic fire staff'
             ])
         }),
         recipeSupply: Object.freeze({

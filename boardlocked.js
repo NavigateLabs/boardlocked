@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 51;
+    const VERSION = 52;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -135,6 +135,7 @@
             travelAnchorSections: null,
             visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
+            combatProgression: { frontier: 1, mature: false, evidence: [] },
             slayerMasters: {}, blockedEncounters: {}, clueLocks: {}, clueTaskCooldown: 0,
             incidentalClues: { master: 0 },
             rulePresetRevision: 0, acquiredEnablers: {}, enablersInitialized: !input, enablerRevision: input ? 0 : ENABLER_REVISION,
@@ -274,6 +275,30 @@
                     }
                     state.incidentalClues[tier] = count;
                 }
+            }
+            if (input.combatProgression !== undefined) {
+                const combat = input.combatProgression;
+                if (!combat || Array.isArray(combat) || typeof combat !== 'object' ||
+                    !Number.isInteger(combat.frontier) || combat.frontier < 1 || combat.frontier > 60 ||
+                    typeof combat.mature !== 'boolean' || !Array.isArray(combat.evidence)) {
+                    throw new Error('Invalid combat progression state');
+                }
+                state.combatProgression = {
+                    frontier: combat.frontier,
+                    mature: combat.mature,
+                    evidence: combat.evidence.filter(entry => entry && typeof entry.monster === 'string' &&
+                        Number.isInteger(entry.level) && entry.level >= 1).map(entry => ({
+                            monster: entry.monster, level: entry.level,
+                            taskId: typeof entry.taskId === 'string' ? entry.taskId : null,
+                            completedAt: typeof entry.completedAt === 'string' ? entry.completedAt : null
+                        })).slice(-100)
+                };
+                if (state.combatProgression.mature) state.combatProgression.frontier = 60;
+            } else if (Number(input.version) < 52) {
+                // Older saves were generated before monster completions recorded
+                // combat evidence. Preserve their already-unrestricted combat
+                // graph instead of pretending those established runs are fresh.
+                state.combatProgression = { frontier: 60, mature: true, evidence: [] };
             }
         }
         for (const skill of SKILLS) {
@@ -1277,6 +1302,32 @@
         return { ...state, progressionInitialized: true,
             progressionHighWater: { ...state.progressionHighWater, [skill]: level } };
     }
+    function recordCombatTaskCompletion(state, task, locationId = null, completedAt = null) {
+        const evidenceSources = task?.combatEvidenceSources || [];
+        if (!evidenceSources.length) return state;
+        const visit = locationId && parseLocation(locationId);
+        const origins = (task.activeOrigins || task.origins || []).filter(origin => !visit ||
+            (origin.chunkId === visit.chunkId && (!visit.sectionId || !origin.sectionId || origin.sectionId === visit.sectionId)));
+        // When the same objective can be completed through a shop, spawn, or
+        // activity in this visit, checking it does not prove that a monster was
+        // defeated. Prefer missing evidence over inflating the combat frontier.
+        if (!origins.length || origins.some(origin => origin.sourceType !== 'monsters')) return state;
+        const names = new Set(origins.map(origin => origin.sourceName));
+        const candidates = evidenceSources.filter(source => names.has(source.monster));
+        if (!candidates.length) return state;
+        const level = Math.min(...candidates.map(source => source.level));
+        if (!Number.isFinite(level)) return state;
+        const cutoff = Number(task.combatProgressionCutoff) || 60;
+        const current = state.combatProgression || { frontier: 1, mature: false, evidence: [] };
+        const entry = { monster: candidates.find(source => source.level === level).monster, level,
+            taskId: task.taskId || null, completedAt: completedAt || new Date().toISOString() };
+        const evidence = [...(current.evidence || []).filter(old => old.taskId !== entry.taskId), entry].slice(-100);
+        return { ...state, combatProgression: {
+            frontier: Math.min(cutoff, Math.max(Number(current.frontier) || 1, level)),
+            mature: current.mature || level >= cutoff,
+            evidence
+        } };
+    }
     function skillMilestones(catalog, legacy, ids = {}) {
         // Compatibility view for integrations that inspect completed milestones.
         const done = completionIds(legacy, ids), levels = {};
@@ -1555,6 +1606,13 @@
         return Math.floor(((levels.Defence || 1) + (levels.Hitpoints || 10) + Math.floor((levels.Prayer || 1) / 2)) / 4 +
             .325 * Math.max((levels.Attack || 1) + (levels.Strength || 1), Math.floor((levels.Ranged || 1) * 1.5),
                 Math.floor((levels.Magic || 1) * 1.5)));
+    }
+
+    function combatProgressionRequirementLevel(state = {}, actualLevel = 3, cutoff = 60, window = 10) {
+        const progression = state.combatProgression || {};
+        if (progression.mature) return 126;
+        const frontier = Math.max(1, Math.min(cutoff, Number(progression.frontier) || 1));
+        return Math.max(Number(actualLevel) || 3, Math.min(126, frontier + window));
     }
 
     function setSlayerMasterState(state, master, status) {
@@ -2721,6 +2779,7 @@
                 (completed(name, 'Quest') ? Number(task.QuestPoints || 0) : 0), 0));
         const combat = () => Math.floor((state.actualLevels.Defence + state.actualLevels.Hitpoints + Math.floor(state.actualLevels.Prayer / 2)) / 4 +
             .325 * Math.max(state.actualLevels.Attack + state.actualLevels.Strength, Math.floor(state.actualLevels.Ranged * 1.5), Math.floor(state.actualLevels.Magic * 1.5)));
+        const combatRequirement = () => combatProgressionRequirementLevel(state, combat());
         function task(name, skill, visiting = new Set()) {
             name = name.split('--')[0];
             const key = 'task:' + taskId(name, skill, ids);
@@ -2748,7 +2807,7 @@
             const levels = { ...meta.Skills, ...meta.SkillsNeeded };
             if (meta.Level != null && SKILLS.includes(skill)) levels[skill] = meta.Level;
             for (const [s, level] of Object.entries(levels)) {
-                const current = s === 'Combat' ? combat() : state.actualLevels[s];
+                const current = s === 'Combat' ? combatRequirement() : state.actualLevels[s];
                 if (current == null) return finish(false, 'Unknown access skill: ' + s, true);
                 if (current < level) return finish(false, 'Requires actual ' + s + ' ' + level + ' (current ' + current + ')');
             }
@@ -2761,7 +2820,7 @@
             }
             if (done) return finish(true, 'Actually completed; actual access levels and geography met');
             if (meta.QuestPointsNeeded > actualPoints) return finish(false, 'Requires actual quest points: ' + meta.QuestPointsNeeded);
-            if (meta.CombatLevelNeeded > combat()) return finish(false, 'Requires actual combat level: ' + meta.CombatLevelNeeded);
+            if (meta.CombatLevelNeeded > combatRequirement()) return finish(false, 'Requires combat level: ' + meta.CombatLevelNeeded);
             if (meta.TotalLevelNeeded > Object.values(state.actualLevels).reduce((a, b) => a + b, 0)) return finish(false, 'Requires actual total level');
             for (const [sub, category] of Object.entries(meta.Tasks || {})) {
                 const choices = expand(sub, codes.tasksPlus);
@@ -2832,7 +2891,7 @@
         const masterClueInputs = clueConfig.masterInputs || ['easy', 'medium', 'hard', 'elite'];
         const masterClueSource = clueConfig.masterPersistentSource || 'Watson';
         let trainingAnalysisReady = false, trainingSupportedSkills = new Set(), trainingEvidenceSkills = new Set(),
-            trainingMethodsBySkill = new Map();
+            trainingMethodsBySkill = new Map(), repeatableItems = new Set();
         const pendingCapabilities = new Map();
         const slayerProgression = slayerProgressionModel({ data, state, legacy, base, ids, unlocked, sections, manualSections });
         const shipCombat = annotations.shipCombat || {};
@@ -2844,6 +2903,32 @@
             }
         }
         const shipCannonCapability = enablerModel.byRequirement.get(shipCombat.capabilityRequirement || '');
+        const combatConfig = annotations.combatProgression || {};
+        const combatCutoff = Number(combatConfig.cutoff) || 60;
+        const combatWindow = Number(combatConfig.window) || 10;
+        const combatState = state.combatProgression || { frontier: 1, mature: false, evidence: [] };
+        const combatFrontier = combatState.mature ? combatCutoff : Math.max(1,
+            Math.min(combatCutoff, Number(combatState.frontier) || 1));
+        let combatFoodReady = false;
+        let combatTrainingSupply = { Ranged: false, Magic: false, Prayer: false };
+        const combatSkills = new Set(['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic']);
+        const monsterCombatLevel = name => {
+            const direct = Number(combatConfig.monsterCombatLevels?.[name]);
+            if (Number.isFinite(direct) && direct > 0) return direct;
+            const plain = String(name || '').replace(/\[\+\]$/, '');
+            const fallback = Number(combatConfig.monsterCombatLevels?.[plain]);
+            return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+        };
+        const monsterUsesSeparateProgression = name => bossMonsters.has(name) || own(annotatedEncounters, name) ||
+            Number(data.slayerMonsters?.[name] || 1) > 1 || shipCombatMonsters.has(name);
+        const ordinaryMonsterAllowed = name => {
+            if (combatState.mature || monsterUsesSeparateProgression(name)) return true;
+            const level = monsterCombatLevel(name);
+            // Missing data never creates a false lock. The generated snapshot
+            // covers every ordinary drop source currently known to the map.
+            if (level == null) return true;
+            return level <= combatFrontier + (combatFoodReady ? combatWindow : 0);
+        };
         const requirementFromCapability = capability => capability && ({ capabilityId: capability.capabilityId,
             capabilityLabel: capability.label, capabilitySkill: capability.skill, familyType: capability.familyType,
             satisfyingItems: capability.satisfyingItems, requirementKey: capability.requirementKey,
@@ -2857,10 +2942,21 @@
         const recipeSupply = recipeSupplyCatalog(data, annotations);
         const clueSources = clueSourceCatalog(data, annotations);
         const recipeSupplySkills = new Set(recipeSupply.skills);
-        const knownSkillLevel = skill => Math.max(1, Number(state.actualLevels?.[skill] || 1),
-            Number(state.progressionHighWater?.[skill] || 0));
-        const skillCeiling = skill => progressionCeiling(taskCatalog, skill,
-            Number(state.progressionHighWater?.[skill] || 0), Number(state.actualLevels?.[skill] || 1));
+        const combatSkillActivated = skill => ['Attack', 'Strength', 'Defence', 'Hitpoints'].includes(skill) ||
+            combatTrainingSupply[skill] === true;
+        const knownSkillLevel = skill => skill === 'Combat' ? Math.max(actualCombatLevel(state.actualLevels), combatFrontier) :
+            Math.max(1, Number(state.actualLevels?.[skill] || 1), Number(state.progressionHighWater?.[skill] || 0),
+                combatSkills.has(skill) && combatSkillActivated(skill) ? combatFrontier : 0);
+        const skillCeiling = skill => {
+            if (skill === 'Combat') return combatProgressionRequirementLevel(state,
+                actualCombatLevel(state.actualLevels), combatCutoff, combatWindow);
+            if (combatSkills.has(skill) && combatSkillActivated(skill)) {
+                if (combatState.mature) return 99;
+                return Math.min(99, Math.max(knownSkillLevel(skill), combatFrontier + combatWindow));
+            }
+            return progressionCeiling(taskCatalog, skill,
+                Number(state.progressionHighWater?.[skill] || 0), Number(state.actualLevels?.[skill] || 1));
+        };
         const rememberDependencyBlock = (itemName, block) => {
             const key = canonicalItemKey(itemName).replaceAll('*', '');
             const current = dependencyDiagnostics.get(key) || [];
@@ -2868,12 +2964,14 @@
         };
         function taskLevelReadiness(name, skill, meta = data.challenges?.[skill]?.[name] || {}) {
             const record = taskMetadata(name, skill, meta, ids);
-            if (isComplete(record, legacy, state) || !record.usesSkillLevelWindow) return { allowed: true };
+            const combatLevelTask = (combatSkills.has(skill) || skill === 'Combat') && Number.isFinite(Number(record.level));
+            if (isComplete(record, legacy, state) || (!record.usesSkillLevelWindow && !combatLevelTask)) return { allowed: true };
             const ceiling = skillCeiling(skill), known = knownSkillLevel(skill);
             if (record.level <= known) return { allowed: true };
             if (record.level > ceiling) return { allowed: false, skill, level: record.level, ceiling,
                 reason: skill + ' level ' + record.level + ' is above the current progression window (through ' + ceiling + ')' };
-            if (trainingAnalysisReady && trainingEvidenceSkills.has(skill) && !trainingSupportedSkills.has(skill)) {
+            if (trainingAnalysisReady && trainingEvidenceSkills.has(skill) && !trainingSupportedSkills.has(skill) &&
+                skill !== 'Combat' && !(combatSkills.has(skill) && combatSkillActivated(skill))) {
                 return { allowed: false, skill, level: record.level, known,
                     reason: 'No repeatable ' + skill + ' training method is available from level ' + known };
             }
@@ -2881,12 +2979,13 @@
         }
         function declaredSkillReadiness(meta = {}) {
             for (const [skill, rawLevel] of Object.entries(meta.Skills || {})) {
-                if (!SKILLS.includes(skill)) continue;
+                if (!SKILLS.includes(skill) && skill !== 'Combat') continue;
                 const level = Number(rawLevel || 1), known = knownSkillLevel(skill), ceiling = skillCeiling(skill);
                 if (level <= known) continue;
                 if (level > ceiling) return { allowed: false, skill, level, ceiling,
                     reason: skill + ' level ' + level + ' is above the current progression window (through ' + ceiling + ')' };
-                if (trainingAnalysisReady && level > known && !trainingSupportedSkills.has(skill)) return {
+                if (trainingAnalysisReady && level > known && !trainingSupportedSkills.has(skill) &&
+                    skill !== 'Combat' && !(combatSkills.has(skill) && combatSkillActivated(skill))) return {
                     allowed: false, skill, level, known,
                     reason: 'No repeatable ' + skill + ' training method is available from level ' + known
                 };
@@ -2898,6 +2997,7 @@
             return parsed && locationAvailable(parsed, unlocked, sections, manualSections) ? [{ ...parsed, sourceType: type, sourceName: name, reason }] : [];
         };
         function fixed(type, name) {
+            if (type === 'monsters' && !ordinaryMonsterAllowed(name)) return [];
             const key = type + ':' + name;
             if (!sourceCache.has(key)) sourceCache.set(key, Object.keys(base[type]?.[name] || {}).flatMap(location =>
                 origin(location, type, name, 'Validated ' + type + ' source')));
@@ -3335,6 +3435,17 @@
                 return percent ? Number(percent[1]) / 100 : 0;
             }));
         };
+        const averageDropQuantity = (monster, itemName) => {
+            const matching = Object.entries(data.drops?.[monster] || {})
+                .filter(([name]) => comparableItemKey(name) === comparableItemKey(itemName));
+            const values = matching.flatMap(([, quantities]) => Object.keys(quantities || {})).map(raw => {
+                const range = /^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)$/.exec(String(raw));
+                if (range) return (Number(range[1]) + Number(range[2])) / 2;
+                const value = Number(String(raw).replaceAll(',', ''));
+                return Number.isFinite(value) && value > 0 ? value : 1;
+            });
+            return values.length ? Math.max(...values) : 1;
+        };
         const spawnCount = (itemName, location) => {
             const parsed = parseLocation(location), chunk = parsed && data.chunks?.[parsed.chunkId];
             if (!chunk) return 0;
@@ -3363,21 +3474,30 @@
         };
         function directRepeatableItem(itemName) {
             const entries = itemSourceEntries(itemName);
+            const equipment = data.equipment?.[canonicalItemKey(itemName)];
+            const combatAmmunition = equipment?.slot === 'ammo' ||
+                (equipment?.is_consumable === true &&
+                    (Number(equipment.attack_ranged || 0) > 0 || Number(equipment.ranged_strength || 0) > 0)) ||
+                / rune$/i.test(itemName);
             // Separate distant spawn points are separate waiting cycles. Only
             // one local pile containing multiple copies establishes training.
-            if (entries.some(([source, type]) => String(type).includes('spawn') && spawnCount(itemName, source) >= 2)) return true;
+            if (entries.some(([source, type]) => String(type).includes('spawn') &&
+                spawnCount(itemName, source) >= (combatAmmunition ? 5 : 2))) return true;
             return entries.some(([source, type]) => {
-                if (type === 'shop' && base.shops?.[source]) return true;
+                if (type === 'shop' && fixed('shops', source).length) return true;
                 if (String(type).includes('drop')) {
+                    if (!fixed('monsters', source).length) return false;
                     const chance = dropChance(source, itemName);
-                    return chance === null || chance >= TRAINING_DROP_RATE;
+                    return chance === null || chance >= TRAINING_DROP_RATE ||
+                        (combatAmmunition && chance * averageDropQuantity(source, itemName) >= 1);
                 }
                 if (String(type).includes('spawn')) return false;
                 return ['objects', 'npcs'].some(kind => fixed(kind, source).length > 0);
             });
         }
         function buildTrainingSupport() {
-            const repeatableItems = new Set(Object.keys(base.items || {}).filter(directRepeatableItem).map(comparableItemKey));
+            trainingSupportedSkills = new Set(); trainingEvidenceSkills = new Set(); trainingMethodsBySkill = new Map();
+            repeatableItems = new Set(Object.keys(base.items || {}).filter(directRepeatableItem).map(comparableItemKey));
             const methods = new Map(), allTasks = [];
             for (const skill of [...SKILLS, 'Nonskill']) for (const [name, meta] of Object.entries(data.challenges?.[skill] || {})) {
                 allTasks.push({ name, skill, meta });
@@ -3421,7 +3541,49 @@
             }
             trainingMethodsBySkill = new Map([...methods].map(([skill, names]) => [skill, [...names]]));
         }
-        buildTrainingSupport();
+        const repeatableGroupAvailable = group => expand(group, codes.itemsPlus)
+            .some(itemName => repeatableItems.has(comparableItemKey(itemName)));
+        const itemObtainable = itemName => obtainedItems.has(comparableItemKey(itemName)) ||
+            own(state.acquiredEnablers, canonicalItemKey(itemName)) || item(itemName, new Set()).length > 0;
+        function deriveCombatTrainingSupply() {
+            const foodReady = (combatConfig.foodGroups || []).some(repeatableGroupAvailable) ||
+                (combatConfig.foodItems || []).some(itemName => repeatableItems.has(comparableItemKey(itemName)));
+            const prayerReady = (combatConfig.prayerResourceGroups || []).some(repeatableGroupAvailable) ||
+                (combatConfig.prayerResourceItems || []).some(itemName => repeatableItems.has(comparableItemKey(itemName)));
+            const equipment = Object.entries(data.equipment || {});
+            const rangedReady = (combatConfig.rangedFamilies || []).some(family => {
+                const weaponPattern = new RegExp(family.weaponPattern, 'i');
+                const ammunitionPattern = new RegExp(family.ammunitionPattern, 'i');
+                const weapon = equipment.some(([name, meta]) => ['weapon', '2h'].includes(meta.slot) &&
+                    Number(meta.attack_ranged || 0) > 0 && weaponPattern.test(name) && itemObtainable(name));
+                const ammunition = equipment.some(([name, meta]) => meta.slot === 'ammo' &&
+                    ammunitionPattern.test(name) && repeatableItems.has(comparableItemKey(name)));
+                return weapon && ammunition;
+            }) || equipment.some(([name, meta]) => meta.is_consumable === true &&
+                (Number(meta.attack_ranged || 0) > 0 || Number(meta.ranged_strength || 0) > 0) &&
+                repeatableItems.has(comparableItemKey(name)));
+            const catalyticReady = (combatConfig.magicCatalyticItems || ['Mind rune'])
+                .some(itemName => repeatableItems.has(comparableItemKey(itemName)));
+            const elementalReady = repeatableGroupAvailable(combatConfig.magicElementalGroup || 'Elemental rune[+]') ||
+                (combatConfig.magicElementalStaves || []).some(itemObtainable);
+            const magicReady = trainingSupportedSkills.has('Magic') || (catalyticReady && elementalReady);
+            return { foodReady, supply: { Ranged: rangedReady || trainingSupportedSkills.has('Ranged'),
+                Magic: magicReady, Prayer: prayerReady || trainingSupportedSkills.has('Prayer') } };
+        }
+        // The first pass permits only monsters already proven by the frontier.
+        // A food source found there can safely open the next ten levels. Repeat
+        // once so ammunition and bones from that newly reachable band can also
+        // activate their combat skills without allowing a resource cycle.
+        for (let pass = 0; pass < 3; pass++) {
+            sourceCache.clear(); originCache.clear(); dependencyDiagnostics.clear();
+            buildTrainingSupport();
+            const derived = deriveCombatTrainingSupply();
+            const stable = combatFoodReady === derived.foodReady &&
+                ['Ranged', 'Magic', 'Prayer'].every(skill => combatTrainingSupply[skill] === derived.supply[skill]);
+            combatFoodReady = derived.foodReady;
+            combatTrainingSupply = derived.supply;
+            if (stable) break;
+        }
         trainingAnalysisReady = true;
         // The first pass deliberately traces the worker's raw source graph. Clear
         // those caches so normal task construction applies the level and training gates.
@@ -3988,10 +4150,15 @@
             const allOrigins = [...(record.origins || []), ...(record.slayerTrainingOrigins || [])];
             const sources = [...new Set(allOrigins.filter(origin => encounterDetails[origin.sourceName]?.sourceTypes
                 .includes(origin.sourceType)).map(origin => origin.sourceName))].sort((a, b) => a.localeCompare(b));
+            const combatEvidenceSources = [...new Map(allOrigins.filter(origin => origin.sourceType === 'monsters' &&
+                !monsterUsesSeparateProgression(origin.sourceName) && monsterCombatLevel(origin.sourceName) != null)
+                .map(origin => [origin.sourceName, { monster: origin.sourceName,
+                    level: monsterCombatLevel(origin.sourceName) }])).values()];
             return { ...record,
                 bossSources: sources.filter(source => bossMonsters.has(source)),
                 encounterSources: sources,
-                encounterDetails: Object.fromEntries(sources.map(source => [source, encounterDetails[source]])) };
+                encounterDetails: Object.fromEntries(sources.map(source => [source, encounterDetails[source]])),
+                combatEvidenceSources, combatProgressionCutoff: combatCutoff };
         });
         for (const record of finalTasks) if (!record.origins.length && !record.clueReward) diagnostics.push({ taskId: record.taskId,
             name: record.displayName, reason: 'No confident action/resource origin in validated source metadata. Set an origin override.' });
@@ -4037,6 +4204,10 @@
             }))
         };
         return { tasks: finalTasks, unassigned: diagnostics, accessDiagnostics,
+            combatProgression: { frontier: combatFrontier, mature: !!combatState.mature,
+                foodReady: combatFoodReady, nextMonsterLimit: combatState.mature ? null :
+                    combatFrontier + (combatFoodReady ? combatWindow : 0),
+                trainingSupply: { ...combatTrainingSupply } },
             slayerMasters: slayerProgression.masterStatuses,
             enablerCatalog, enablerAmbiguities: enablerModel.ambiguous, clueStatus };
     }
@@ -4053,8 +4224,8 @@
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones,
         openForestryCompanionMilestones, scopeAxeUpgradesToWoodcutting, buildTaskCatalog,
         deriveProgressionHighWater, completedSkillProgress, trainingMethodsAtOrBelow,
-        initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
-        actualCombatLevel, setSlayerMasterState, setEncounterBlocked, setBossBlocked, slayerLockDefinition, slayerLockTargets, slayerLockStatus, slayerProgressionModel,
+        initializeProgression, reconcileProgression, setProgressionHighWater, recordCombatTaskCompletion, skillMilestones, adaptTasks,
+        actualCombatLevel, combatProgressionRequirementLevel, setSlayerMasterState, setEncounterBlocked, setBossBlocked, slayerLockDefinition, slayerLockTargets, slayerLockStatus, slayerProgressionModel,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,
         deriveStartingSections, deriveStartingSectionGroups, isWaterLocation, travelMedium, isPortLanding, mediumConnectionAllowed,
         migrateCurrentArrival,

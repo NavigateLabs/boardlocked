@@ -46,7 +46,14 @@ function makeRequest(chunkIds = [], strict = true) {
     result.secondaryPrimaryNum = '1/' + result.rules['Secondary Primary Amount'];
     result.clueCompleteNum = result.rules['Collection Log Clues Amount'];
     result.manualSections = Object.fromEntries(chunkIds.map(id => [String(id), { '1': true }]));
-    if (strict) result.boardlocked = { state: R.normalizeState(), checkedAllTasks: {}, tasksMap: ids, unlocked: { ...result.chunks } };
+    if (strict) {
+        const state = R.normalizeState();
+        // Existing worker tests isolate non-combat rules. Opt them into the
+        // post-cutoff state; combat-progression tests explicitly restore a
+        // fresh frontier.
+        state.combatProgression = { frontier: 60, mature: true, evidence: [] };
+        result.boardlocked = { state, checkedAllTasks: {}, tasksMap: ids, unlocked: { ...result.chunks } };
+    }
     return result;
 }
 function usePreset(request, name) {
