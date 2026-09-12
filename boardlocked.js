@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 52;
+    const VERSION = 53;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -2193,7 +2193,7 @@
         if (!candidate) throw new Error('No locations available');
         const destination = parseLocation(candidate.locationId)?.chunkId;
         const current = parseLocation(state.travelAnchor)?.chunkId;
-        if (candidate.kind !== 'admin' && current && destination === current) {
+        if (!['admin', 'stay'].includes(candidate.kind) && current && destination === current) {
             throw new Error('The current tile cannot be rolled again');
         }
         const entrySections = [...new Set((candidate.metadata?.entrySections || []).map(String))];
@@ -2289,6 +2289,24 @@
         visit.status = visit.candidateTaskIds.length ? 'task_required' : 'resolved';
         if (!visit.candidateTaskIds.length) visit.resolution = 'no_tasks';
         return journal(state, visit);
+    }
+    function openRuleUpdateVisit(state, tasks, reason = 'New tasks became available after a rules update',
+        timestamp = new Date().toISOString()) {
+        const visit = state.currentVisit;
+        if (visit?.status !== 'resolved' || visit.resolution !== 'task_completed') {
+            return { state, openedTaskIds: [] };
+        }
+        const known = new Set(visit.candidateTaskIds || []);
+        const opened = tasks.filter(task => task.eligible && !known.has(task.taskId) && taskMatchesVisit(task, visit));
+        if (!opened.length) return { state, openedTaskIds: [] };
+        let next = startVisit(state, { kind: 'stay', locationId: visit.locationId, metadata: {
+            entrySections: visit.arrivalSections || [], arrivalMedium: visit.arrivalMedium,
+            startGroup: visit.startGroup || null, taskIds: opened.map(task => task.taskId)
+        } }, visit.chunkName || '', timestamp);
+        next = { ...next, adminHistory: [...next.adminHistory, { timestamp, action: 'open_rule_update_visit',
+            visitNumber: next.currentVisit.visitNumber, locationId: visit.locationId,
+            taskIds: opened.map(task => task.taskId), reason }] };
+        return { state: next, openedTaskIds: opened.map(task => task.taskId) };
     }
     function addCatchUpTasksToCurrentVisit(state, tasks) {
         const visit = state.currentVisit;
@@ -4411,6 +4429,6 @@
         automaticStartingRequirementsAllowed, deriveStartingPool, deriveManualStartingPool, startingCandidateForRegion,
         chooseStartingCandidate, canRoll,
         startVisit, slayerMasterConfirmationForVisit, snapshotVisit, mergeVisitTaskForDisplay, visitTaskVisible, originMatchesVisit,
-        addCatchUpTasksToCurrentVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
+        addCatchUpTasksToCurrentVisit, openRuleUpdateVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });

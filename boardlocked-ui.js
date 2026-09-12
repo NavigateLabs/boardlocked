@@ -22,6 +22,7 @@
     let focusedPanelDetails = null;
     let panel = null, message = '', dataReady = false;
     let loadFailure = false, recoveredBrowserBackup = false, browserVaultError = null;
+    let pendingRuleTaskRefresh = false;
     let catalog = [], catalogData = null, setupLocations = [];
     const BOARDLOCKED_PRESET = 'Boardlocked Chunker';
     const BOARDLOCKED_PRESET_REVISION = 2;
@@ -310,6 +311,7 @@
             pendingStoredState = null; pendingStoredVersion = null;
             const parsed = saved ? JSON.parse(saved) : null;
             const sourceVersion = Number.isInteger(storedVersion) ? storedVersion : parsed?.version;
+            pendingRuleTaskRefresh = Number.isInteger(sourceVersion) && sourceVersion < R.VERSION;
             state = boardlockedState(parsed);
             // An unused pre-v6 profile is equivalent to a new account. Started
             // profiles and imported histories never gain a quest retroactively.
@@ -493,7 +495,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl57');
+        worker = new Worker('./worker.js?v=6.9.66-bl58');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -548,6 +550,16 @@
             diagnostics = result.accessDiagnostics; sourceCounts = result.sourceCounts;
             busy = false;
             rebuild();
+            if (pendingRuleTaskRefresh) {
+                const refresh = R.openRuleUpdateVisit(state, tasks,
+                    'Newly eligible tasks restored after Boardlocked rules update');
+                pendingRuleTaskRefresh = false;
+                if (refresh.openedTaskIds.length) {
+                    state = refresh.state;
+                    message = 'A newly eligible task in the current tile was restored after the rules update.';
+                    rebuild();
+                }
+            }
             slayerConfirmation = R.slayerMasterConfirmationForVisit(tasks, state.currentVisit);
             if (!slayerConfirmation) state = R.snapshotVisit(state, tasks);
             pool.current = state.travelAnchor;
@@ -1824,6 +1836,7 @@
             let nextState = boardlockedState(imported.state);
             if (!confirm(localProfile ? 'Replace this local run with the imported geography, rules, completion records and visit history? An unresolved visit or the latest free visit will be recalculated when its saved rules are older.' :
                 'Replace local Boardlocked levels, overrides and visits for this map? An unresolved visit or the latest free visit will be recalculated when its saved rules are older. Legacy map data stays in its existing save; use a local run to restore the full export.')) return;
+            pendingRuleTaskRefresh = imported.version < R.VERSION;
             invalidate();
             if (localProfile && imported.legacy) {
                 restoreLegacy(imported.legacy);

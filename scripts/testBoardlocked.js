@@ -501,20 +501,22 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'normalizing the browser vault must not erase the version used to decide migrations');
     assert.match(ui, /latestNoTaskVisit[\s\S]*sourceVersion < R\.VERSION/,
         'only an upgraded active free visit is eligible for reopening');
+    assert.match(ui, /pendingRuleTaskRefresh[\s\S]*R\.openRuleUpdateVisit/,
+        'an upgraded completed visit must recover tasks newly exposed in its current tile');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-combat-data\.js\?v=1/);
     assert.match(html, /boardlocked-data\.js\?v=27/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=81/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl57/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl57/);
+    assert.match(html, /boardlocked\.js\?v=82/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl58/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl58/);
     assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
     assert.match(worker, /boardlocked-data\.js\?v=27/);
-    assert.match(worker, /boardlocked\.js\?v=81/);
+    assert.match(worker, /boardlocked\.js\?v=82/);
     assert.match(worker, /boardlocked-worker\.js\?v=31/);
-    assert.match(html, /boardlocked-ui\.js\?v=98/);
+    assert.match(html, /boardlocked-ui\.js\?v=99/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -866,6 +868,26 @@ test('completion makes the last-task chunk dormant; uncompletion wakes it', () =
     const list = [task('a')];
     assert.ok(R.derivePool([], geo, adapt(list, { checkedChallenges: { Woodcutting: { a: true } } })).dormant.includes('1000'));
     assert.ok(R.derivePool([], geo, adapt(list)).live.includes('1000'));
+});
+test('a rules update opens a stay visit for a newly eligible task in the current tile', () => {
+    const previousTask = task('previous', ['1000']);
+    let state = start(adapt([previousTask]), 'frontier', '1000');
+    state = R.resolveVisit(state, new Set([previousTask.taskId]));
+    const newlyEligible = task('new-after-update', ['1000']);
+    const refresh = R.openRuleUpdateVisit(state, [
+        { ...previousTask, eligible: false, completed: true }, newlyEligible,
+        task('different-tile', ['2000'])
+    ]);
+    assert.deepEqual(refresh.openedTaskIds, ['new-after-update']);
+    assert.equal(refresh.state.visitHistory.find(visit => visit.visitNumber === 1).resolution, 'task_completed');
+    assert.equal(refresh.state.currentVisit.visitNumber, 2);
+    assert.equal(refresh.state.currentVisit.kind, 'stay');
+    assert.deepEqual(refresh.state.currentVisit.reachableTaskIds, ['new-after-update']);
+    state = R.snapshotVisit(refresh.state, [newlyEligible, task('old-alternative', ['1000'])]);
+    assert.deepEqual(state.currentVisit.candidateTaskIds, ['new-after-update'],
+        'the repair visit contains only tasks introduced by the updated rules');
+    assert.deepEqual(R.openRuleUpdateVisit(state, [newlyEligible]).openedTaskIds, [],
+        'an unresolved repair visit is never duplicated');
 });
 test('backlogging and unbacklogging update live state', () => {
     const list = [task('a')];
