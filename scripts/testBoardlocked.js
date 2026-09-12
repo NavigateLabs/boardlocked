@@ -509,14 +509,14 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=27/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=82/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl58/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl58/);
+    assert.match(html, /boardlocked\.js\?v=83/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl59/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl59/);
     assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
     assert.match(worker, /boardlocked-data\.js\?v=27/);
-    assert.match(worker, /boardlocked\.js\?v=82/);
+    assert.match(worker, /boardlocked\.js\?v=83/);
     assert.match(worker, /boardlocked-worker\.js\?v=31/);
-    assert.match(html, /boardlocked-ui\.js\?v=99/);
+    assert.match(html, /boardlocked-ui\.js\?v=100/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -868,6 +868,35 @@ test('completion makes the last-task chunk dormant; uncompletion wakes it', () =
     const list = [task('a')];
     assert.ok(R.derivePool([], geo, adapt(list, { checkedChallenges: { Woodcutting: { a: true } } })).dormant.includes('1000'));
     assert.ok(R.derivePool([], geo, adapt(list)).live.includes('1000'));
+});
+test('unchecking the task that resolved the current visit reopens it and removes that level inference', () => {
+    const willow = task('willow-shafts', ['1000'], { skill: 'Fletching', level: 30,
+        taskClass: 'skill_progression' });
+    let state = start(adapt([willow]));
+    state.actualLevels.Fletching = 30;
+    state.progressionHighWater.Fletching = 30;
+    state = R.resolveVisit(state, new Set([willow.taskId]));
+    const result = R.reopenUncompletedVisit(state, new Set(), { Fletching: 15 },
+        'unchecked', '2026-09-12T12:00:00.000Z');
+    assert.equal(result.reopened, true);
+    assert.equal(result.state.currentVisit.status, 'pending_calculation');
+    assert.equal(result.state.currentVisit.resolution, null);
+    assert.equal(result.state.currentVisit.resolvedTaskId, null);
+    assert.equal(result.state.actualLevels.Fletching, 15);
+    assert.equal(result.state.progressionHighWater.Fletching, 15);
+    const refreshed = R.snapshotVisit(result.state, adapt([willow, task('burn-willow', ['1000'], {
+        skill: 'Firemaking', level: 30, taskClass: 'skill_progression'
+    })]));
+    assert.deepEqual(refreshed.currentVisit.candidateTaskIds, ['willow-shafts', 'burn-willow']);
+});
+test('unchecking a visit task never lowers progression supported beyond that task', () => {
+    const task30 = task('level-30', ['1000'], { skill: 'Fletching', level: 30, taskClass: 'skill_progression' });
+    let state = R.resolveVisit(start(adapt([task30])), new Set([task30.taskId]));
+    state.actualLevels.Fletching = 40;
+    state.progressionHighWater.Fletching = 40;
+    const result = R.reopenUncompletedVisit(state, new Set(), { Fletching: 40 });
+    assert.equal(result.state.actualLevels.Fletching, 40);
+    assert.equal(result.state.progressionHighWater.Fletching, 40);
 });
 test('a rules update opens a stay visit for a newly eligible task in the current tile', () => {
     const previousTask = task('previous', ['1000']);

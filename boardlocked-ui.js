@@ -447,6 +447,10 @@
         const catchUpAdded = (state.currentVisit?.candidateTaskIds?.length || 0) > previousCandidateCount;
         const completed = R.completionIds(legacy(), tasksMap);
         tasks.filter(t => t.completed).forEach(t => completed.add(t.taskId));
+        const supportedProgression = R.deriveProgressionHighWater(catalog, legacy(), tasksMap, state);
+        const uncompletion = R.reopenUncompletedVisit(state, completed, supportedProgression);
+        state = uncompletion.state;
+        if (uncompletion.reopened) message = 'The current visit was reopened because its completed task was unchecked.';
         state = R.resolveVisit(state, completed);
         const unlocked = tempChunks.unlocked || {}, boundary = frontier();
         state.travelAnchor = R.inferTravelAnchor(state, unlocked, chunkOrder);
@@ -495,7 +499,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl58');
+        worker = new Worker('./worker.js?v=6.9.66-bl59');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;

@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 53;
+    const VERSION = 54;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -2293,11 +2293,18 @@
     function openRuleUpdateVisit(state, tasks, reason = 'New tasks became available after a rules update',
         timestamp = new Date().toISOString()) {
         const visit = state.currentVisit;
+        const known = new Set(visit?.candidateTaskIds || []);
+        const opened = visit ? tasks.filter(task => task.eligible && !known.has(task.taskId) && taskMatchesVisit(task, visit)) : [];
+        if (visit?.status === 'task_required' && opened.length) {
+            const candidateTaskIds = [...visit.candidateTaskIds, ...opened.map(task => task.taskId)];
+            const candidateTasks = { ...(visit.candidateTasks || {}),
+                ...Object.fromEntries(opened.map(task => [task.taskId, snapshotTask(task)])) };
+            return { state: journal(state, { ...visit, candidateTaskIds, candidateTasks }),
+                openedTaskIds: opened.map(task => task.taskId) };
+        }
         if (visit?.status !== 'resolved' || visit.resolution !== 'task_completed') {
             return { state, openedTaskIds: [] };
         }
-        const known = new Set(visit.candidateTaskIds || []);
-        const opened = tasks.filter(task => task.eligible && !known.has(task.taskId) && taskMatchesVisit(task, visit));
         if (!opened.length) return { state, openedTaskIds: [] };
         let next = startVisit(state, { kind: 'stay', locationId: visit.locationId, metadata: {
             entrySections: visit.arrivalSections || [], arrivalMedium: visit.arrivalMedium,
@@ -2307,6 +2314,28 @@
             visitNumber: next.currentVisit.visitNumber, locationId: visit.locationId,
             taskIds: opened.map(task => task.taskId), reason }] };
         return { state: next, openedTaskIds: opened.map(task => task.taskId) };
+    }
+    function reopenUncompletedVisit(state, completedIds, progressionLevels = null,
+        reason = 'The task that completed this visit was unchecked', timestamp = new Date().toISOString()) {
+        const visit = state.currentVisit;
+        if (visit?.status !== 'resolved' || visit.resolution !== 'task_completed' || !visit.resolvedTaskId ||
+            completedIds.has(visit.resolvedTaskId)) return { state, reopened: false };
+        let next = state;
+        const resolved = visit.candidateTasks?.[visit.resolvedTaskId];
+        if (resolved?.taskClass === 'skill_progression' && SKILLS.includes(resolved.skill) &&
+            Number.isFinite(resolved.level) && progressionLevels) {
+            const supported = Math.max(0, Number(progressionLevels[resolved.skill]) || 0);
+            next = { ...next, actualLevels: { ...next.actualLevels },
+                progressionHighWater: { ...next.progressionHighWater } };
+            if (next.progressionHighWater[resolved.skill] === resolved.level) {
+                next.progressionHighWater[resolved.skill] = supported;
+            }
+            if (next.actualLevels[resolved.skill] === resolved.level) {
+                next.actualLevels[resolved.skill] = Math.max(resolved.skill === 'Hitpoints' ? 10 : 1, supported);
+            }
+        }
+        const reopened = journal(next, { ...visit, status: 'task_required', resolution: null, resolvedTaskId: null });
+        return { state: recalculateCurrentVisit(reopened, reason, timestamp), reopened: true };
     }
     function addCatchUpTasksToCurrentVisit(state, tasks) {
         const visit = state.currentVisit;
@@ -4429,6 +4458,6 @@
         automaticStartingRequirementsAllowed, deriveStartingPool, deriveManualStartingPool, startingCandidateForRegion,
         chooseStartingCandidate, canRoll,
         startVisit, slayerMasterConfirmationForVisit, snapshotVisit, mergeVisitTaskForDisplay, visitTaskVisible, originMatchesVisit,
-        addCatchUpTasksToCurrentVisit, openRuleUpdateVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
+        addCatchUpTasksToCurrentVisit, openRuleUpdateVisit, reopenUncompletedVisit, recalculateCurrentVisit, resolveVisit, voidVisit, journal, expand, buildEnablerModel, taskEnablerRequirements,
         enablerRequirementStatus, recoverAcquiredEnablers, createAccess, buildTasks };
 });
