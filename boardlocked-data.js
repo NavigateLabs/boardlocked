@@ -357,6 +357,51 @@
                 '6195-1': 'The wrecked-boat pickup cannot be taken.'
             })
         }),
+        // Some monsters are technically valid sources but make poor Boardlocked
+        // progression anchors. Ordinary imps frequently teleport outside the
+        // playable chunk, so retain only their quest-specific beads and their
+        // unique Champion's Challenge reward.
+        monsterDropPolicies: Object.freeze({
+            Imp: Object.freeze({
+                excludeByDefault: true,
+                allowedItems: Object.freeze([
+                    'Black bead', 'Red bead', 'White bead', 'Yellow bead',
+                    'Imp champion scroll'
+                ])
+            })
+        }),
+        // Collection items whose log entry is only useful after the player can
+        // reach the place where the reward is submitted or registered.
+        collectionUseGates: Object.freeze([
+            Object.freeze({
+                items: Object.freeze([
+                    'Earth warrior champion scroll', 'Ghoul champion scroll',
+                    'Giant champion scroll', 'Goblin champion scroll',
+                    'Hobgoblin champion scroll', 'Imp champion scroll',
+                    'Jogre champion scroll', 'Lesser demon champion scroll',
+                    'Skeleton champion scroll', 'Zombie champion scroll',
+                    "Champion's cape"
+                ]),
+                locations: Object.freeze(['12596-1']),
+                reason: "Unlock the Champions' Guild before Champion's Challenge rewards become goals"
+            })
+        ]),
+        collectionSourceOverrides: Object.freeze([
+            // Missing from this upstream export even though it is a direct Yama
+            // drop. Keep this explicit until the generated dataset includes it.
+            Object.freeze({ item: 'Barrel of demonic tallow (full)', monsters: Object.freeze(['Yama']) })
+        ]),
+        incidentalCollections: Object.freeze([
+            Object.freeze({
+                taskPrefix: '(Random Events)', group: 'Random event rewards',
+                scope: 'any_activity', standaloneAfterExhaustion: true
+            }),
+            Object.freeze({
+                taskPrefix: '(Ocean Encounters)', group: 'Ocean encounter pearls',
+                scope: 'skill_activity', skill: 'Sailing', minimumLevel: 40,
+                standaloneAfterExhaustion: true
+            })
+        ]),
         // Actual-progress gates for map sections whose access condition is
         // absent from the upstream section graph. The same annotation governs
         // travel, task sources, and player-picked starting requirements.

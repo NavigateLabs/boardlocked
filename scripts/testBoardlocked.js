@@ -510,17 +510,17 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-combat-data\.js\?v=1/);
-    assert.match(html, /boardlocked-data\.js\?v=28/);
+    assert.match(html, /boardlocked-data\.js\?v=29/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=86/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl62/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl62/);
+    assert.match(html, /index\.js\?v=6\.9\.66-bl33/);
+    assert.match(html, /boardlocked\.js\?v=87/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl63/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl63/);
     assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
-    assert.match(worker, /boardlocked-data\.js\?v=28/);
-    assert.match(worker, /boardlocked\.js\?v=86/);
-    assert.match(worker, /boardlocked-worker\.js\?v=31/);
-    assert.match(html, /boardlocked-ui\.js\?v=103/);
+    assert.match(worker, /boardlocked-data\.js\?v=29/);
+    assert.match(worker, /boardlocked\.js\?v=87/);
+    assert.match(worker, /boardlocked-worker\.js\?v=32/);
+    assert.match(html, /boardlocked-ui\.js\?v=104/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -2212,10 +2212,9 @@ test('real worker: Imp flour cannot unlock the later mud-pie goal', () => {
         'Forestry kit', 'Hammer', 'Bowl', 'Shears']) request.boardlocked.state.acquiredEnablers[item] = { manual: true };
     const tasks = runWorker(request).result.tasks;
     const mudPie = tasks.find(task => task.name === 'Bake a ~|mud pie|~');
-    assert.equal(mudPie.available, false);
-    assert.match(mudPie.accessResult.reason, /No reasonable primary source supplies Pastry dough/);
-    assert.equal(tasks.find(task => task.name === 'Bake a loaf of ~|bread|~').available, false,
-        'a level-one recipe cannot use the same incidental Imp flour loophole');
+    assert.equal(mudPie, undefined, 'ordinary Imp resources are removed rather than retained as unusable goals');
+    assert.equal(tasks.find(task => task.name === 'Bake a loaf of ~|bread|~'), undefined,
+        'a level-one recipe cannot use the same ordinary Imp flour loophole');
 });
 
 test('every skill recipe input has a primary supply route', () => {
@@ -3834,6 +3833,33 @@ test('strict collection tasks use actual quest points', () => {
     assert.ok(!result.tasks.some(task => /imp champion scroll/i.test(task.name)));
 });
 
+test('ordinary imps only supply their quest beads and champion scroll', () => {
+    for (const item of ['Black bead', 'Red bead', 'White bead', 'Yellow bead', 'Imp champion scroll']) {
+        assert.equal(R.itemSourceAllowed(annotations, item, 'Imp'), true, item);
+    }
+    for (const item of ['Blue wizard hat', 'Pot of flour', 'Raw chicken', 'Clue scroll (beginner)']) {
+        assert.equal(R.itemSourceAllowed(annotations, item, 'Imp'), false, item);
+    }
+    assert.equal(R.itemSourceAllowed(annotations, 'Blue wizard hat', 'Dark wizard'), true,
+        'the policy applies to ordinary imps rather than globally banning their drops');
+    assert.equal(R.itemSourceAllowed(annotations, 'Clue scroll (beginner)', 'Goblin'), true,
+        'other monsters remain valid clue sources');
+});
+
+test("champion scroll goals wait for the Champions' Guild while preserving their monster source", () => {
+    const withoutGuild = usePreset(makeRequest(['6193']), 'Boardlocked Chunker');
+    withoutGuild.boardlocked.state.startingQuestPointFloor = 32;
+    assert.ok(!runWorker(withoutGuild).result.tasks.some(task => /imp champion scroll/i.test(task.name)),
+        'quest points alone do not expose a scroll that cannot yet be used');
+
+    const withGuild = usePreset(makeRequest(['6193', '12596']), 'Boardlocked Chunker');
+    withGuild.boardlocked.state.startingQuestPointFloor = 32;
+    const task = runWorker(withGuild).result.tasks.find(task => /imp champion scroll/i.test(task.name));
+    assert.ok(task?.available);
+    assert.ok(task.origins.some(origin => origin.chunkId === '6193' && origin.sourceName === 'Imp'),
+        'opening the Guild reveals the scroll on the actual Imp tile');
+});
+
 test('adding Boardlocked Chunker leaves the upstream Vanilla, Xtreme and Supreme presets unchanged', () => {
     const root = path.join(__dirname, '..');
     const original = execFileSync('git', ['show', 'HEAD:index.js'], { cwd: root, maxBuffer: 5 * 1024 * 1024, encoding: 'utf8' }).replace(/\r\n/g, '\n');
@@ -3965,6 +3991,25 @@ test('skilling pets are incidental until every other available task in their ski
     assert.equal(finalPet.standaloneAfterExhaustion, true);
     assert.ok(R.derivePool([], geo, [finalPet], null).live.includes('1000'),
         'the pet becomes a standalone task after the ordinary skill pool is exhausted');
+});
+
+test('ambient collection rewards attach to any activity and only become final cleanup goals', () => {
+    const activity = task('mine-rock', ['1000'], { skill: 'Mining', taskClass: 'skill_progression',
+        advancesSkillProgression: true, usesSkillLevelWindow: false });
+    const randomReward = task('random-camo', ['1000'], { skill: 'Extra', taskClass: 'collection',
+        advancesSkillProgression: false, usesSkillLevelWindow: false, nonGenerating: true,
+        incidentalKind: 'ambient-collection', incidentalGroup: 'Random event rewards',
+        incidentalScope: 'any_activity', incidentalStandalone: true });
+    let adapted = R.adaptTasks([activity, randomReward], {}, fresh(), geo, {}, {}, [activity, randomReward]);
+    assert.equal(adapted.find(item => item.taskId === randomReward.taskId).nonGenerating, true);
+    const visit = R.snapshotVisit(R.startVisit(fresh(), { kind: 'revisit', locationId: '1000' }), adapted);
+    assert.deepEqual(new Set(visit.currentVisit.candidateTaskIds), new Set(['mine-rock', 'random-camo']));
+
+    const completed = { checkedAllTasks: { Mining: { 'mine-rock': true } } };
+    adapted = R.adaptTasks([activity, randomReward], completed, fresh(), geo, {}, {}, [activity, randomReward]);
+    const cleanupReward = adapted.find(item => item.taskId === randomReward.taskId);
+    assert.equal(cleanupReward.nonGenerating, false);
+    assert.equal(cleanupReward.standaloneAfterExhaustion, true);
 });
 
 test('Forestry requires an actually choppable event tree rather than merely a visible high-level tree', () => {

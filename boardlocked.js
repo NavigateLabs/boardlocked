@@ -23,8 +23,16 @@
     const displayName = name => String(name).replace(/[~|*]/g, '');
     const stripMarkup = value => String(value || '').replace(/<[^>]*>/g, '').replace(/\u200b/g, '').trim();
     const canonicalItemKey = name => String(name || '').replaceAll('*', '');
-    const itemSourceAllowed = (annotations, itemName, source) =>
-        !own(annotations?.unavailableItemSources?.[canonicalItemKey(itemName)], String(source));
+    const itemSourceAllowed = (annotations, itemName, source) => {
+        const item = canonicalItemKey(itemName), sourceName = String(source);
+        if (own(annotations?.unavailableItemSources?.[item], sourceName)) return false;
+        const monsterPolicy = annotations?.monsterDropPolicies?.[sourceName];
+        if (monsterPolicy?.excludeByDefault) {
+            const allowed = new Set((monsterPolicy.allowedItems || []).map(canonicalItemKey));
+            return allowed.has(item);
+        }
+        return true;
+    };
     const comparableItemKey = name => canonicalItemKey(name).replaceAll('#', '/').trim().toLowerCase();
     const equipmentNumber = (item, key) => Number(item?.[key]) || 0;
     const equipmentDefenceTotal = item => ['defence_crush', 'defence_magic', 'defence_ranged', 'defence_slash', 'defence_stab']
@@ -1577,17 +1585,22 @@
         const ordinary = tasks.filter(task => !task.incidentalKind);
         return tasks.map(task => {
             if (!task.incidentalKind) return task;
-            if (task.incidentalKind !== 'skilling-pet') return { ...task, nonGenerating: true };
-            const unfinished = ordinary.some(other => other.skill === task.incidentalSkill &&
+            const canStandAlone = task.incidentalKind === 'skilling-pet' || task.incidentalStandalone === true;
+            if (!canStandAlone) return { ...task, nonGenerating: true };
+            const unfinished = ordinary.some(other =>
+                (task.incidentalScope === 'any_activity' || other.skill === task.incidentalSkill) &&
                 (other.activeOrigins || []).length > 0 &&
                 !other.completed && !other.implicitlyCompleted && !other.superseded);
             if (unfinished) return { ...task, nonGenerating: true, standaloneAfterExhaustion: false,
                 eligibilityReason: task.eligible ?
-                    'Can be registered incidentally while completing a ' + task.incidentalSkill + ' activity' :
+                    'Can be registered incidentally while completing ' +
+                        (task.incidentalScope === 'any_activity' ? 'another activity' :
+                            'a ' + task.incidentalSkill + ' activity') :
                     task.eligibilityReason };
             return { ...task, nonGenerating: false, standaloneAfterExhaustion: true,
                 eligibilityReason: task.eligible ?
-                    'All other available ' + task.incidentalSkill + ' tasks are exhausted' : task.eligibilityReason };
+                    'All other available ' + (task.incidentalScope === 'any_activity' ? '' :
+                        task.incidentalSkill + ' ') + 'tasks are exhausted' : task.eligibilityReason };
         });
     }
     function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks, ids = {}, data = null) {
@@ -2262,8 +2275,8 @@
         'taskClass', 'bossSources', 'encounterSources', 'encounterDetails', 'enablerItemKey',
         'provesAcquiredItemKeys', 'confirmsEquipped', 'capabilities', 'bisReason', 'bisSet',
         'slayerTrainingAlternative', 'slayerTrainingMasters', 'slayerProgression',
-        'nonGenerating', 'incidentalSkill', 'incidentalKind', 'incidentalGroup',
-        'incidentalTrigger', 'standaloneAfterExhaustion']);
+        'nonGenerating', 'incidentalSkill', 'incidentalKind', 'incidentalGroup', 'incidentalScope',
+        'incidentalTrigger', 'incidentalStandalone', 'standaloneAfterExhaustion']);
     function mergeVisitTaskForDisplay(liveTask, savedTask) {
         if (!liveTask) return null;
         if (!savedTask || typeof savedTask !== 'object') return liveTask;
@@ -2292,7 +2305,8 @@
         return task.activeOrigins?.some(origin => originMatchesVisit(origin, visit));
     }
     function incidentalTasksForGenerators(tasks, generators) {
-        const triggerMatches = (task, generator) => task.incidentalSkill === generator.skill &&
+        const triggerMatches = (task, generator) =>
+            (task.incidentalScope === 'any_activity' || task.incidentalSkill === generator.skill) &&
             (task.incidentalTrigger !== 'skill_progression' || generator.advancesSkillProgression);
         return tasks.filter(task => task.eligible && task.nonGenerating &&
             generators.some(generator => triggerMatches(task, generator)));
@@ -4411,6 +4425,30 @@
                 accessResult: { allowed: true,
                     reason: 'Can be registered incidentally while completing a ' + definition.skill + ' activity' } });
         }
+        for (const definition of annotations.incidentalCollections || []) {
+            if (!rules['Collection Log']) continue;
+            const activityTasks = [...tasks.values()].filter(task => !task.incidentalKind &&
+                task.taskClass !== 'collection' && (task.origins || []).length &&
+                (definition.scope === 'any_activity' || task.skill === definition.skill));
+            const levelReady = !definition.minimumLevel || knownSkillLevel(definition.skill) >= definition.minimumLevel ||
+                activityTasks.some(task => Number(task.level || 1) >= definition.minimumLevel);
+            if (!levelReady) continue;
+            const origins = uniqueOrigins(activityTasks.flatMap(task => task.origins || []));
+            if (!origins.length) continue;
+            for (const [name, meta] of Object.entries(data.challenges?.Extra || {})) {
+                if (!name.startsWith(definition.taskPrefix) || !(meta.Category || []).includes('Collection Log') ||
+                    (meta.Category || []).some(category => category.startsWith('Collection Log ') && !rules[category])) continue;
+                const id = taskId(name, 'Extra', ids);
+                tasks.set(id, { ...taskMetadata(name, 'Extra', meta, ids), origins, available: true, enablers: [],
+                    nonGenerating: true, incidentalSkill: definition.skill || null,
+                    incidentalKind: 'ambient-collection', incidentalGroup: definition.group,
+                    incidentalScope: definition.scope, incidentalTrigger: 'skill_activity',
+                    incidentalStandalone: definition.standaloneAfterExhaustion === true,
+                    accessResult: { allowed: true, reason: definition.scope === 'any_activity' ?
+                        'Can be registered if this reward appears while completing another activity' :
+                        'Can be registered while completing an eligible ' + definition.skill + ' activity' } });
+            }
+        }
         const articleFor = itemName => /^[aeiou]/i.test(itemName) ? 'an ' : 'a ';
         for (const { requirement, requiredBy, requests } of pendingCapabilities.values()) {
             for (const itemInfo of requirement.satisfyingItems) {
@@ -4451,8 +4489,9 @@
         }).sort((a, b) => a.itemKey.localeCompare(b.itemKey));
         const finalTasks = [...tasks.values()].map(record => {
             const allOrigins = [...(record.origins || []), ...(record.slayerTrainingOrigins || [])];
-            const sources = [...new Set(allOrigins.filter(origin => encounterDetails[origin.sourceName]?.sourceTypes
-                .includes(origin.sourceType)).map(origin => origin.sourceName))].sort((a, b) => a.localeCompare(b));
+            const sources = record.incidentalKind ? [] : [...new Set(allOrigins.filter(origin =>
+                encounterDetails[origin.sourceName]?.sourceTypes.includes(origin.sourceType))
+                .map(origin => origin.sourceName))].sort((a, b) => a.localeCompare(b));
             const combatEvidenceSources = [...new Map(allOrigins.filter(origin => origin.sourceType === 'monsters' &&
                 !monsterUsesSeparateProgression(origin.sourceName) && monsterCombatLevel(origin.sourceName) != null)
                 .map(origin => [origin.sourceName, { monster: origin.sourceName,

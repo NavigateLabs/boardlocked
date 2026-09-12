@@ -502,7 +502,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl62');
+        worker = new Worker('./worker.js?v=6.9.66-bl63');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1095,6 +1095,8 @@
         }
         for (const [category, categoryTasks] of categories) {
             const encounters = encounterGroup(categoryTasks[0]);
+            const compactIncidental = !encounters.length && categoryTasks.length > 4 &&
+                categoryTasks.every(task => task.incidentalGroup === category);
             if (encounters.length) {
                 const heading = element('div', null, { className: 'bl-boss-heading' });
                 heading.append(element('h4', category));
@@ -1109,10 +1111,18 @@
                     defer.disabled = !canEdit() || busy; heading.append(defer);
                 }
                 container.append(heading);
-            } else {
+            } else if (!compactIncidental) {
                 container.append(element('h4', category));
                 if (category === 'Slayer training') container.append(element('small',
                     'Any listed drop obtained while training assignments from your reachable Slayer masters completes this visit.'));
+            }
+            if (compactIncidental) {
+                const details = element('details', null, { className: 'bl-clue-task-group bl-incidental-task-group' });
+                details.append(element('summary', category + ' · ' + categoryTasks.length + ' optional goals'));
+                const content = element('div', null, { className: 'bl-clue-task-list' });
+                categoryTasks.forEach(task => content.append(taskRow(task)));
+                details.append(content); container.append(details);
+                continue;
             }
             const clueGroups = new Map();
             for (const task of categoryTasks) {

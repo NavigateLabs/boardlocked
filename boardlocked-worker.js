@@ -79,12 +79,51 @@ function blAddDirectClueMonsterSources(base) {
         const drops = dropTables[rawDrop] ? Object.keys(dropTables[rawDrop]) : [rawDrop];
         for (const tier of directClueTiers) {
             const clue = 'Clue scroll (' + tier + ')';
-            if (drops.includes(clue) && blClueSources.sourceAllowed(tier, monster, 'clue-drop')) {
+            if (drops.includes(clue) && Boardlocked.itemSourceAllowed(BoardlockedData, clue, monster) &&
+                blClueSources.sourceAllowed(tier, monster, 'clue-drop')) {
                 (base.items[clue] ||= {})[monster] ||= 'clue-drop';
             }
         }
     }
     return base;
+}
+
+function blExpandedLootItems(loot, visiting = new Set()) {
+    const items = [];
+    for (const raw of Object.keys(loot || {})) {
+        if (dropTables[raw] && !visiting.has(raw)) {
+            items.push(...blExpandedLootItems(dropTables[raw], new Set(visiting).add(raw)));
+        } else {
+            const expanded = Boardlocked.expand(raw, itemsPlus);
+            items.push(...(expanded.length ? expanded : [raw]));
+        }
+    }
+    return [...new Set(items)];
+}
+
+function blIndexCollectionSources(base) {
+    const add = (item, source, kind) => {
+        if (!blCollectionItems.has(item) || backloggedSources.items?.[item] ||
+            !Boardlocked.itemSourceAllowed(BoardlockedData, item, source)) return;
+        if (kind.includes('drop') && (backloggedSources.monsters?.[source] ||
+            !blSourceAllowed('Items', item + '^' + source))) return;
+        (blCollectionSources[item] ||= {})[source] = kind;
+    };
+    // The legacy worker keeps ordinary drops in `drops`, but many bosses,
+    // activities and Slayer encounters keep their complete reward table in
+    // `skillItems`. Collection rewards must survive rarity pruning in either
+    // representation.
+    for (const monster of Object.keys(base.monsters || {})) {
+        for (const item of blExpandedLootItems(chunkInfo.drops?.[monster])) add(item, monster, 'secondary-drop');
+        for (const tables of Object.values(chunkInfo.skillItems || {})) {
+            for (const item of blExpandedLootItems(tables?.[monster])) add(item, monster, 'secondary-drop');
+        }
+    }
+    for (const override of BoardlockedData.collectionSourceOverrides || []) {
+        for (const monster of override.monsters || []) if (base.monsters?.[monster]) {
+            add(override.item, monster, 'secondary-drop');
+        }
+    }
 }
 
 function blAddFocusedClueActivitySources(base) {
@@ -194,7 +233,19 @@ function blFilterSources(base) {
             }
         }
     }
+    blIndexCollectionSources(base);
     return blAddVirtualClueRewardSources(base);
+}
+
+function blCollectionUseGate(item) {
+    const key = Boardlocked.canonicalItemKey(item);
+    return (BoardlockedData.collectionUseGates || []).find(gate =>
+        (gate.items || []).some(candidate => Boardlocked.canonicalItemKey(candidate) === key));
+}
+
+function blCollectionUseGateSatisfied(item) {
+    const gate = blCollectionUseGate(item);
+    return !gate || (gate.locations || []).some(blLocationAllowed);
 }
 
 function blActualPrerequisites(skill, name) {
@@ -397,15 +448,19 @@ function blOutput(highestOverallCompleted = {}, equipmentScores = {}) {
     for (const [item, sources] of Object.entries(blCollectionSources)) {
         const current = Object.fromEntries(Object.entries(sources).filter(([source, kind]) =>
             kind === 'shop' ? baseChunkData.shops[source] : kind.includes('spawn') ? blSourceAllowed('Spawns', item, source) :
-                kind.includes('drop') ? baseChunkData.monsters[source] && blSourceAllowed('Items', item + '^' + source) : !!globalValids[kind.split('-')[1]]?.[source]));
+                kind.includes('drop') ? baseChunkData.monsters[source] && blSourceAllowed('Items', item + '^' + source) :
+                    !!globalValids[kind.split('-')[1]]?.[source]));
         if (Object.keys(current).length) acquisitionItems[item] = { ...acquisitionItems[item], ...current };
     }
     for (const [name, meta] of Object.entries(chunkInfo.challenges.Extra || {})) {
+        if (meta.Category?.includes('Collection Log') && meta.Items?.length === 1 &&
+            !blCollectionUseGateSatisfied(meta.Items[0])) delete atomicValids.Extra[name];
         if (!meta.Category?.includes('Collection Log') || meta.Items?.length !== 1 ||
             meta.Chunks || meta.Tasks || meta.Objects || meta.NPCs || meta.Monsters || meta.Skills ||
             meta.QuestPointsNeeded > blAccess.actualQuestPoints ||
             (meta['Not F2P'] && rules.F2P) || manualTasks.Extra?.[name] === false ||
-            !blCollectionItems.has(meta.Items[0]) || !acquisitionItems[meta.Items[0]]) continue;
+            !blCollectionItems.has(meta.Items[0]) || !acquisitionItems[meta.Items[0]] ||
+            !blCollectionUseGateSatisfied(meta.Items[0])) continue;
         atomicValids.Extra[name] = meta.Label || true;
     }
     const output = Boardlocked.buildTasks({ data: chunkInfo, valids: atomicValids,
