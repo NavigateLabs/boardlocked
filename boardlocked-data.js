@@ -249,11 +249,11 @@
             ])
         }),
         recipeSupply: Object.freeze({
-            // Cooking and Crafting objectives must follow a deliberate supply
-            // route. Focused activities may provide ingredients at a lower rate
-            // than ordinary monster drops because the player can repeat the
-            // activity specifically for that resource.
-            skills: Object.freeze(['Cooking', 'Crafting']),
+            // Processing objectives must follow a deliberate supply route.
+            // Focused activities may provide ingredients at a lower rate than
+            // ordinary monster drops because the player can repeat the activity
+            // specifically for that resource.
+            skills: Object.freeze(['Cooking', 'Crafting', 'Mining', 'Smithing']),
             commonMonsterChance: 1 / 4,
             focusedActivityChance: 1 / 20,
             rareFallbackRatio: 1 / 2,
@@ -278,6 +278,49 @@
                 // The upstream row represents every recoloured cape but omits
                 // Output because there are several possible results.
                 'Dye a ~|cape|~': Object.freeze(['Cape[+]'])
+            })
+        }),
+        // Currency shops inherit the requirements of the activity that earns
+        // their stock. Merely reaching the shop is not proof that its rewards
+        // can be obtained. This is kept as source-family metadata so every item
+        // in a shop follows the same rule.
+        activityRewardShops: Object.freeze({
+            "Giants' Foundry Reward Shop": Object.freeze({
+                earningTasks: Object.freeze([
+                    Object.freeze({ skill: 'Smithing', name: "Forge a bronze ~|preform|~ in the Giants' Foundry" }),
+                    Object.freeze({ skill: 'Smithing', name: "Forge an iron ~|preform|~ in the Giants' Foundry" }),
+                    Object.freeze({ skill: 'Smithing', name: "Forge a steel ~|preform|~ in the Giants' Foundry" }),
+                    Object.freeze({ skill: 'Smithing', name: "Forge a mithril ~|preform|~ in the Giants' Foundry" }),
+                    Object.freeze({ skill: 'Smithing', name: "Forge an adamant ~|preform|~ in the Giants' Foundry" }),
+                    Object.freeze({ skill: 'Smithing', name: "Forge a rune ~|preform|~ in the Giants' Foundry" })
+                ])
+            }),
+            "Prospector Percy's Nugget Shop": Object.freeze({
+                earningTasks: Object.freeze([
+                    Object.freeze({ skill: 'Mining', name: 'Mine ~|pay-dirt|~' })
+                ])
+            }),
+            'Petrified Pete\'s Ore Shop': Object.freeze({
+                earningTasks: Object.freeze([
+                    Object.freeze({ skill: 'Mining', name: 'Access the ~|Volcanic Mine|~' })
+                ]),
+                locations: Object.freeze(['15163']),
+                rewardItems: Object.freeze(['Dragon pickaxe (broken)']),
+                requiredItems: Object.freeze(['Pickaxe[+]'])
+            }),
+            'Mining Guild Mineral Exchange': Object.freeze({
+                earningTasks: Object.freeze([
+                    Object.freeze({ skill: 'Mining', name: 'Access the ~|Mining Guild|~' })
+                ]),
+                requiredItems: Object.freeze(['Pickaxe[+]'])
+            }),
+            "Dusuri's Star Shop": Object.freeze({
+                earningTasks: Object.freeze(Array.from({ length: 9 }, (_, index) => Object.freeze({
+                    skill: 'Mining', name: `Mine a size-${index + 1} ~|shooting star|~`
+                }))),
+                locations: Object.freeze(['12084']),
+                rewardItems: Object.freeze(['Celestial ring', 'Star fragment']),
+                requiredItems: Object.freeze(['Pickaxe[+]'])
             })
         }),
         unavailableItemSources: Object.freeze({

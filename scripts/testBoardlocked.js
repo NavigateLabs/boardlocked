@@ -2075,11 +2075,13 @@ test('real worker: Imp flour cannot unlock the later mud-pie goal', () => {
         'a level-one recipe cannot use the same incidental Imp flour loophole');
 });
 
-test('every Cooking and Crafting recipe input has a reviewed primary supply route', () => {
+test('every reviewed processing recipe input has a primary supply route', () => {
     const catalog = R.recipeSupplyCatalog(chunkData, annotations);
-    for (const skill of ['Cooking', 'Crafting']) {
+    const expectedMinimums = { Cooking: 200, Crafting: 300, Mining: 5, Smithing: 300 };
+    assert.deepEqual(catalog.skills, Object.keys(expectedMinimums));
+    for (const [skill, minimum] of Object.entries(expectedMinimums)) {
         const recipes = catalog.recipes.filter(recipe => recipe.skill === skill);
-        assert.ok(recipes.length > 200, skill + ' audit unexpectedly lost most recipes');
+        assert.ok(recipes.length > minimum, skill + ' audit unexpectedly lost most recipes');
         for (const recipe of recipes) for (const input of recipe.inputs) {
             assert.ok(input.alternatives.some(item => catalog.globallySupplied(item)),
                 `${skill}: ${recipe.name} has no primary source for ${input.raw}`);
@@ -2099,8 +2101,79 @@ test('every Cooking and Crafting recipe input has a reviewed primary supply rout
         'a much worse incidental source cannot stand in for the intended source');
     assert.equal(approved('Eternal gem', '(Slayer) Obtain an ~|eternal gem|~'), true,
         'a registered collection reward can feed its later recipe');
+    assert.equal(approved('Bronze bar', 'Dwarf'), false,
+        'an incidental Dwarf drop cannot stand in for mining and smelting bronze');
+    assert.equal(approved('Bronze bar', 'Smelt a ~|bronze bar|~'), true,
+        'ordinary smelting is a primary Smithing input route');
+    assert.equal(approved('Barronite deposit', 'Mine from ~|rocks (Barronite)|~'), true,
+        'a focused Mining resource remains a primary processing route');
+    assert.equal(approved('Broken zombie axe', 'Armoured zombie (Zemouregal\'s Fort)'), true,
+        'a unique repair component keeps its intended rare source');
     assert.ok(catalog.ingredients['Raw wild kebbit']);
     assert.equal(catalog.ingredients['Raw wild kebit'], undefined);
+});
+
+test('Smithing goals reject incidental metal drops and accept deliberate stock', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges = {
+        Smithing: { Smith: { Items: ['Hammer', 'Bronze bar*'], Objects: ['Anvil'], Level: 1,
+            Primary: true, Output: 'Bronze dagger' } }, Extra: {}, Quest: {}, Diary: {}
+    };
+    fixture.data.codeItems = { itemsPlus: {}, objectsPlus: {}, tools: { Hammer: true } };
+    fixture.data.drops = { Dwarf: { 'Bronze bar': { 1: '1/20' } } };
+    fixture.data.shopItems = {};
+    fixture.data.chunks = {};
+    fixture.base = { objects: { Anvil: { '1000': true } }, monsters: { Dwarf: { '1000': true } },
+        npcs: {}, shops: {}, items: { 'Bronze bar': { Dwarf: 'secondary-drop' } } };
+    fixture.valids = { Smithing: { Smith: 1 } };
+    fixture.ids = { Smith: 'smith' };
+    fixture.annotations = annotations;
+    fixture.state.acquiredEnablers.Hammer = { manual: true };
+
+    let smith = R.buildTasks(fixture).tasks.find(task => task.name === 'Smith');
+    assert.equal(smith.available, false);
+    assert.match(smith.accessResult.reason, /No reasonable primary source supplies Bronze bar/);
+
+    fixture.data.shopItems['Metal stock'] = { 'Bronze bar': { 1: 'Always' } };
+    fixture.base.shops['Metal stock'] = { '1000': true };
+    fixture.base.items['Bronze bar']['Metal stock'] = 'shop';
+    smith = R.buildTasks(fixture).tasks.find(task => task.name === 'Smith');
+    assert.equal(smith.available, true);
+});
+
+test('activity reward shops inherit the earning activity instead of location alone', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges = {
+        Mining: {
+            Starter: { Items: ['Pickaxe'], Objects: ['Copper rock'], Level: 1, Primary: true },
+            Bridge: { Items: ['Pickaxe'], Objects: ['Tin rock'], Level: 10, Primary: true },
+            Earn: { Items: ['Pickaxe'], Objects: ['Ore vein'], Level: 30, Primary: true }
+        },
+        Extra: { Reward: { Items: ['Reward item'], Category: ['Collection Log', 'Collection Log Other'] } },
+        Quest: {}, Diary: {}
+    };
+    fixture.data.codeItems = { itemsPlus: {}, objectsPlus: {}, tools: { Pickaxe: true } };
+    fixture.data.shopItems = { 'Token shop': { 'Reward item': { 1: 'Always' } } };
+    fixture.data.chunks = {};
+    fixture.base = { objects: { 'Ore vein': { '1000': true } }, monsters: {}, npcs: {}, shops: {}, items: {} };
+    fixture.valids = { Mining: { Earn: 30 }, Extra: { Reward: 'Collection Log' } };
+    fixture.ids = { Earn: 'earn', Reward: 'reward' };
+    fixture.rules = { 'Show Skill Tasks': true, 'Collection Log': true, 'Collection Log Other': true };
+    fixture.annotations = { ...annotations, activityRewardShops: {
+        'Token shop': { earningTasks: [{ skill: 'Mining', name: 'Earn' }], locations: ['1000'] }
+    } };
+    fixture.state.acquiredEnablers.Pickaxe = { manual: true };
+    fixture.state.progressionHighWater.Mining = 1;
+    fixture.state.progressionInitialized = true;
+
+    let reward = R.buildTasks(fixture).tasks.find(task => task.name === 'Reward');
+    assert.equal(reward.available, false);
+    assert.match(reward.accessResult.reason, /Mining level 30/);
+    assert.deepEqual(reward.origins.map(origin => origin.chunkId), ['1000']);
+
+    fixture.state.progressionHighWater.Mining = 30;
+    reward = R.buildTasks(fixture).tasks.find(task => task.name === 'Reward');
+    assert.equal(reward.available, true);
 });
 
 test('recipe supply filtering rejects incidental outputs and keeps every approved alternative origin', () => {

@@ -2860,6 +2860,28 @@
     function buildTasks({ data, valids, base, ids = {}, rules = {}, state, legacy = {}, unlocked = {}, sections = {}, manualSections = {},
         annotations = {}, dropRates = {} }) {
         const codes = data.codeItems || {}, tasks = new Map(), sourceCache = new Map(), originCache = new Map();
+        const activityRewardSourcesByItem = new Map();
+        for (const [shopName, config] of Object.entries(annotations.activityRewardShops || {})) {
+            const itemNames = [...Object.keys(data.shopItems?.[shopName] || {}), ...(config.rewardItems || [])];
+            for (const itemName of itemNames) {
+                const key = comparableItemKey(itemName);
+                activityRewardSourcesByItem.set(key, [...(activityRewardSourcesByItem.get(key) || []), shopName]);
+            }
+        }
+        // The upstream calculator can omit a currency-shop reward when its
+        // physical shop is represented outside the ordinary shop graph. Keep
+        // those reviewed reward rows in the local catalog; acquisition checks
+        // below still require a usable earning activity before they become live.
+        if (activityRewardSourcesByItem.size) {
+            valids = Object.fromEntries(Object.entries(valids || {}).map(([skill, entries]) => [skill, { ...entries }]));
+            for (const [skill, entries] of Object.entries(data.challenges || {})) for (const [name, meta] of Object.entries(entries || {})) {
+                const metadata = taskMetadata(name, skill, meta, ids);
+                if (!['bis', 'collection'].includes(metadata.taskClass) || meta.Items?.length !== 1 || meta.Items[0].includes('*') ||
+                    !activityRewardSourcesByItem.has(comparableItemKey(meta.Items[0]))) continue;
+                if (!valids[skill]) valids[skill] = {};
+                if (!own(valids[skill], name)) valids[skill][name] = meta.Label || metadata.category || true;
+            }
+        }
         const bossMonsters = new Set(Object.keys(codes.bossMonsters || {}));
         const annotatedEncounters = annotations.encounterReadiness?.sources || {};
         const encounterDetails = Object.fromEntries([
@@ -3021,9 +3043,14 @@
                 return parsed && parsed.chunkId === o.chunkId && (!parsed.sectionId || parsed.sectionId === o.sectionId);
             })));
         }
-        const itemSourceEntries = name => Object.entries(base.items?.[canonicalItemKey(name)] ||
-            base.items?.[canonicalItemKey(name) + '*'] || {}).filter(([source]) =>
-            itemSourceAllowed(annotations, name, source));
+        const itemSourceEntries = name => {
+            const direct = Object.entries(base.items?.[canonicalItemKey(name)] ||
+                base.items?.[canonicalItemKey(name) + '*'] || {});
+            const virtual = (activityRewardSourcesByItem.get(comparableItemKey(name)) || [])
+                .map(source => [source, 'shop']);
+            return [...new Map([...direct, ...virtual].map(entry => [entry.join('\u0000'), entry])).values()]
+                .filter(([source]) => itemSourceAllowed(annotations, name, source));
+        };
         function item(name, visiting) {
             name = name.replaceAll('*', '');
             const key = 'item:' + name;
@@ -3655,9 +3682,9 @@
             });
         }
         function progressionSupplyReadiness(skill, meta, taskClass, advancesSkillProgression, forestBound = false) {
-            // Cooking and Crafting recipes use reviewed ingredient paths at every
-            // level. Other skills keep the level-one introduction rule, while
-            // later milestones reject low-rate incidental drops in their inputs.
+            // Reviewed processing skills use deliberate ingredient paths at
+            // every level. Other skills keep the level-one introduction rule,
+            // while later milestones reject low-rate incidental drops in their inputs.
             // Reward objectives are classified separately, so rare BiS and
             // Collection Log drops stay available without becoming training supplies.
             const recipe = recipeSupplySkills.has(skill) && (meta.Items || []).some(raw => raw.includes('*'));
@@ -3777,6 +3804,71 @@
                 reason: record.accessResult.reason, slayerProgression: summary });
             return record;
         }
+        function activityRewardShopPath(shopName) {
+            const config = annotations.activityRewardShops?.[shopName];
+            if (!config) return null;
+            const shopOrigins = fixed('shops', shopName);
+            const configuredOrigins = (config.locations || []).flatMap(location =>
+                origin(location, 'activity', shopName, 'Reviewed activity reward source'));
+            const earning = (config.earningTasks || []).map(reference => {
+                const skill = reference.skill || knownNames.get(reference.name);
+                const meta = data.challenges?.[skill]?.[reference.name];
+                if (!skill || !meta) return { allowed: false, origins: [],
+                    reason: 'Missing earning activity metadata for ' + reference.name };
+                const origins = taskOrigins(reference.name, skill);
+                const taskRecord = taskMetadata(reference.name, skill, meta, ids);
+                const level = taskLevelReadiness(reference.name, skill, meta);
+                const declared = declaredSkillReadiness(meta);
+                const inputs = taskInputReadiness(reference.name, skill, meta,
+                    new Set(['activity-reward-shop:' + shopName]));
+                const supply = progressionSupplyReadiness(skill, meta, taskRecord.taskClass,
+                    taskRecord.advancesSkillProgression);
+                const milestones = taskResourceMilestoneDependencies(reference.name, meta)
+                    .filter(dependency => !dependency.producers.some(milestoneComplete));
+                const requirements = uniqueRequirements([
+                    ...taskEnablerRequirements(data, skill, meta, enablerModel, taskRecord.taskClass, true),
+                    ...taskResourceRequirements(meta)
+                ]).map(requirement => enablerRequirementStatus(requirement, state, data, skill));
+                const missing = requirements.filter(requirement => !requirement.satisfied);
+                const taskBlocks = Object.entries(meta.Tasks || {}).flatMap(([rawName, requiredSkill]) => {
+                    const choices = expand(rawName, codes.tasksPlus || {});
+                    const completed = choices.filter(requiredName => isComplete({ name: requiredName, skill: requiredSkill,
+                        taskId: taskId(requiredName, requiredSkill, ids) }, legacy, state));
+                    const needed = rawName.includes('[+]x') ? choices.length : 1;
+                    return completed.length >= needed ? [] : ['Complete ' + choices.map(displayName).join(' or ')];
+                });
+                const reasons = [
+                    ...taskBlocks,
+                    ...(!level.allowed ? [level.reason] : []),
+                    ...(!declared.allowed ? [declared.reason] : []),
+                    ...inputs.blocks.map(block => block.reason),
+                    ...(!supply.allowed ? supply.blocks.map(block => block.reason) : []),
+                    ...milestones.map(dependency => 'Complete ' + dependency.producers.map(producer => producer.displayName).join(' or ')),
+                    ...missing.map(requirement => 'Obtain ' + (requirement.requiresSpecificItem ?
+                        requirement.itemKey : requirement.capabilityLabel))
+                ];
+                return { allowed: reasons.length === 0, origins,
+                    reason: reasons[0] || 'Earning activity is available' };
+            });
+            const configuredMeta = { Items: config.requiredItems || [] };
+            const configuredRequirements = uniqueRequirements([
+                ...taskEnablerRequirements(data, 'Nonskill', configuredMeta, enablerModel, null, true),
+                ...taskResourceRequirements(configuredMeta)
+            ])
+                .map(requirement => enablerRequirementStatus(requirement, state, data, 'Nonskill'));
+            const missingConfigured = configuredRequirements.filter(requirement => !requirement.satisfied);
+            const availableEarning = earning.some(status => status.allowed);
+            const earningOrigins = uniqueOrigins(earning.flatMap(status => status.origins || []));
+            const origins = shopOrigins.length ? shopOrigins : earningOrigins.length ? earningOrigins : configuredOrigins;
+            const locationReady = !(config.locations || []).length || configuredOrigins.length > 0;
+            const reasons = [
+                ...(!availableEarning ? [...new Set(earning.map(status => status.reason).filter(Boolean))] : [])
+            ];
+            return { source: shopName, sourceType: 'activity-reward-shop', origins,
+                available: origins.length > 0 && locationReady && availableEarning && !missingConfigured.length,
+                resourceMilestones: [], persistentEnablers: configuredRequirements, forestry: null,
+                dependencyBlocks: reasons.map(reason => ({ reason })) };
+        }
         function acquisitionPath(itemName, source, type) {
             let directOrigins = [];
             if (type === 'clue-reward') {
@@ -3784,7 +3876,9 @@
                 if (!match || !clueTierCanGenerate(match[1])) return null;
                 directOrigins = clueTierSourceOrigins(match[1]);
             } else if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', itemName, 'Direct item spawn');
-            else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
+            else if (type === 'shop' && annotations.activityRewardShops?.[source]) {
+                return activityRewardShopPath(source);
+            } else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
             else if (String(type).includes('drop')) directOrigins = acquisitionOrigins(itemName, source, fixed('monsters', source));
             else directOrigins = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
             if (directOrigins.length) {
@@ -4013,6 +4107,11 @@
                     // Mixed-source BiS rows keep every path so the UI can show
                     // one ordinary presentation and one clue presentation.
                     if (!record.clueReward && acquisition.origins.length) record.origins = acquisition.origins;
+                    else if (!record.clueReward && !record.origins.length) {
+                        record.origins = uniqueOrigins(acquisition.paths
+                            .filter(path => path.sourceType === 'activity-reward-shop')
+                            .flatMap(path => path.origins || []));
+                    }
                     if (!acquisition.available) {
                         record.available = false;
                         record.accessResult = { allowed: false, reason: acquisition.reason, acquisition };
