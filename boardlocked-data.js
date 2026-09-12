@@ -204,6 +204,13 @@
                 Object.freeze({ skill: 'Cooking', outputIncludes: 'poison karambwan', family: 'poison-karambwan' }),
                 Object.freeze({ skill: 'Smithing', outputIncludes: 'cannonball', family: 'cannonballs' }),
                 Object.freeze({ skill: 'Smithing', outputIncludes: 'keel parts', family: 'ship-parts' })
+            ]),
+            // Lighting a log directly and adding that same log to a Forestry
+            // fire are interchangeable Firemaking milestones. Whichever is
+            // currently possible represents the log tier once.
+            equivalentRecipeFamilies: Object.freeze([
+                Object.freeze({ skill: 'Firemaking',
+                    taskPattern: '^Burn (?:a )?(?!.*pyre)(?:.+ )?logs(?: at a fire)?$', family: 'ordinary-log-burning' })
             ])
         }),
         trainingSupply: Object.freeze({

@@ -1129,18 +1129,32 @@
         }
         return cycleItems;
     }
-    function resourceRepresentativeMetadata(name, skill, meta, annotations = {}) {
+    function resourceRepresentativeMetadata(name, skill, meta, annotations = {}, inferredResources = null) {
         const ignored = new Set(annotations.resourceRepresentatives?.ignoredPrimaryResources?.[skill] || []);
-        const primaryIndex = (meta.Items || []).findIndex(raw => String(raw).includes('*') && !ignored.has(canonicalItemKey(raw)));
+        const items = meta.Items || [];
+        const candidates = inferredResources == null ?
+            items.filter(raw => String(raw).includes('*') && !ignored.has(canonicalItemKey(raw))) :
+            inferredResources.filter(raw => !ignored.has(canonicalItemKey(raw)));
+        // Inferred resources are used only when a task has one clear consumed
+        // material after reusable capabilities have been removed. Multi-input
+        // processes (pyre logs, combination runes, etc.) remain separate.
+        if (inferredResources != null && candidates.length !== 1) return null;
+        const primaryIndex = items.findIndex(raw => candidates.some(candidate =>
+            canonicalItemKey(candidate) === canonicalItemKey(raw)));
         if (primaryIndex < 0) return null;
         const resource = canonicalItemKey(meta.Items[primaryIndex]);
         const rules = annotations.resourceRepresentatives?.distinctOutputFamilies || [];
         const output = String(meta.Output || displayName(name)).toLowerCase();
         const distinct = rules.find(rule => (!rule.skill || rule.skill === skill) &&
             output.includes(String(rule.outputIncludes || '').toLowerCase()));
+        const equivalent = (annotations.resourceRepresentatives?.equivalentRecipeFamilies || []).find(rule => {
+            if (rule.skill && rule.skill !== skill) return false;
+            try { return new RegExp(rule.taskPattern, 'i').test(displayName(name)); }
+            catch (_) { return false; }
+        });
         const list = values => (values || []).map(canonicalItemKey).sort();
         const requirements = value => Object.entries(value || {}).sort(([left], [right]) => left.localeCompare(right));
-        const method = distinct?.family || JSON.stringify({
+        const method = equivalent?.family || distinct?.family || JSON.stringify({
             items: list((meta.Items || []).filter((_, index) => index !== primaryIndex)),
             objects: list(meta.Objects), npcs: list(meta.NPCs), monsters: list(meta.Monsters),
             mix: list(meta.Mix), chunks: list(meta.Chunks), outputObject: meta['Output Object'] || null,
@@ -3208,6 +3222,22 @@
                 clueRewards.tiers[tier]?.complete) return false;
             return calculateClueActivation().active.has(tier);
         }
+        function taskResourceInputs(skill, meta = {}, keepLegacyFallback = false) {
+            const inputs = meta.Items || [];
+            const marked = inputs.filter(raw => String(raw).includes('*'));
+            if (marked.length) return marked;
+            if (skill !== 'Firemaking') return keepLegacyFallback ? inputs : [];
+            // Some upstream tasks omit the consumed-resource marker. Infer it
+            // for Firemaking by excluding requirements that the persistent-
+            // enabler model has already proven are reusable tools or families.
+            // Other skills retain the upstream marker as their resource-family
+            // signal; their primary-source checks still cover every input.
+            return inputs.filter(raw => {
+                const key = canonicalItemKey(raw).split('[+]x')[0] + (String(raw).includes('[+]x') ? '[+]' : '');
+                if (enablerModel.byRequirement.has(key)) return false;
+                return !chooseItemCapability(enablerModel, canonicalItemKey(raw), skill);
+            });
+        }
         function taskOrigins(name, skill, visiting = new Set()) {
             const key = 'task:' + skill + ':' + name;
             if (visiting.has(key)) return [];
@@ -3231,8 +3261,7 @@
             }
             result = constrain(result);
             if (!result.length) {
-                const marked = (meta.Items || []).filter(n => n.includes('*'));
-                const resources = marked.length ? marked : (meta.Items || []);
+                const resources = taskResourceInputs(skill, meta, true);
                 // One primary resource is confidently attributable; several independent
                 // inputs are ambiguous. Retain fixed facilities/metadata when available.
                 if (resources.length === 1) result = constrain(expand(resources[0], codes.itemsPlus).flatMap(n => item(n, next)));
@@ -4172,7 +4201,8 @@
                 ['skill_progression', 'activity'].includes(record.taskClass) ?
                 taskResourceMilestoneDependencies(name, requirementMeta) : [];
             record.resourceRepresentative = record.taskClass === 'skill_progression' ?
-                resourceRepresentativeMetadata(name, requirementSkill, requirementMeta, annotations) : null;
+                resourceRepresentativeMetadata(name, requirementSkill, requirementMeta, annotations,
+                    taskResourceInputs(requirementSkill, requirementMeta)) : null;
             const availableBeforeForestryAndPersistentEnablers = record.available !== false;
             const requiredEnablers = uniqueRequirements([
                 ...taskEnablerRequirements(data, requirementSkill, requirementMeta, enablerModel, record.taskClass),

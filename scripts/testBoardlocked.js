@@ -504,15 +504,15 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-combat-data\.js\?v=1/);
-    assert.match(html, /boardlocked-data\.js\?v=26/);
+    assert.match(html, /boardlocked-data\.js\?v=27/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=80/);
+    assert.match(html, /boardlocked\.js\?v=81/);
     assert.match(index, /worker\.js\?v=6\.9\.66-bl57/g);
     assert.match(ui, /worker\.js\?v=6\.9\.66-bl57/);
     assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
-    assert.match(worker, /boardlocked-data\.js\?v=26/);
-    assert.match(worker, /boardlocked\.js\?v=80/);
+    assert.match(worker, /boardlocked-data\.js\?v=27/);
+    assert.match(worker, /boardlocked\.js\?v=81/);
     assert.match(worker, /boardlocked-worker\.js\?v=31/);
     assert.match(html, /boardlocked-ui\.js\?v=98/);
     assert.match(html, /boardlocked\.css\?v=26/);
@@ -982,6 +982,44 @@ test('provenance follows a fixed action source, excluding its enabling tool', ()
 test('portable processing belongs to resource source rather than remote fire', () => {
     const output = R.buildTasks(sourceFixture());
     assert.deepEqual(output.tasks.find(t => t.taskId === 'cook').origins.map(o => o.chunkId), ['2000']);
+});
+test('unmarked Firemaking logs inherit tree origins and one log tier gets one representative', () => {
+    const fixture = sourceFixture();
+    const burnName = 'Burn ~|willow logs|~', bonfireName = 'Burn ~|willow logs|~ at a fire';
+    fixture.data.challenges = {
+        Woodcutting: { Chop: { Items: ['Axe[+]'], Objects: ['Willow tree'], Level: 30,
+            Output: 'Willow logs', Primary: true } },
+        Firemaking: {
+            [burnName]: { Items: ['Willow logs', 'Tinderbox'], Level: 30, Output: 'Ashes',
+                'Output Object': 'Player fire', Primary: true, Priority: 1 },
+            [bonfireName]: { Items: ['Willow logs*'], Objects: ['Forester fire'], Level: 30,
+                Primary: true, Priority: 71 }
+        }, Extra: {}, Quest: {}, Diary: {}
+    };
+    fixture.data.codeItems = { itemsPlus: { 'Axe[+]': ['Bronze axe'] }, objectsPlus: {},
+        tools: { Tinderbox: true, 'Bronze axe': true } };
+    fixture.data.toolLevels = { 'Axe[+]': { 'Bronze axe': 1 } };
+    fixture.base = { objects: { 'Willow tree': { '1000': true }, 'Forester fire': { '2000': true } },
+        monsters: {}, npcs: {}, shops: {}, items: { 'Willow logs': { Chop: 'primary-Woodcutting' } } };
+    fixture.valids = { Woodcutting: { Chop: 30 }, Firemaking: { [burnName]: 30, [bonfireName]: 30 } };
+    fixture.ids = { Chop: 'chop-willow', [burnName]: 'burn-willow', [bonfireName]: 'bonfire-willow' };
+    fixture.annotations = annotations;
+    fixture.state.actualLevels.Firemaking = 30;
+    fixture.state.progressionHighWater.Firemaking = 15;
+    fixture.state.progressionInitialized = true;
+    fixture.state.acquiredEnablers.Tinderbox = { manual: true };
+    fixture.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    fixture.legacy = { checkedAllTasks: { Woodcutting: { Chop: true } } };
+
+    const built = R.buildTasks(fixture).tasks;
+    const burn = built.find(task => task.name === burnName);
+    assert.deepEqual(burn.origins.map(origin => [origin.chunkId, origin.sourceName]), [['1000', 'Willow tree']],
+        'the reusable tinderbox is not mistaken for a second resource origin');
+    const adapted = R.adaptTasks(built, fixture.legacy, fixture.state,
+        { '1000': '1000', '2000': '2000' }, { '1000': { '1': true }, '2000': { '1': true } }, {}, built);
+    assert.equal(adapted.find(task => task.name === burnName).eligible, true);
+    assert.equal(adapted.find(task => task.name === bonfireName).eligible, false);
+    assert.equal(adapted.find(task => task.name === bonfireName).representedByTaskId, 'burn-willow');
 });
 test('unassigned provenance is diagnostic, never attributed to a recent location', () => {
     const output = R.buildTasks(sourceFixture());
@@ -2124,6 +2162,33 @@ test('every skill recipe input has a primary supply route', () => {
     assert.equal(catalog.ingredients['Raw wild kebit'], undefined);
 });
 
+test('every ordinary Firemaking log tier has a deliberate Woodcutting supply', () => {
+    const catalog = R.recipeSupplyCatalog(chunkData, annotations);
+    const enablers = R.buildEnablerModel(chunkData, annotations);
+    for (const [name, meta] of Object.entries(chunkData.challenges.Firemaking)) {
+        for (const raw of meta.Items || []) {
+            const reusable = !raw.includes('*') &&
+                R.taskEnablerRequirements(chunkData, 'Firemaking', { Items: [raw] }, enablers, 'skill_progression').length > 0;
+            if (reusable) continue;
+            const alternatives = R.expand(raw, chunkData.codeItems?.itemsPlus).map(R.canonicalItemKey);
+            assert.ok(alternatives.some(item => catalog.globallySupplied(item)),
+                name + ' has no reasonable primary supply for ' + raw);
+        }
+    }
+    const burns = Object.entries(chunkData.challenges.Firemaking).filter(([name]) =>
+        /^Burn (?:a )?(?!.*pyre)(?:.+ )?logs(?: at a fire)?$/i.test(R.displayName(name)));
+    assert.ok(burns.length >= 32, 'the audit should cover both ordinary methods across every standard and Varlamore log tier');
+    for (const [name, meta] of burns) {
+        const resource = (meta.Items || []).map(R.canonicalItemKey).find(item => item !== 'Tinderbox');
+        assert.ok(resource, name + ' has no log resource');
+        const approved = catalog.ingredients[resource]?.sources.filter(source => source.approved && source.kind === 'action') || [];
+        assert.ok(approved.some(source => {
+            const producer = chunkData.challenges.Woodcutting?.[source.sourceName];
+            return producer?.Primary === true && R.canonicalItemKey(producer.Output) === resource;
+        }), name + ' has no deliberate Woodcutting supply for ' + resource);
+    }
+});
+
 test('Smithing goals reject incidental metal drops and accept deliberate stock', () => {
     const fixture = sourceFixture();
     fixture.data.challenges = {
@@ -2685,7 +2750,7 @@ test('the full recipe catalog contains only reviewed multi-recipe families', () 
     const multiple = [...groups.values()].filter(group => group.tasks.length > 1);
     assert.deepEqual(Object.fromEntries(R.SKILLS.map(skill =>
         [skill, multiple.filter(group => group.skill === skill).length]).filter(([, count]) => count)),
-    { Crafting: 19, Fletching: 7, Smithing: 22 });
+    { Crafting: 19, Firemaking: 2, Fletching: 7, Smithing: 22 });
     assert.equal(multiple.some(group => group.skill === 'Fishing'), false,
         'bait and feathers must not merge Fishing progression');
     assert.equal(multiple.some(group => group.skill === 'Cooking'), false,
