@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 54;
+    const VERSION = 55;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -1585,7 +1585,7 @@
             const highWater = state.progressionHighWater?.[task.skill] ?? 0;
             const ceiling = task.usesSkillLevelWindow ? progressionCeiling(catalog, task.skill, highWater,
                 state.actualLevels?.[task.skill] || 1) : null;
-            const superseded = !!task.advancesSkillProgression && task.level <= highWater;
+            const superseded = !!task.usesSkillLevelWindow && task.level <= highWater;
             const progressionBlocked = !!task.usesSkillLevelWindow && task.level > ceiling;
             return { ...task, origins, activeOrigins, blockedEncounterSources, encounterDeferred,
                 // Keep the old names on calculated tasks so completed visit

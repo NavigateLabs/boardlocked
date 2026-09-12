@@ -509,14 +509,14 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=27/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=83/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl59/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl59/);
+    assert.match(html, /boardlocked\.js\?v=84/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl60/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl60/);
     assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
     assert.match(worker, /boardlocked-data\.js\?v=27/);
-    assert.match(worker, /boardlocked\.js\?v=83/);
+    assert.match(worker, /boardlocked\.js\?v=84/);
     assert.match(worker, /boardlocked-worker\.js\?v=31/);
-    assert.match(html, /boardlocked-ui\.js\?v=100/);
+    assert.match(html, /boardlocked-ui\.js\?v=101/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -1933,6 +1933,32 @@ test('secondary recipe steps and their produced items obey every prerequisite sk
     assert.match(spit.accessResult.reason, /Smithing level 15/);
     assert.equal(bronze.available, false, 'a loose bronze bar is not a primary Smithing supply');
     assert.match(bronze.accessResult.reason, /No reasonable primary source supplies Bronze bar/);
+});
+
+test('secondary skill actions below the highest completed task are suppressed without advancing progression', () => {
+    const data = { challenges: { Firemaking: {
+        Logs: { Level: 30, Primary: true },
+        Candle: { Level: 1, Primary: false, Items: ['Candle', 'Tinderbox'], Output: 'Lit candle' },
+        Lantern: { Level: 26, Primary: false, Items: ['Oil lantern', 'Tinderbox'], Output: 'Lit oil lantern' },
+        Future: { Level: 40, Primary: false, Items: ['Future lamp', 'Tinderbox'], Output: 'Lit future lamp' }
+    }, Extra: { Keepsake: { Level: 1, Category: ['Collection Log'] } } } };
+    const catalog = R.buildTaskCatalog(data);
+    const located = catalog.map(record => ({ ...record, origins: [origin('1000')], available: true }));
+    const state = fresh();
+    state.actualLevels.Firemaking = 30;
+    state.progressionHighWater.Firemaking = 30;
+    const tasks = R.adaptTasks(located, {}, state, geo, {}, {}, catalog);
+    for (const name of ['Candle', 'Lantern']) {
+        const candidate = tasks.find(record => record.name === name);
+        assert.equal(candidate.advancesSkillProgression, false, name);
+        assert.equal(candidate.usesSkillLevelWindow, true, name);
+        assert.equal(candidate.superseded, true, name);
+        assert.equal(candidate.eligible, false, name);
+    }
+    assert.equal(tasks.find(record => record.name === 'Future').eligible, true,
+        'a secondary action inside the forward window remains available');
+    assert.equal(tasks.find(record => record.name === 'Keepsake').eligible, true,
+        'collection logs remain independent of ordinary skill pacing');
 });
 
 test('one item spawn permits neither an objective nor a training loop', () => {
