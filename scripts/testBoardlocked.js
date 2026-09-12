@@ -505,13 +505,13 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=25/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=76/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl52/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl52/);
+    assert.match(html, /boardlocked\.js\?v=77/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl53/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl53/);
     assert.match(worker, /boardlocked-data\.js\?v=25/);
-    assert.match(worker, /boardlocked\.js\?v=76/);
+    assert.match(worker, /boardlocked\.js\?v=77/);
     assert.match(worker, /boardlocked-worker\.js\?v=27/);
-    assert.match(html, /boardlocked-ui\.js\?v=94/);
+    assert.match(html, /boardlocked-ui\.js\?v=95/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -3288,6 +3288,47 @@ test('obtainable equipment upgrades ignore skill windows and expose core defensi
     const high = runWorker(request).result.tasks.filter(task => task.skill === 'BiS');
     assert.ok(high.some(task => task.equipmentName === 'Rune scimitar'));
     assert.ok(high.some(task => task.equipmentName === 'Rune kiteshield'));
+});
+
+test('produced equipment requires a reachable producer level and its exact consumed inputs', () => {
+    const request = usePreset(makeRequest(['5428']), 'Boardlocked Chunker');
+    const area = request.chunkInfo.chunks['5428'];
+    area.Spawn = { ...(area.Spawn || {}), 'Bronze bar': 1, 'Felling axe handle': 1 };
+    request.boardlocked.state.actualLevels.Smithing = 1;
+    request.boardlocked.state.actualLevels.Fletching = 1;
+    request.boardlocked.state.actualLevels.Woodcutting = 15;
+    request.boardlocked.state.acquiredEnablers = {
+        Hammer: { taskId: 'fixture', name: 'Fixture hammer' },
+        'Bronze axe': { taskId: 'fixture', name: 'Fixture axe' },
+        'Forestry kit': { taskId: 'fixture', name: 'Fixture kit' }
+    };
+    const result = runWorker(request).result;
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
+        result.sections, request.manualSections, catalog, request.boardlocked.tasksMap, request.chunkInfo);
+    const eligible = tasks.filter(task => task.eligible);
+    assert.ok(eligible.some(task => task.equipmentName === 'Iron felling axe'),
+        'the level-one recipe is available when the exact iron axe and handle are accessible');
+    for (const item of ['Bronze med helm', 'Bronze 2h sword', 'Oak shield', 'Mithril felling axe']) {
+        assert.ok(!eligible.some(task => task.equipmentName === item), item + ' must not leak through its final workstation');
+    }
+    assert.equal(tasks.some(task => task.equipmentName === 'Bronze knife'), false,
+        'consumable throwing weapons are not persistent BiS goals');
+    assert.ok(!eligible.some(task => /pheasant (?:hat|legs|boots|cape)/i.test(task.displayName)),
+        'a Forestry origin cannot bypass the Crafting level and tool chain for its collection reward');
+    const mithril = tasks.find(task => task.equipmentName === 'Mithril felling axe');
+    assert.match(mithril.accessResult.reason, /Smithing level 21|No accessible source for Mithril axe/);
+});
+
+test('one-handed and two-handed weapons share a combat comparison family', () => {
+    const state = { actualLevels: { Attack: 5 } };
+    const twoHanded = { taskClass: 'bis', equipmentName: 'Bronze 2h sword', bisReason: 'Melee upgrade weapon',
+        confirmsEquipped: true };
+    assert.equal(R.equipmentDominatesTask(chunkData, twoHanded, 'Steel scimitar', state, true), true);
+    const felling = { taskClass: 'bis', equipmentName: 'Bronze felling axe', bisReason: 'Melee upgrade weapon/BIS Skilling · BIS Axe',
+        bisSet: 'BIS Axe', confirmsEquipped: true };
+    assert.equal(R.equipmentDominatesTask(chunkData, felling, 'Steel scimitar', state, true), false,
+        'an unrelated combat weapon cannot satisfy a skilling equipment objective');
 });
 
 test('fresh Hill Giant start replaces the generic steel milestone with its exact obtainable upgrade', () => {

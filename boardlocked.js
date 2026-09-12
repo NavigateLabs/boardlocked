@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 48;
+    const VERSION = 49;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -95,7 +95,15 @@
     }
     function equipmentDominatesTask(data, task, candidateName, state = null, confirmedEquipped = false) {
         const target = data?.equipment?.[task?.equipmentName], candidate = data?.equipment?.[candidateName];
-        if (!target || !candidate || candidateName === task.equipmentName || candidate.slot !== target.slot) return false;
+        const targetWeapon = ['weapon', '2h'].includes(target?.slot), candidateWeapon = ['weapon', '2h'].includes(candidate?.slot);
+        if (!target || !candidate || candidateName === task.equipmentName ||
+            (candidate.slot !== target.slot && !(targetWeapon && candidateWeapon))) return false;
+        if (task.bisSet) {
+            const candidateInSet = Object.values(data?.challenges?.Extra || {}).some(meta => meta?.Set === task.bisSet &&
+                (meta.Items || []).some(raw => expand(raw, data.codeItems?.itemsPlus).some(item =>
+                    comparableItemKey(item) === comparableItemKey(candidateName))));
+            if (!candidateInSet) return false;
+        }
         if (!confirmedEquipped && !equipmentRequirementsMet(candidate, state)) return false;
         const roles = combatRolesFromBisReason(task.bisReason);
         return roles.length > 0 && roles.every(role =>
@@ -3546,7 +3554,19 @@
             }
             const sourceSkill = knownNames.get(source), sourceMeta = data.challenges[sourceSkill]?.[source];
             let origins = sourceMeta ? taskOrigins(source, sourceSkill) : [];
-            if (!sourceMeta || !origins.length) return null;
+            if (!sourceMeta) return null;
+            // A workstation alone cannot prove that a produced item is
+            // obtainable. Validate the producing action and its complete input
+            // chain before exposing its output as a reward or equipment goal.
+            const levelReadiness = taskLevelReadiness(source, sourceSkill, sourceMeta);
+            const declaredReadiness = declaredSkillReadiness(sourceMeta);
+            const inputReadiness = taskInputReadiness(source, sourceSkill, sourceMeta,
+                new Set(['acquisition:' + comparableItemKey(itemName)]));
+            const dependencyBlocks = [
+                ...(!levelReadiness.allowed ? [levelReadiness] : []),
+                ...(!declaredReadiness.allowed ? [declaredReadiness] : []),
+                ...inputReadiness.blocks
+            ];
             const markedSourceResources = (sourceMeta.Items || []).filter(item => item.includes('*'));
             const sourceResources = markedSourceResources.length ? markedSourceResources : (sourceMeta.Items || []);
             const hasFixedAnchor = !!(sourceMeta.Chunks?.length || sourceMeta.NPCs?.length || sourceMeta.Monsters?.length ||
@@ -3578,8 +3598,9 @@
                 forestryStatus = { required: true, treeOrigins: allForestryTreeOrigins, persistentEnablers: forestryRequirements,
                     satisfied: allForestryTreeOrigins.length > 0 && forestryRequirements.every(requirement => requirement.satisfied) };
             }
-            return { source, sourceSkill, sourceType: type, origins, resourceMilestones, persistentEnablers, forestry: forestryStatus,
-                available: resourceMilestones.every(dependency => dependency.satisfied) &&
+            return { source, sourceSkill, sourceType: type, origins, resourceMilestones, persistentEnablers,
+                dependencyBlocks, forestry: forestryStatus,
+                available: dependencyBlocks.length === 0 && resourceMilestones.every(dependency => dependency.satisfied) &&
                     persistentEnablers.every(requirement => requirement.satisfied) && (!forestryStatus || forestryStatus.satisfied) };
         }
         function itemAcquisitionStatus(itemName) {
@@ -3591,14 +3612,17 @@
             const missingEnablers = uniqueRequirements(paths.flatMap(path => [
                 ...(path.persistentEnablers || []), ...(path.forestry?.persistentEnablers || [])
             ]).filter(requirement => !requirement.satisfied));
+            const dependencyBlocks = [...new Map(paths.flatMap(path => path.dependencyBlocks || [])
+                .map(block => [block.reason, block])).values()];
             const needsForestryTree = paths.some(path => path.forestry && !path.forestry.treeOrigins.length);
             const reasons = [
+                ...dependencyBlocks.map(block => block.reason),
                 ...missingEnablers.map(requirement => 'obtain ' + (requirement.requiresSpecificItem ? requirement.itemKey : requirement.capabilityLabel)),
                 ...missingMilestones.map(dependency => 'complete ' + dependency.producers.map(producer => producer.displayName).join(' or ')),
                 ...(needsForestryTree ? ['unlock an eligible non-Guild Forestry tree'] : [])
             ];
             return { itemKey: itemName, paths, availablePaths, available: availablePaths.length > 0,
-                origins: uniqueOrigins(availablePaths.flatMap(path => path.origins)), missingMilestones, missingEnablers,
+                origins: uniqueOrigins(availablePaths.flatMap(path => path.origins)), missingMilestones, missingEnablers, dependencyBlocks,
                 reason: reasons.length ? 'Acquisition prerequisites: ' + reasons.join('; ') : 'No accessible acquisition path' };
         }
         const equipmentByFormattedName = new Map(Object.entries(data.equipment || {}).map(([name, meta]) => [(meta.formatted_name || name.toLowerCase()).replaceAll('#', '/'), name]));
@@ -3615,7 +3639,8 @@
                     !meta.Category.some(c => c !== 'Collection Log' && rules[c])))) continue;
             const id = taskId(name, skill, ids);
             const equipmentName = skill === 'BiS' ? equipmentByFormattedName.get(name.split('|')[1]) : undefined;
-            if (skill === 'BiS' && data.equipment?.[equipmentName]?.slot === 'ammo') continue;
+            const equipmentMeta = skill === 'BiS' ? data.equipment?.[equipmentName] : null;
+            if (skill === 'BiS' && (equipmentMeta?.slot === 'ammo' || equipmentMeta?.is_consumable === true)) continue;
             const directClueReward = clueRewardByTaskId.get(id);
             if (clueTiersFor(meta).length && !directClueReward) continue;
             const equipmentClueReward = equipmentName ? clueRewardByItem.get(comparableItemKey(equipmentName)) : null;
@@ -3736,7 +3761,7 @@
                     // the same item also exists in a shop, spawn, or drop table.
                     // Mixed-source BiS rows keep every path so the UI can show
                     // one ordinary presentation and one clue presentation.
-                    if (!record.clueReward) record.origins = acquisition.origins;
+                    if (!record.clueReward && acquisition.origins.length) record.origins = acquisition.origins;
                     if (!acquisition.available) {
                         record.available = false;
                         record.accessResult = { allowed: false, reason: acquisition.reason, acquisition };
