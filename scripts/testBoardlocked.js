@@ -505,13 +505,13 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=25/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=78/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl54/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl54/);
+    assert.match(html, /boardlocked\.js\?v=79/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl55/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl55/);
     assert.match(worker, /boardlocked-data\.js\?v=25/);
-    assert.match(worker, /boardlocked\.js\?v=78/);
-    assert.match(worker, /boardlocked-worker\.js\?v=28/);
-    assert.match(html, /boardlocked-ui\.js\?v=96/);
+    assert.match(worker, /boardlocked\.js\?v=79/);
+    assert.match(worker, /boardlocked-worker\.js\?v=29/);
+    assert.match(html, /boardlocked-ui\.js\?v=97/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -3346,6 +3346,52 @@ test('skilling sets expose every obtainable upgrade over the registered item', (
         assert.ok(upgrades.includes(item), item + ' is a distinct shop upgrade over the registered bronze axe');
     }
     assert.ok(!upgrades.includes('Bronze axe'), 'the registered baseline is not offered as an upgrade');
+});
+
+test('axe upgrades are scoped to broad Woodcutting opportunities without advancing Woodcutting', () => {
+    const axe = { taskId: 'mithril-axe', name: 'Obtain a mithril axe', displayName: 'Obtain a mithril axe',
+        skill: 'BiS', taskClass: 'bis', bisSet: 'BIS Axe', bisReason: 'BIS Skilling · BIS Axe',
+        eligible: true, completed: false, backlogged: false, superseded: false, progressionBlocked: false,
+        activeOrigins: [origin('1000')], whyWouldBeIneligible: [] };
+    assert.equal(R.scopeAxeUpgradesToWoodcutting([axe])[0].eligible, false,
+        'an axe shop alone does not manufacture a Woodcutting progression loop');
+    const fletching = task('oak-shafts', ['2000'], { skill: 'Fletching',
+        resourceMilestoneDependencies: [{ producers: [{ skill: 'Woodcutting', level: 15 }] }] });
+    assert.equal(R.scopeAxeUpgradesToWoodcutting([axe, fletching])[0].eligible, true,
+        'a task fed by Woodcutting is enough; it need not be a felling-axe recipe');
+
+    const legacy = { checkedAllTasks: { BiS: { 'Obtain a ~|mithril axe|~': true } } };
+    const state = fresh(); state.acquiredEnablers['Mithril axe'] = { manual: true };
+    const highWater = R.deriveProgressionHighWater(R.buildTaskCatalog(chunkData, require('../tasksMap.json')),
+        legacy, require('../tasksMap.json'), state);
+    assert.equal(highWater.Woodcutting, 0,
+        'owning a Woodcutting tool never proves its use level or moves the skill baseline');
+});
+
+test('an active Forestry goal exposes same-tile tree milestones beyond the normal band', () => {
+    const treeOrigin = (name, location = '1000') => ({ chunkId: location, sectionId: null,
+        sourceType: 'objects', sourceName: name, reason: 'Tree source' });
+    const forestry = task('forestry-reward', ['1000'], { skill: 'Extra', taskClass: 'collection',
+        advancesSkillProgression: false, usesSkillLevelWindow: false,
+        accessResult: { forestry: true, treeSource: {
+            origins: [treeOrigin('Oak tree')], levelBlockedOrigins: [treeOrigin('Maple tree')]
+        } } });
+    const maple = task('maple', [], { level: 45, advancesSkillProgression: true, usesSkillLevelWindow: true,
+        origins: [treeOrigin('Maple tree')], activeOrigins: [treeOrigin('Maple tree')] });
+    const yew = task('yew', [], { level: 60, advancesSkillProgression: true, usesSkillLevelWindow: true,
+        origins: [treeOrigin('Yew tree')], activeOrigins: [treeOrigin('Yew tree')] });
+    const catalog = [maple, yew, { ...task('willow', ['2000']), level: 30,
+        advancesSkillProgression: true, usesSkillLevelWindow: true }];
+    const state = fresh(); state.actualLevels.Woodcutting = 15; state.progressionHighWater.Woodcutting = 15;
+    const tasks = R.adaptTasks([forestry, maple, yew], {}, state, { '1000': '1000' }, {}, {}, catalog);
+    const openedMaple = tasks.find(item => item.taskId === 'maple');
+    assert.equal(openedMaple.eligible, true); assert.equal(openedMaple.forestryCompanion, true);
+    assert.equal(tasks.find(item => item.taskId === 'yew').eligible, false,
+        'a different tree in the same tile is not related unless the Forestry source supports it');
+
+    const withoutForestry = R.adaptTasks([maple], {}, state, { '1000': '1000' }, {}, {}, catalog);
+    assert.equal(withoutForestry[0].eligible, false,
+        'the above-band milestone cannot keep the tile active after its Forestry context disappears');
 });
 
 test('oak Fletching opens inside its intended progression band', () => {

@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 50;
+    const VERSION = 51;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -1433,6 +1433,50 @@
         }
         return tasks.map(task => replacements.get(task.taskId) || task);
     }
+    function openForestryCompanionMilestones(tasks) {
+        const treeOrigins = tasks.filter(task => task.eligible && task.accessResult?.forestry)
+            .flatMap(task => {
+                const activeAreas = task.activeOrigins || [];
+                const treeSource = task.accessResult.treeSource || {};
+                return [...(treeSource.origins || []), ...(treeSource.levelBlockedOrigins || [])]
+                    .filter(tree => activeAreas.some(area => sameAccessibleArea(area, tree)));
+            });
+        if (!treeOrigins.length) return tasks;
+        const sameTreeSource = (left, right) => sameAccessibleArea(left, right) &&
+            comparableItemKey(left.sourceName) === comparableItemKey(right.sourceName);
+        return tasks.map(task => {
+            if (task.skill !== 'Woodcutting' || !task.advancesSkillProgression || !task.progressionBlocked ||
+                task.available === false || task.completed || task.backlogged || task.superseded) return task;
+            const companionOrigins = (task.activeOrigins || []).filter(origin =>
+                treeOrigins.some(tree => sameTreeSource(origin, tree)));
+            if (!companionOrigins.length) return task;
+            return { ...task, activeOrigins: companionOrigins, eligible: true, progressionBlocked: false,
+                forestryCompanion: true, progressionCeiling: task.level,
+                eligibilityReason: 'Available here as a Woodcutting milestone while this Forestry task is active',
+                whyWouldBeIneligible: (task.whyWouldBeIneligible || []).filter(reason => reason !== 'above current progression window') };
+        });
+    }
+    function scopeAxeUpgradesToWoodcutting(tasks) {
+        const generallyActionable = task => !task.completed && !task.backlogged && !task.superseded &&
+            !task.progressionBlocked && task.activeOrigins?.length > 0;
+        const woodcuttingOpportunity = tasks.some(task => generallyActionable(task) && (
+            (task.skill === 'Woodcutting' && task.advancesSkillProgression &&
+                (task.eligible || task.availableWithoutPersistentEnablers === true)) ||
+            (task.accessResult?.forestry && task.eligible) ||
+            (task.eligible && (task.resourceMilestoneDependencies || []).some(dependency =>
+                dependency.producers?.some(producer => producer.skill === 'Woodcutting')))
+        ));
+        if (woodcuttingOpportunity) return tasks;
+        return tasks.map(task => {
+            if (task.bisSet !== 'BIS Axe' || !task.eligible) return task;
+            const reasons = String(task.bisReason || '').split(/\/​?/).map(reason => reason.trim()).filter(Boolean);
+            if (reasons.some(reason => !reason.startsWith('BIS Skilling'))) return task;
+            return { ...task, eligible: false, axeOpportunityDeferred: true,
+                eligibilityReason: 'No unfinished Woodcutting-related task is currently active',
+                whyWouldBeIneligible: [...(task.whyWouldBeIneligible || []),
+                    'no unfinished Woodcutting-related task is currently active'] };
+        });
+    }
     function scopeEnablersToCurrentProgression(tasks) {
         const byId = new Map(tasks.map(task => [task.taskId, task]));
         return tasks.map(task => {
@@ -1500,8 +1544,9 @@
                     ...(permittedOrigins.length && !activeOrigins.length ? ['origin geography or section closed'] : [])
                 ] };
         });
-        const withCatchUp = openCatchUpMilestones(adapted, state);
-        const progressionScoped = scopeEnablersToCurrentProgression(withCatchUp);
+        const withForestryCompanions = openForestryCompanionMilestones(adapted);
+        const withCatchUp = openCatchUpMilestones(withForestryCompanions, state);
+        const progressionScoped = scopeAxeUpgradesToWoodcutting(scopeEnablersToCurrentProgression(withCatchUp));
         const ordered = orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(progressionScoped), legacy, state, ids);
         return scopeEnablersToCurrentProgression(chooseResourceRepresentativeTasks(ordered, state));
     }
@@ -4005,7 +4050,8 @@
         clueStepCatalog, clueStepDefinition, clueStepTargets, clueStepStatus,
         setClueLock, setIncidentalClueCount,
         isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
-        collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones, buildTaskCatalog,
+        collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones,
+        openForestryCompanionMilestones, scopeAxeUpgradesToWoodcutting, buildTaskCatalog,
         deriveProgressionHighWater, completedSkillProgress, trainingMethodsAtOrBelow,
         initializeProgression, reconcileProgression, setProgressionHighWater, skillMilestones, adaptTasks,
         actualCombatLevel, setSlayerMasterState, setEncounterBlocked, setBossBlocked, slayerLockDefinition, slayerLockTargets, slayerLockStatus, slayerProgressionModel,
