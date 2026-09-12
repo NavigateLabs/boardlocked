@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 49;
+    const VERSION = 50;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -122,7 +122,7 @@
     // whole fixed tier.
     const PROGRESSION_WINDOWS = Object.freeze({
         Attack: 10, Strength: 10, Defence: 10, Hitpoints: 25, Ranged: 10, Prayer: 20, Magic: 15,
-        Cooking: 15, Woodcutting: 15, Fletching: 10, Fishing: 10, Firemaking: 15, Crafting: 10,
+        Cooking: 15, Woodcutting: 15, Fletching: 15, Fishing: 10, Firemaking: 15, Crafting: 10,
         Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 15, Slayer: 0,
         Farming: 20, Runecraft: 15, Hunter: 10, Construction: 10, Sailing: 20
     });
@@ -803,6 +803,7 @@
     }
     function isComplete(task, legacy = {}, state = null) {
         if (task.taskClass === 'enabler' && task.enablerItemKey && own(state?.acquiredEnablers, task.enablerItemKey)) return true;
+        if (task.equipmentName && own(state?.acquiredEnablers, canonicalItemKey(task.equipmentName))) return true;
         return ['completedChallenges', 'checkedChallenges', 'checkedAllTasks'].some(key => legacyFlag(legacy[key], task)) ||
             (!!task.equipmentName && !!legacy.manualEquipment?.[task.equipmentName]);
     }
@@ -3212,6 +3213,33 @@
             ...Object.keys(state.acquiredEnablers || {}),
             ...Object.entries(legacy.manualEquipment || {}).filter(([, value]) => value !== false).map(([name]) => name)
         ].map(comparableItemKey));
+        const collectionMilestones = new Map();
+        if (rules['Collection Log']) for (const [collectionSkill, collectionTasks] of Object.entries(data.challenges || {})) {
+            for (const [collectionName, collectionMeta] of Object.entries(collectionTasks || {})) {
+                const record = taskMetadata(collectionName, collectionSkill, collectionMeta, ids);
+                if (record.taskClass !== 'collection' || !own(valids[collectionSkill] || {}, collectionName) ||
+                    valids[collectionSkill][collectionName] === false) continue;
+                for (const rawItem of collectionMeta.Items || []) for (const itemName of expand(rawItem, codes.itemsPlus)) {
+                    const key = comparableItemKey(itemName);
+                    if (!collectionMilestones.has(key)) collectionMilestones.set(key, []);
+                    collectionMilestones.get(key).push(record);
+                }
+            }
+        }
+        function collectionMilestoneReadiness(rawItem) {
+            const alternatives = expand(rawItem, codes.itemsPlus).map(canonicalItemKey);
+            const pending = alternatives.map(itemName => ({ itemName,
+                goals: collectionMilestones.get(comparableItemKey(itemName)) || [] }));
+            if (pending.some(entry => !entry.goals.length || entry.goals.some(goal => isComplete(goal, legacy, state)))) {
+                return { allowed: true, blocks: [] };
+            }
+            const goals = pending.flatMap(entry => entry.goals);
+            if (!goals.length) return { allowed: true, blocks: [] };
+            const names = [...new Set(goals.map(goal => displayName(goal.name)))];
+            return { allowed: false, blocks: [{ collectionMilestone: true,
+                item: canonicalItemKey(rawItem).replaceAll('*', ''),
+                reason: 'Complete ' + names.join(' or ') + ' before consuming this collection-log item' }] };
+        }
         function itemRequirementReadiness(rawItem, visiting = new Set()) {
             const alternatives = expand(rawItem, codes.itemsPlus).map(canonicalItemKey);
             const available = alternatives.some(itemName => ownedReusableItems.has(comparableItemKey(itemName)) ||
@@ -3227,6 +3255,10 @@
             if (visiting.has(key)) return { allowed: false, blocks: [{ reason: 'Circular item dependency' }] };
             const next = new Set(visiting).add(key), blocks = [];
             for (const rawItem of meta.Items || []) {
+                if (rawItem.includes('*')) {
+                    const milestone = collectionMilestoneReadiness(rawItem);
+                    if (!milestone.allowed) { blocks.push(...milestone.blocks); continue; }
+                }
                 const readiness = itemRequirementReadiness(rawItem, next);
                 if (!readiness.allowed) blocks.push(...readiness.blocks);
             }
@@ -3720,6 +3752,16 @@
             if (record.taskClass === 'bis' && record.bisReason && !record.displayName.startsWith('[')) {
                 record.displayName = '[' + record.bisReason + '] ' + record.displayName;
             }
+            const declaredReadiness = declaredSkillReadiness(requirementMeta);
+            if (!SKILLS.includes(requirementSkill) && !declaredReadiness.allowed) {
+                record.available = false;
+                record.dependencyBlocks = [declaredReadiness];
+                record.accessResult = { allowed: false, reason: declaredReadiness.reason,
+                    dependencyBlocks: [declaredReadiness],
+                    trainingMethods: trainingMethodsBySkill.get(declaredReadiness.skill) || [] };
+                accessDiagnostics.push({ taskId: id, name: record.displayName, allowed: false,
+                    reason: declaredReadiness.reason, dependencyBlocks: [declaredReadiness] });
+            }
             if (SKILLS.includes(requirementSkill)) {
                 const recipeConsumables = recipeSupplySkills.has(requirementSkill) ?
                     (requirementMeta.Items || []).filter(raw => raw.includes('*')) : [];
@@ -3731,13 +3773,12 @@
                     record.origins = reasonableRecipeItemOrigins(recipeConsumables[0]);
                 }
                 const levelReadiness = taskLevelReadiness(name, requirementSkill, requirementMeta);
-                const declaredReadiness = declaredSkillReadiness(requirementMeta);
                 const inputReadiness = taskInputReadiness(name, requirementSkill, requirementMeta);
                 const supplyReadiness = progressionSupplyReadiness(requirementSkill, requirementMeta, record.taskClass,
                     record.advancesSkillProgression, forestBound);
                 const dependencyReadiness = !declaredReadiness.allowed ? declaredReadiness :
                     !levelReadiness.allowed && levelReadiness.reason.startsWith('No repeatable ') ? levelReadiness : null;
-                const progressionInputBlocks = inputReadiness.blocks.filter(block => block.skill);
+                const progressionInputBlocks = inputReadiness.blocks.filter(block => block.skill || block.collectionMilestone);
                 if (dependencyReadiness || progressionInputBlocks.length || !supplyReadiness.allowed) {
                     const blocks = dependencyReadiness ? [dependencyReadiness] :
                         progressionInputBlocks.length ? progressionInputBlocks : supplyReadiness.blocks;

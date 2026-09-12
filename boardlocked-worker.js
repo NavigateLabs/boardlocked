@@ -339,6 +339,35 @@ function blAddEquipmentUpgradeTasks(atomicValids, highestOverallCompleted = {}, 
                 Label: addReason(skillingReason, atomicValids.BiS[taskName]), EquipmentUpgrade: true };
         }
     }
+    // Legacy BIS sets expose only their single best obtainable member. Boardlocked
+    // instead shows every obtainable improvement over the best member the player
+    // has actually registered. This preserves intermediate tool upgrades and lets
+    // the adapter enforce each candidate's full acquisition chain independently.
+    const setTasks = new Map();
+    for (const [sourceSkill, tasks] of Object.entries(chunkInfo.challenges || {})) for (const [name, meta] of Object.entries(tasks || {})) {
+        if (sourceSkill === 'BiS') continue;
+        if (!meta.Set || !meta.Category?.includes('BIS Skilling') || !Number.isFinite(Number(meta.Priority))) continue;
+        const item = meta.Items?.length === 1 ? Boardlocked.canonicalItemKey(meta.Items[0]).replaceAll('*', '') : null;
+        if (!item) continue;
+        if (!setTasks.has(meta.Set)) setTasks.set(meta.Set, []);
+        setTasks.get(meta.Set).push({ sourceSkill, name, meta, item, priority: Number(meta.Priority) });
+    }
+    for (const [setName, candidates] of setTasks) {
+        const owned = candidates.filter(candidate => Boardlocked.isComplete({
+            taskId: Boardlocked.taskId(candidate.name, candidate.sourceSkill, blContext.tasksMap),
+            name: candidate.name, skill: candidate.sourceSkill, taskClass: 'bis', equipmentName: candidate.item
+        }, blLegacyProgress(), blContext.state) || Boardlocked.own(blContext.state.acquiredEnablers, candidate.item));
+        const baseline = Math.min(Infinity, ...owned.map(candidate => candidate.priority));
+        for (const candidate of candidates) {
+            if (candidate.priority >= baseline || !blEquipmentObtainable(candidate.item)) continue;
+            const reason = 'BIS Skilling · ' + setName;
+            atomicValids.BiS[candidate.name] = addReason(atomicValids.BiS[candidate.name], reason);
+            const existing = chunkInfo.challenges.BiS[candidate.name] || {};
+            chunkInfo.challenges.BiS[candidate.name] = { ...candidate.meta, ...existing,
+                ItemsDetails: [candidate.item], Label: addReason(existing.Label, atomicValids.BiS[candidate.name]),
+                EquipmentUpgrade: true };
+        }
+    }
 }
 
 function blOutput(highestOverallCompleted = {}, equipmentScores = {}) {

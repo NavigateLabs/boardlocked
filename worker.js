@@ -1,5 +1,5 @@
 importScripts('https://cdn.jsdelivr.net/npm/lodash@4.17.20/lodash.min.js');
-importScripts('./boardlocked-data.js?v=25', './boardlocked.js?v=77', './boardlocked-worker.js?v=27');
+importScripts('./boardlocked-data.js?v=25', './boardlocked.js?v=78', './boardlocked-worker.js?v=28');
 let nonValids = {};
 let globalValids;
 let eGlobal;

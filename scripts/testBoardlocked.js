@@ -505,13 +505,13 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=25/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=77/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl53/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl53/);
+    assert.match(html, /boardlocked\.js\?v=78/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl54/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl54/);
     assert.match(worker, /boardlocked-data\.js\?v=25/);
-    assert.match(worker, /boardlocked\.js\?v=77/);
-    assert.match(worker, /boardlocked-worker\.js\?v=27/);
-    assert.match(html, /boardlocked-ui\.js\?v=95/);
+    assert.match(worker, /boardlocked\.js\?v=78/);
+    assert.match(worker, /boardlocked-worker\.js\?v=28/);
+    assert.match(html, /boardlocked-ui\.js\?v=96/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -1270,7 +1270,7 @@ test('Cooking uses a 15-level rolling window for gradual chicken-to-pie-to-fish 
 test('every skill has an explicit progression rule and Slayer delegates pacing to masters', () => {
     assert.deepEqual(R.PROGRESSION_WINDOWS, {
         Attack: 10, Strength: 10, Defence: 10, Hitpoints: 25, Ranged: 10, Prayer: 20, Magic: 15,
-        Cooking: 15, Woodcutting: 15, Fletching: 10, Fishing: 10, Firemaking: 15, Crafting: 10,
+        Cooking: 15, Woodcutting: 15, Fletching: 15, Fishing: 10, Firemaking: 15, Crafting: 10,
         Smithing: 10, Mining: 10, Herblore: 10, Agility: 20, Thieving: 15, Slayer: 0,
         Farming: 20, Runecraft: 15, Hunter: 10, Construction: 10, Sailing: 20
     });
@@ -2184,8 +2184,12 @@ test('rare supplies remain valid for reward goals and registered encounter activ
         Imp: { kind: 'competitive-reward', sourceTypes: ['monsters'] }
     } } };
     tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Ordinary').available, false,
+        'a registered encounter does not bypass the collection-log milestone for its consumed reward');
+    fixture.legacy = { checkedAllTasks: { Extra: { Log: true } } };
+    tasks = R.buildTasks(fixture).tasks;
     assert.equal(tasks.find(task => task.name === 'Ordinary').available, true,
-        'an explicitly registered readiness decision governs its downstream ordinary goals');
+        'after registering the reward, the encounter decision governs its downstream ordinary goals');
 });
 
 test('a task in one disconnected section does not block a free route through another section', () => {
@@ -3307,8 +3311,17 @@ test('produced equipment requires a reachable producer level and its exact consu
     const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
         result.sections, request.manualSections, catalog, request.boardlocked.tasksMap, request.chunkInfo);
     const eligible = tasks.filter(task => task.eligible);
-    assert.ok(eligible.some(task => task.equipmentName === 'Iron felling axe'),
-        'the level-one recipe is available when the exact iron axe and handle are accessible');
+    assert.ok(!eligible.some(task => /felling axe/i.test(task.equipmentName || '') || /^Make .*felling axe/i.test(task.displayName)),
+        'a consumable collection-log input must be registered before any dependent item or recipe');
+    assert.ok(eligible.some(task => /Obtain a felling axe handle/i.test(task.displayName)),
+        'the collection milestone itself remains available');
+    const legacy = { completedChallenges: { Extra: { '(Forestry) Obtain a ~|felling axe handle|~': true } } };
+    request.completedChallenges = structuredClone(legacy.completedChallenges);
+    const afterResult = runWorker(request).result;
+    const afterHandle = R.adaptTasks(afterResult.tasks, legacy, request.boardlocked.state, request.chunks,
+        afterResult.sections, request.manualSections, catalog, request.boardlocked.tasksMap, request.chunkInfo);
+    assert.ok(afterHandle.some(task => task.equipmentName === 'Iron felling axe' && task.eligible),
+        'completing the collection milestone releases the level-one felling-axe chain');
     for (const item of ['Bronze med helm', 'Bronze 2h sword', 'Oak shield', 'Mithril felling axe']) {
         assert.ok(!eligible.some(task => task.equipmentName === item), item + ' must not leak through its final workstation');
     }
@@ -3318,6 +3331,63 @@ test('produced equipment requires a reachable producer level and its exact consu
         'a Forestry origin cannot bypass the Crafting level and tool chain for its collection reward');
     const mithril = tasks.find(task => task.equipmentName === 'Mithril felling axe');
     assert.match(mithril.accessResult.reason, /Smithing level 21|No accessible source for Mithril axe/);
+});
+
+test('skilling sets expose every obtainable upgrade over the registered item', () => {
+    const request = usePreset(makeRequest(['5428']), 'Boardlocked Chunker');
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    const { result } = runWorker(request);
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const tasks = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks,
+        result.sections, request.manualSections, catalog, request.boardlocked.tasksMap, request.chunkInfo);
+    const upgrades = tasks.filter(task => task.skill === 'BiS' && task.bisSet === 'BIS Axe' && task.eligible)
+        .map(task => task.equipmentName);
+    for (const item of ['Iron axe', 'Steel axe', 'Mithril axe', 'Adamant axe']) {
+        assert.ok(upgrades.includes(item), item + ' is a distinct shop upgrade over the registered bronze axe');
+    }
+    assert.ok(!upgrades.includes('Bronze axe'), 'the registered baseline is not offered as an upgrade');
+});
+
+test('oak Fletching opens inside its intended progression band', () => {
+    const request = usePreset(makeRequest(['5428']), 'Boardlocked Chunker');
+    request.boardlocked.state.actualLevels.Woodcutting = 15;
+    request.boardlocked.state.actualLevels.Fletching = 1;
+    request.boardlocked.state.progressionHighWater.Woodcutting = 15;
+    request.boardlocked.state.progressionHighWater.Fletching = 1;
+    request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
+    request.boardlocked.state.acquiredEnablers.Knife = { manual: true };
+    const legacy = { checkedAllTasks: {
+        Woodcutting: { 'Chop ~|oak logs|~': true },
+        Fletching: { 'Fletch ~|logs|~ into shafts': true },
+        Quest: {
+            '~|Children of the Sun|~ 1': true,
+            '~|Children of the Sun|~ 2': true,
+            '~|Children of the Sun|~ 3': true,
+            '~|Children of the Sun|~ Complete the quest': true
+        }
+    } };
+    request.checkedAllTasks = structuredClone(legacy.checkedAllTasks);
+    request.boardlocked.checkedAllTasks = structuredClone(legacy.checkedAllTasks);
+    const { result } = runWorker(request);
+    const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
+    const tasks = R.adaptTasks(result.tasks, legacy, request.boardlocked.state, request.chunks,
+        result.sections, request.manualSections, catalog, request.boardlocked.tasksMap, request.chunkInfo);
+    assert.ok(tasks.some(task => task.name === 'Fletch ~|oak logs|~ into shafts' && task.eligible),
+        'level-15 oak shafts fit the intended Fletching progression band');
+});
+
+test('quest goals obey their declared skill progression requirements', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges.Quest['Test miniquest 1'] = { NPCs: ['Guide'], Skills: { Fletching: 20 } };
+    fixture.base.npcs.Guide = { '1000': true };
+    fixture.valids.Quest = { 'Test miniquest 1': true };
+    fixture.rules['Show Quest Tasks'] = true;
+    fixture.ids['Test miniquest 1'] = 'test-miniquest';
+    fixture.state.actualLevels.Fletching = 1;
+    fixture.state.progressionHighWater.Fletching = 1;
+    const quest = R.buildTasks(fixture).tasks.find(task => task.taskId === 'test-miniquest');
+    assert.ok(quest); assert.equal(quest.available, false);
+    assert.match(quest.accessResult.reason, /Fletching level 20.*through 16/);
 });
 
 test('one-handed and two-handed weapons share a combat comparison family', () => {
