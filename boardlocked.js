@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 56;
+    const VERSION = 57;
     const ARRIVAL_MIGRATION_VERSION = 46;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
@@ -1573,6 +1573,23 @@
                 whyWouldBeIneligible: [...(task.whyWouldBeIneligible || []), 'no dependent task is in the current progression window'] };
         });
     }
+    function scopeIncidentalSkillRewards(tasks) {
+        const ordinary = tasks.filter(task => !task.incidentalKind);
+        return tasks.map(task => {
+            if (!task.incidentalKind) return task;
+            if (task.incidentalKind !== 'skilling-pet') return { ...task, nonGenerating: true };
+            const unfinished = ordinary.some(other => other.skill === task.incidentalSkill &&
+                (other.activeOrigins || []).length > 0 &&
+                !other.completed && !other.implicitlyCompleted && !other.superseded);
+            if (unfinished) return { ...task, nonGenerating: true, standaloneAfterExhaustion: false,
+                eligibilityReason: task.eligible ?
+                    'Can be registered incidentally while completing a ' + task.incidentalSkill + ' activity' :
+                    task.eligibilityReason };
+            return { ...task, nonGenerating: false, standaloneAfterExhaustion: true,
+                eligibilityReason: task.eligible ?
+                    'All other available ' + task.incidentalSkill + ' tasks are exhausted' : task.eligibilityReason };
+        });
+    }
     function adaptTasks(tasks, legacy, state, unlocked, sections, manualSections, catalog = tasks, ids = {}, data = null) {
         const completedItems = completedEquipmentItems(legacy, state, ids);
         const adapted = tasks.map(task => {
@@ -1627,7 +1644,8 @@
         const withCatchUp = openCatchUpMilestones(withForestryCompanions, state);
         const progressionScoped = scopeAxeUpgradesToWoodcutting(scopeEnablersToCurrentProgression(withCatchUp));
         const ordered = orderResourceMilestoneTasks(collapseRedundantEquipmentTasks(progressionScoped), legacy, state, ids);
-        return scopeEnablersToCurrentProgression(chooseResourceRepresentativeTasks(ordered, state));
+        return scopeIncidentalSkillRewards(
+            scopeEnablersToCurrentProgression(chooseResourceRepresentativeTasks(ordered, state)));
     }
 
     function actualCombatLevel(levels = {}) {
@@ -2057,7 +2075,8 @@
             const awaitingMaster = task.slayerMasterConfirmation?.status === 'unknown' &&
                 !task.slayerMasterConfirmation.otherRequirementsBlocked && !task.completed && !task.backlogged &&
                 !task.superseded && !task.progressionBlocked;
-            const ticketOrigins = task.eligible ? task.activeOrigins || [] : awaitingMaster ? task.slayerMasterConfirmation.origins || [] : [];
+            const ticketOrigins = task.eligible && !task.nonGenerating ? task.activeOrigins || [] :
+                awaitingMaster ? task.slayerMasterConfirmation.origins || [] : [];
             for (const origin of uniqueOrigins(ticketOrigins)) {
                 const id = origin.chunkId;
                 if (own(byLocation, id) && !byLocation[id].includes(task.taskId)) byLocation[id].push(task.taskId);
@@ -2228,6 +2247,12 @@
         clueReward: task.clueReward ? copy(task.clueReward) : null,
         slayerTrainingAlternative: !!task.slayerTrainingAlternative,
         slayerTrainingMasters: task.slayerTrainingMasters || [],
+        nonGenerating: !!task.nonGenerating,
+        incidentalSkill: task.incidentalSkill || null,
+        incidentalKind: task.incidentalKind || null,
+        incidentalGroup: task.incidentalGroup || null,
+        incidentalTrigger: task.incidentalTrigger || null,
+        standaloneAfterExhaustion: !!task.standaloneAfterExhaustion,
         slayerProgression: task.slayerProgression ? {
             requiredLevel: task.slayerProgression.requiredLevel,
             supportingMasters: task.slayerProgression.supportingMasters || [],
@@ -2236,7 +2261,9 @@
     const VISIT_SNAPSHOT_DISPLAY_FIELDS = Object.freeze(['name', 'skill', 'displayName', 'level', 'equipmentName',
         'taskClass', 'bossSources', 'encounterSources', 'encounterDetails', 'enablerItemKey',
         'provesAcquiredItemKeys', 'confirmsEquipped', 'capabilities', 'bisReason', 'bisSet',
-        'slayerTrainingAlternative', 'slayerTrainingMasters', 'slayerProgression']);
+        'slayerTrainingAlternative', 'slayerTrainingMasters', 'slayerProgression',
+        'nonGenerating', 'incidentalSkill', 'incidentalKind', 'incidentalGroup',
+        'incidentalTrigger', 'standaloneAfterExhaustion']);
     function mergeVisitTaskForDisplay(liveTask, savedTask) {
         if (!liveTask) return null;
         if (!savedTask || typeof savedTask !== 'object') return liveTask;
@@ -2264,10 +2291,16 @@
     function taskMatchesVisit(task, visit) {
         return task.activeOrigins?.some(origin => originMatchesVisit(origin, visit));
     }
+    function incidentalTasksForGenerators(tasks, generators) {
+        const triggerMatches = (task, generator) => task.incidentalSkill === generator.skill &&
+            (task.incidentalTrigger !== 'skill_progression' || generator.advancesSkillProgression);
+        return tasks.filter(task => task.eligible && task.nonGenerating &&
+            generators.some(generator => triggerMatches(task, generator)));
+    }
     function slayerMasterConfirmationForVisit(tasks, visit) {
         if (visit?.status !== 'pending_calculation') return null;
         const reachableIds = new Set(visit.reachableTaskIds || []);
-        const direct = tasks.filter(task => task.eligible &&
+        const direct = tasks.filter(task => task.eligible && !task.nonGenerating &&
             (reachableIds.size ? reachableIds.has(task.taskId) : taskMatchesVisit(task, visit)));
         if (direct.length) return null;
         const arrivalSections = new Set(visit.arrivalSections || []);
@@ -2285,13 +2318,15 @@
     function snapshotVisit(state, tasks) {
         if (state.currentVisit?.status !== 'pending_calculation') return state;
         const reachableIds = new Set(state.currentVisit.reachableTaskIds || []);
-        const direct = tasks.filter(task => task.eligible &&
+        const direct = tasks.filter(task => task.eligible && !task.nonGenerating &&
             (reachableIds.size ? reachableIds.has(task.taskId) : taskMatchesVisit(task, state.currentVisit)));
+        const incidental = incidentalTasksForGenerators(tasks, direct);
         const trainingMasters = new Set(direct.filter(task => task.slayerProgression?.requiresTraining)
             .flatMap(task => task.slayerProgression.supportingMasters || []));
         const trainingAlternatives = trainingMasters.size ? tasks.filter(task => task.eligible && task.slayerTrainingAlternative &&
             (task.slayerTrainingMasters || []).some(master => trainingMasters.has(master))) : [];
-        const selected = [...new Map([...direct, ...trainingAlternatives].map(task => [task.taskId, task])).values()];
+        const selected = [...new Map([...direct, ...trainingAlternatives, ...incidental]
+            .map(task => [task.taskId, task])).values()];
         const visit = { ...state.currentVisit, candidateTaskIds: selected.map(task => task.taskId) };
         // Keep compact display/category metadata so an invalidated or subsequently
         // removed database entry is still intelligible and completable after reload.
@@ -2305,7 +2340,9 @@
         timestamp = new Date().toISOString()) {
         const visit = state.currentVisit;
         const known = new Set(visit?.candidateTaskIds || []);
-        const opened = visit ? tasks.filter(task => task.eligible && !known.has(task.taskId) && taskMatchesVisit(task, visit)) : [];
+        const generators = visit ? tasks.filter(task => task.eligible && !task.nonGenerating && taskMatchesVisit(task, visit)) : [];
+        const opened = visit ? [...new Map([...generators, ...incidentalTasksForGenerators(tasks, generators)]
+            .filter(task => !known.has(task.taskId)).map(task => [task.taskId, task])).values()] : [];
         if (visit?.status === 'task_required' && opened.length) {
             const candidateTaskIds = [...visit.candidateTaskIds, ...opened.map(task => task.taskId)];
             const candidateTasks = { ...(visit.candidateTasks || {}),
@@ -3418,6 +3455,8 @@
         const forestry = annotations.forestry || {};
         const forestryCategories = new Set(forestry.taskCategories || []);
         const forestryEventUniqueItems = new Set(forestry.eventUniqueItems || []);
+        const skillingPetByItem = new Map((annotations.skillingPets || [])
+            .map(definition => [comparableItemKey(definition.item), definition]));
         const isDirectForestry = meta => (meta?.Category || []).some(category => forestryCategories.has(category));
         const excludedForestryLocations = new Set((forestry.excludedOriginGroups || []).flatMap(group =>
             expand(group, codes.chunksPlus)).map(location => {
@@ -4106,6 +4145,8 @@
             if ((meta.Category || []).includes('Collection Log') && (!rules['Collection Log'] ||
                 (!clueTiersFor(meta).length && meta.Category.filter(c => c.startsWith('Collection Log ')).length &&
                     !meta.Category.some(c => c !== 'Collection Log' && rules[c])))) continue;
+            if (name.startsWith('(All Pets)') && (meta.Items || []).some(itemName =>
+                skillingPetByItem.has(comparableItemKey(itemName)))) continue;
             const id = taskId(name, skill, ids);
             const equipmentName = skill === 'BiS' ? equipmentByFormattedName.get(name.split('|')[1]) : undefined;
             const equipmentMeta = skill === 'BiS' ? data.equipment?.[equipmentName] : null;
@@ -4253,7 +4294,17 @@
                     }
                 }
             }
-            if (forestryEventUnique) record.origins = kitOrigins;
+            if (forestryEventUnique) {
+                // Event uniques can be rolled while training at any currently
+                // accessible Forestry tree. They are attached to a real
+                // Woodcutting objective later and never create a visit alone.
+                record.origins = treeSources;
+                record.nonGenerating = true;
+                record.incidentalSkill = 'Woodcutting';
+                record.incidentalKind = 'forestry-event';
+                record.incidentalGroup = 'Forestry event rewards';
+                record.incidentalTrigger = 'skill_progression';
+            }
             record.equipmentObjectiveAlternatives = equipmentObjectiveAlternatives(data, name, requirementMeta);
             record.resourceMilestoneDependencies = SKILLS.includes(requirementSkill) &&
                 ['skill_progression', 'activity'].includes(record.taskClass) ?
@@ -4343,6 +4394,22 @@
             }
             if (!tasks.has(id)) tasks.set(id, record);
             else tasks.get(id).origins = uniqueOrigins([...tasks.get(id).origins, ...record.origins]);
+        }
+        for (const definition of annotations.skillingPets || []) {
+            const itemKey = canonicalItemKey(definition.item), petEntry = Object.entries(data.challenges?.Extra || {})
+                .find(([name, meta]) => name.startsWith('(Skilling Pets)') && (meta.Category || []).includes('Pets') &&
+                    (meta.Items || []).some(itemName => comparableItemKey(itemName) === comparableItemKey(itemKey)));
+            if (!petEntry || !rules['Collection Log'] || !rules['Pets']) continue;
+            const [name, meta] = petEntry, id = taskId(name, 'Extra', ids);
+            const activityTasks = [...tasks.values()].filter(task => task.skill === definition.skill &&
+                task.taskId !== id && (task.origins || []).length);
+            const origins = uniqueOrigins(activityTasks.flatMap(task => task.origins || []));
+            if (!origins.length) continue;
+            tasks.set(id, { ...taskMetadata(name, 'Extra', meta, ids), origins, available: true, enablers: [],
+                nonGenerating: true, incidentalSkill: definition.skill, incidentalKind: 'skilling-pet',
+                incidentalGroup: 'Skilling pets', incidentalTrigger: 'skill_activity',
+                accessResult: { allowed: true,
+                    reason: 'Can be registered incidentally while completing a ' + definition.skill + ' activity' } });
         }
         const articleFor = itemName => /^[aeiou]/i.test(itemName) ? 'an ' : 'a ';
         for (const { requirement, requiredBy, requests } of pendingCapabilities.values()) {

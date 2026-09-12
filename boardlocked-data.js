@@ -630,6 +630,17 @@
                 'Fox whistle', 'Golden pheasant egg', 'Petal garland', 'Sturdy beehive parts'
             ]),
             excludedOriginGroups: Object.freeze(['Woodcutting guild[+]'])
-        })
+        }),
+        skillingPets: Object.freeze([
+            Object.freeze({ item: 'Heron', skill: 'Fishing' }),
+            Object.freeze({ item: 'Rock golem', skill: 'Mining' }),
+            Object.freeze({ item: 'Beaver', skill: 'Woodcutting' }),
+            Object.freeze({ item: 'Baby chinchompa', skill: 'Hunter' }),
+            Object.freeze({ item: 'Giant squirrel', skill: 'Agility' }),
+            Object.freeze({ item: 'Tangleroot', skill: 'Farming' }),
+            Object.freeze({ item: 'Rocky', skill: 'Thieving' }),
+            Object.freeze({ item: 'Rift guardian', skill: 'Runecraft' }),
+            Object.freeze({ item: 'Soup', skill: 'Sailing' })
+        ])
     });
 });

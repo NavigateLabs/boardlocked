@@ -510,17 +510,17 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-combat-data\.js\?v=1/);
-    assert.match(html, /boardlocked-data\.js\?v=27/);
+    assert.match(html, /boardlocked-data\.js\?v=28/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=85/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl61/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl61/);
+    assert.match(html, /boardlocked\.js\?v=86/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl62/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl62/);
     assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
-    assert.match(worker, /boardlocked-data\.js\?v=27/);
-    assert.match(worker, /boardlocked\.js\?v=85/);
+    assert.match(worker, /boardlocked-data\.js\?v=28/);
+    assert.match(worker, /boardlocked\.js\?v=86/);
     assert.match(worker, /boardlocked-worker\.js\?v=31/);
-    assert.match(html, /boardlocked-ui\.js\?v=102/);
+    assert.match(html, /boardlocked-ui\.js\?v=103/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -3897,7 +3897,7 @@ test('Forestry case C: participation stays hidden while its collection reward ke
         'the hidden participation record still proves how the reward is obtained');
 });
 
-test('Forestry event uniques stay together at the Friendly Forester instead of occupying every tree tile', () => {
+test('Forestry event uniques attach to Woodcutting milestones without generating visits', () => {
     assert.deepEqual(annotations.forestry.eventUniqueItems,
         ['Fox whistle', 'Golden pheasant egg', 'Petal garland', 'Sturdy beehive parts']);
     const request = makeRequest(['5427', '4912']);
@@ -3912,21 +3912,59 @@ test('Forestry event uniques stay together at the Friendly Forester instead of o
     const eventTasks = result.tasks.filter(task => ids.has(task.taskId));
     assert.equal(eventTasks.length, 4);
     assert.ok(eventTasks.every(task => task.available));
-    assert.ok(eventTasks.every(task => task.origins.length && task.origins.every(origin =>
-        origin.chunkId === '5427' && origin.sourceName === 'Friendly Forester')));
-    assert.ok(eventTasks.every(task => task.accessResult.treeSource.origins.some(origin => origin.chunkId === '4912')),
-        'the separate unlocked tree still satisfies the event requirement');
+    assert.ok(eventTasks.every(task => task.nonGenerating && task.incidentalSkill === 'Woodcutting'));
+    assert.ok(eventTasks.every(task => task.origins.length && task.origins.some(origin => origin.chunkId === '4912')),
+        'the eligible event tree supplies the incidental reward instead of the Friendly Forester');
 
     const catalog = R.buildTaskCatalog(request.chunkInfo, request.boardlocked.tasksMap);
     const adapted = R.adaptTasks(result.tasks, {}, request.boardlocked.state, request.chunks, result.sections,
         request.manualSections, catalog, request.boardlocked.tasksMap);
-    const treeVisit = R.snapshotVisit(R.startVisit(request.boardlocked.state, { kind: 'revisit', locationId: '4912' }), adapted);
-    assert.ok(treeVisit.currentVisit.candidateTaskIds.every(id => !ids.has(id)),
-        'the ordinary tree tile does not inherit the rare collection grind');
-    const foresterVisit = R.snapshotVisit(R.startVisit(request.boardlocked.state, { kind: 'revisit', locationId: '5427' }), adapted);
-    assert.ok([...ids].every(id => foresterVisit.currentVisit.candidateTaskIds.includes(id)));
-    const resolved = R.resolveVisit(foresterVisit, new Set([eventTasks[0].taskId]));
+    const adaptedEvents = adapted.filter(task => ids.has(task.taskId));
+    const withoutMilestone = R.snapshotVisit(R.startVisit(request.boardlocked.state,
+        { kind: 'revisit', locationId: '4912' }), adaptedEvents);
+    assert.ok(withoutMilestone.currentVisit.candidateTaskIds.every(id => !ids.has(id)),
+        'event rewards do not generate a task by themselves');
+    const milestone = task('woodcutting-milestone', ['4912'], { skill: 'Woodcutting',
+        advancesSkillProgression: true, taskClass: 'skill_progression' });
+    const treeVisit = R.snapshotVisit(R.startVisit(request.boardlocked.state,
+        { kind: 'revisit', locationId: '4912' }), [...adaptedEvents, milestone]);
+    assert.ok([...ids].every(id => treeVisit.currentVisit.candidateTaskIds.includes(id)),
+        'every direct event reward is checkable while a Woodcutting milestone raises the skill');
+    const ordinaryActivity = task('woodcutting-activity', ['4912'], { skill: 'Woodcutting',
+        advancesSkillProgression: false, taskClass: 'activity' });
+    const activityVisit = R.snapshotVisit(R.startVisit(request.boardlocked.state,
+        { kind: 'revisit', locationId: '4912' }), [...adaptedEvents, ordinaryActivity]);
+    assert.ok(activityVisit.currentVisit.candidateTaskIds.every(id => !ids.has(id)),
+        'an unrelated Woodcutting activity does not attach the event rewards');
+    const resolved = R.resolveVisit(treeVisit, new Set([eventTasks[0].taskId]));
     assert.equal(resolved.currentVisit.resolution, 'task_completed');
+});
+
+test('skilling pets are incidental until every other available task in their skill is exhausted', () => {
+    const fishing = task('catch-fish', ['1000'], { skill: 'Fishing', taskClass: 'skill_progression',
+        advancesSkillProgression: true, usesSkillLevelWindow: false });
+    const heron = task('pet-heron', ['1000'], { skill: 'Extra', taskClass: 'collection',
+        advancesSkillProgression: false, usesSkillLevelWindow: false,
+        nonGenerating: true, incidentalSkill: 'Fishing', incidentalKind: 'skilling-pet',
+        incidentalGroup: 'Skilling pets', incidentalTrigger: 'skill_activity' });
+    let adapted = R.adaptTasks([fishing, heron], {}, fresh(), geo, {}, {}, [fishing, heron]);
+    const incidental = adapted.find(item => item.taskId === heron.taskId);
+    assert.equal(incidental.nonGenerating, true);
+    assert.equal(R.derivePool([], geo, [incidental], null).live.length, 0,
+        'the pet alone cannot make a tile rollable');
+    const visit = R.snapshotVisit(R.startVisit(fresh(), { kind: 'revisit', locationId: '1000' }), adapted);
+    assert.deepEqual(new Set(visit.currentVisit.candidateTaskIds), new Set(['catch-fish', 'pet-heron']),
+        'the pet is an optional checkoff beside the skill activity');
+    assert.equal(visit.currentVisit.candidateTasks['pet-heron'].incidentalGroup, 'Skilling pets',
+        'the saved visit retains the optional reward group after reload');
+
+    const completed = { checkedAllTasks: { Fishing: { 'catch-fish': true } } };
+    adapted = R.adaptTasks([fishing, heron], completed, fresh(), geo, {}, {}, [fishing, heron]);
+    const finalPet = adapted.find(item => item.taskId === heron.taskId);
+    assert.equal(finalPet.nonGenerating, false);
+    assert.equal(finalPet.standaloneAfterExhaustion, true);
+    assert.ok(R.derivePool([], geo, [finalPet], null).live.includes('1000'),
+        'the pet becomes a standalone task after the ordinary skill pool is exhausted');
 });
 
 test('Forestry requires an actually choppable event tree rather than merely a visible high-level tree', () => {

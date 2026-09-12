@@ -441,7 +441,8 @@
         if (catalogData !== chunkInfo) { catalogData = chunkInfo; catalog = R.buildTaskCatalog(chunkInfo, tasksMap); }
         state = R.reconcileProgression(state, catalog, legacy(), tasksMap);
         const oldDormant = new Set(pool.dormant);
-        tasks = R.adaptTasks(rawTasks, legacy(), state, tempChunks.unlocked || {}, sections, manualSections, catalog, tasksMap, chunkInfo);
+        tasks = R.adaptTasks(rawTasks, legacy(), state, tempChunks.unlocked || {}, sections, manualSections,
+            catalog, tasksMap, chunkInfo);
         const previousCandidateCount = state.currentVisit?.candidateTaskIds?.length || 0;
         state = R.addCatchUpTasksToCurrentVisit(state, tasks);
         const catchUpAdded = (state.currentVisit?.candidateTaskIds?.length || 0) > previousCandidateCount;
@@ -501,7 +502,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl61');
+        worker = new Worker('./worker.js?v=6.9.66-bl62');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1027,7 +1028,8 @@
                 origin.sourceName === encounter && origin.chunkId === state.currentVisit?.locationId &&
                 (!arrivalSections.size || !origin.sectionId || arrivalSections.has(origin.sectionId))));
         };
-        const group = task => encounterGroup(task).join(' / ') || (snapshot && task.slayerTrainingAlternative ? 'Slayer training' :
+        const group = task => encounterGroup(task).join(' / ') || task.incidentalGroup ||
+            (snapshot && task.slayerTrainingAlternative ? 'Slayer training' :
             task.clueReward ? 'Clue rewards' : task.skill);
         const taskRow = task => {
             const row = element('div', null, { className: 'bl-task' });
