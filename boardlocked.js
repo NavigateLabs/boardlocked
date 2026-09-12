@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 47;
+    const VERSION = 48;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -3615,6 +3615,7 @@
                     !meta.Category.some(c => c !== 'Collection Log' && rules[c])))) continue;
             const id = taskId(name, skill, ids);
             const equipmentName = skill === 'BiS' ? equipmentByFormattedName.get(name.split('|')[1]) : undefined;
+            if (skill === 'BiS' && data.equipment?.[equipmentName]?.slot === 'ammo') continue;
             const directClueReward = clueRewardByTaskId.get(id);
             if (clueTiersFor(meta).length && !directClueReward) continue;
             const equipmentClueReward = equipmentName ? clueRewardByItem.get(comparableItemKey(equipmentName)) : null;

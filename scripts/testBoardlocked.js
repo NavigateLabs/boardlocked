@@ -505,13 +505,13 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=25/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=75/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl51/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl51/);
+    assert.match(html, /boardlocked\.js\?v=76/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl52/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl52/);
     assert.match(worker, /boardlocked-data\.js\?v=25/);
-    assert.match(worker, /boardlocked\.js\?v=75/);
+    assert.match(worker, /boardlocked\.js\?v=76/);
     assert.match(worker, /boardlocked-worker\.js\?v=27/);
-    assert.match(html, /boardlocked-ui\.js\?v=93/);
+    assert.match(html, /boardlocked-ui\.js\?v=94/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -2962,7 +2962,7 @@ test('focused clue activities survive legacy rarity filtering without admitting 
         source.sourceName.includes('wandering')), false);
 });
 
-test('direct clue sources expose collection rewards and every strict clue-equipment upgrade', () => {
+test('direct clue sources expose collection rewards and every persistent clue-equipment upgrade', () => {
     const request = usePreset(makeRequest(['4651']), 'Boardlocked Chunker');
     request.chunkInfo.challenges.Nonskill['Test completable beginner clue step'] = {
         ClueTier: 'beginner', Chunks: ['4651']
@@ -2982,6 +2982,9 @@ test('direct clue sources expose collection rewards and every strict clue-equipm
         assert.ok(equipmentRewards.some(task => task.equipmentName === item), item + ' is exposed as a clue equipment upgrade');
     }
     assert.ok(equipmentRewards.every(task => task.skill === 'BiS'));
+    assert.ok(equipmentRewards.every(task => request.chunkInfo.equipment[task.equipmentName]?.slot !== 'ammo'),
+        'ammo-slot items never become persistent BiS objectives');
+    assert.equal(adaptResult(result).some(task => task.skill === 'BiS' && task.equipmentName === 'Steel arrow'), false);
     assert.ok(beginner.every(task => task.origins.some(origin => origin.chunkId === '4651')));
     assert.ok(beginner.every(task => task.origins.some(origin => origin.clueTier === 'beginner')),
         'resolved monster origins retain their clue provenance for task grouping');
