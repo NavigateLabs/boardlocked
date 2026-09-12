@@ -2223,8 +2223,8 @@ test('ordinary monster completions advance one shared combat frontier and level 
     oldState.version = 51;
     delete oldState.combatProgression;
     assert.deepEqual(R.normalizeState(oldState).combatProgression,
-        { frontier: 60, mature: true, evidence: [] },
-        'old saves retain their pre-rule unrestricted combat graph because they have no historical monster evidence');
+        { frontier: 10, mature: false, evidence: [] },
+        'old saves use their conservative recorded melee/Hitpoints floor instead of silently bypassing the new rule');
 });
 
 test('every mapped ordinary monster resource source has combat-level data or a dedicated progression system', () => {

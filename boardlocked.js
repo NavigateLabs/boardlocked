@@ -296,9 +296,12 @@
                 if (state.combatProgression.mature) state.combatProgression.frontier = 60;
             } else if (Number(input.version) < 52) {
                 // Older saves were generated before monster completions recorded
-                // combat evidence. Preserve their already-unrestricted combat
-                // graph instead of pretending those established runs are fresh.
-                state.combatProgression = { frontier: 60, mature: true, evidence: [] };
+                // combat evidence. Seed them from their conservative recorded
+                // melee/Hitpoints floor so the new rule applies without resetting
+                // an established run all the way to level one.
+                const inferred = Math.max(1, ...['Attack', 'Strength', 'Defence', 'Hitpoints']
+                    .map(skill => Number(input.actualLevels?.[skill]) || (skill === 'Hitpoints' ? 10 : 1)));
+                state.combatProgression = { frontier: Math.min(60, inferred), mature: inferred >= 60, evidence: [] };
             }
         }
         for (const skill of SKILLS) {
