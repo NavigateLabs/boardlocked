@@ -2443,9 +2443,10 @@
         for (const [skill, tasks] of Object.entries(data.challenges || {})) for (const [name, meta] of Object.entries(tasks || {})) {
             const declaredOutputs = [...(meta.Output ? [meta.Output] : []), ...(config.additionalOutputs?.[name] || [])];
             if (declaredOutputs.length) {
+                const deliberate = meta.Primary === true || !(meta.Secondary || meta.ForcedSecondary);
                 for (const output of declaredOutputs.flatMap(expanded)) add(output, { kind: 'action', sourceName: name,
-                    sourceType: (meta.Secondary || meta.ForcedSecondary ? 'secondary-' : 'primary-') + skill,
-                    chance: 1, preferred: !(meta.Secondary || meta.ForcedSecondary), reason: 'Produced directly by an action' });
+                    sourceType: (deliberate ? 'primary-' : 'secondary-') + skill,
+                    chance: 1, preferred: deliberate, reason: 'Produced directly by an action' });
                 if (meta.Output) {
                     const poolKey = skill + ':' + canonicalItemKey(meta.Output);
                     const list = challengePools.get(poolKey) || [];
@@ -2470,6 +2471,15 @@
             add(itemName, { kind: 'shop', sourceName: shop, sourceType: 'shop', chance: 1, preferred: true,
                 reason: 'Normal shop stock' });
         }
+        // Conditional stock is encoded as "shop^item" in taskUnlocks rather
+        // than duplicated in shopItems. It is still ordinary shop stock once
+        // its own unlock requirement has been met.
+        for (const conditional of Object.keys(data.taskUnlocks?.Shops || {})) if (conditional.includes('^')) {
+            const separator = conditional.indexOf('^');
+            const shop = conditional.slice(0, separator), itemName = conditional.slice(separator + 1);
+            add(itemName, { kind: 'shop', sourceName: shop, sourceType: 'shop', chance: 1, preferred: true,
+                reason: 'Conditionally unlocked normal shop stock' });
+        }
         for (const [tier, itemNames] of Object.entries(annotations.clues?.equipmentRewardsByTier || {})) {
             for (const itemName of itemNames) add(itemName, { kind: 'clue', sourceName: 'Clue scroll (' + tier + ')',
                 sourceType: 'clue-reward', chance: null, preferred: true, reason: 'Clue reward from its normal tier' });
@@ -2478,7 +2488,8 @@
             for (const [sectionId, contents] of [['', chunk], ...Object.entries(chunk.Sections || {})]) {
                 for (const [itemName, count] of Object.entries(contents.Spawn || {})) add(itemName, { kind: 'spawn',
                     sourceName: chunkId + (sectionId ? '-' + sectionId : ''), sourceType: 'spawn', chance: 1,
-                    count: Number(count || 0), preferred: true, reason: 'Ground item spawn' });
+                    count: Number(count || 0), preferred: false, primaryEligible: false,
+                    reason: 'Ground item spawns are availability, not a primary supply' });
             }
         }
         const addDrop = (itemName, monster, chance) => add(itemName, { kind: 'monster', sourceName: monster,
@@ -2526,7 +2537,10 @@
         for (const itemKey of [...usedItems].sort((a, b) => a.localeCompare(b))) {
             const sources = candidates.get(itemKey) || [];
             const registered = sources.filter(source => source.kind === 'registered');
-            const ordinary = sources.filter(source => source.kind !== 'registered');
+            // Some sources establish availability without being a reasonable
+            // way to supply a consumed ingredient. Keep them visible in the
+            // audit, but never promote them through the rare-source fallback.
+            const ordinary = sources.filter(source => source.kind !== 'registered' && source.primaryEligible !== false);
             const preferred = ordinary.filter(source => source.preferred);
             let approved = preferred;
             if (!approved.length && ordinary.length) {
@@ -2546,7 +2560,8 @@
             if (!enabled) return true;
             const item = ingredients[canonical(itemName)];
             if (!item) return false;
-            return item.sources.some(source => source.approved && source.sourceName === sourceName &&
+            return item.sources.some(source => source.approved &&
+                canonicalItemKey(source.sourceName) === canonicalItemKey(sourceName) &&
                 (source.sourceType === sourceType || source.kind === 'spawn' && String(sourceType).includes('spawn') ||
                     source.kind === 'monster' && String(sourceType).includes('drop') ||
                     source.kind === 'clue' && sourceType === 'clue-reward' ||
@@ -2574,6 +2589,12 @@
 
     function applyRecipeSupplyAliases(data = {}, annotations = {}) {
         const aliases = annotations.recipeSupply?.itemAliases || {};
+        const extraOutputs = annotations.recipeSupply?.additionalOutputs || {};
+        for (const tasks of Object.values(data.challenges || {})) {
+            for (const [name, meta] of Object.entries(tasks || {})) {
+                if (!meta.Output && extraOutputs[name]?.length === 1) meta.Output = extraOutputs[name][0];
+            }
+        }
         for (const members of Object.values(data.codeItems?.itemsPlus || {})) {
             if (Array.isArray(members)) for (let index = 0; index < members.length; index++) {
                 members[index] = aliases[members[index]] || members[index];
@@ -2958,15 +2979,33 @@
             capabilityLabel: capability.label, capabilitySkill: capability.skill, familyType: capability.familyType,
             satisfyingItems: capability.satisfyingItems, requirementKey: capability.requirementKey,
             requiresSpecificItem: false, itemKey: null, enforceUseLevel: !!capability.enforceUseLevel });
-        const knownNames = new Map();
+        const knownNames = new Map(), normalizedKnownNames = new Map();
         // Prefer native quest/diary/extra entries over worker-generated skill projections.
         const categories = Object.keys(valids).sort((a, b) => ['Quest', 'Diary', 'Extra', 'BiS'].indexOf(b) - ['Quest', 'Diary', 'Extra', 'BiS'].indexOf(a));
         for (const category of ['Quest', 'Diary', 'Extra', 'BiS', ...SKILLS, 'Nonskill']) {
-            for (const name of Object.keys(data.challenges[category] || {})) if (!knownNames.has(name)) knownNames.set(name, category);
+            for (const name of Object.keys(data.challenges[category] || {})) if (!knownNames.has(name)) {
+                knownNames.set(name, category);
+                if (!normalizedKnownNames.has(canonicalItemKey(name))) {
+                    normalizedKnownNames.set(canonicalItemKey(name), { name, category });
+                }
+            }
         }
+        const knownTaskReference = source => knownNames.has(source) ? { name: source, category: knownNames.get(source) } :
+            normalizedKnownNames.get(canonicalItemKey(source));
         const recipeSupply = recipeSupplyCatalog(data, annotations);
         const clueSources = clueSourceCatalog(data, annotations);
         const recipeSupplySkills = new Set(recipeSupply.skills);
+        const reviewedPrimaryActionsByItem = new Map();
+        for (const [itemKey, ingredient] of Object.entries(recipeSupply.ingredients)) {
+            const sources = ingredient.sources.flatMap(source => {
+                if (!source.approved || source.kind !== 'action') return [];
+                const reference = knownTaskReference(source.sourceName);
+                const meta = reference && data.challenges?.[reference.category]?.[reference.name];
+                return reference && meta?.Primary === true && own(valids[reference.category] || {}, reference.name) ?
+                    [[reference.name, source.sourceType]] : [];
+            });
+            if (sources.length) reviewedPrimaryActionsByItem.set(itemKey, sources);
+        }
         const combatSkillActivated = skill => ['Attack', 'Strength', 'Defence', 'Hitpoints'].includes(skill) ||
             combatTrainingSupply[skill] === true;
         const knownSkillLevel = skill => skill === 'Combat' ? Math.max(actualCombatLevel(state.actualLevels), combatFrontier) :
@@ -3048,7 +3087,15 @@
                 base.items?.[canonicalItemKey(name) + '*'] || {});
             const virtual = (activityRewardSourcesByItem.get(comparableItemKey(name)) || [])
                 .map(source => [source, 'shop']);
-            return [...new Map([...direct, ...virtual].map(entry => [entry.join('\u0000'), entry])).values()]
+            // The upstream worker can omit an intermediate output even while
+            // its producing task is valid. Restore reviewed task outputs here;
+            // their own origin, level, input and enabler checks still decide
+            // whether the route is currently usable.
+            const hasReviewedDirect = direct.some(([source, type]) => recipeSupply.sourceAllowed(name, source, type));
+            const reviewedProduction = hasReviewedDirect ? [] :
+                reviewedPrimaryActionsByItem.get(recipeSupply.canonical(name)) || [];
+            return [...new Map([...direct, ...virtual, ...reviewedProduction]
+                .map(entry => [entry.join('\u0000'), entry])).values()]
                 .filter(([source]) => itemSourceAllowed(annotations, name, source));
         };
         function item(name, visiting) {
@@ -3217,6 +3264,7 @@
             if (resourceRequirementCache.has(key)) return resourceRequirementCache.get(key);
             const next = new Set(visiting).add(key), paths = [];
             for (const [source, type] of itemSourceEntries(name)) {
+                if (!recipeSupply.sourceAllowed(name, source, type)) continue;
                 let directOrigins = [];
                 if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', name, 'Direct item spawn');
                 else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
@@ -3256,6 +3304,7 @@
                 for (const itemName of expand(raw, codes.itemsPlus).map(canonicalItemKey)) {
                     const resource = itemName.replaceAll('*', '');
                     for (const [source, type] of itemSourceEntries(resource)) {
+                        if (!recipeSupply.sourceAllowed(resource, source, type)) continue;
                         let directOrigins = [];
                         if (String(type).includes('spawn')) directOrigins = origin(source, 'spawn', resource, 'Direct item spawn');
                         else if (type === 'shop' && base.shops?.[source]) directOrigins = fixed('shops', source);
@@ -3509,10 +3558,6 @@
                 (equipment?.is_consumable === true &&
                     (Number(equipment.attack_ranged || 0) > 0 || Number(equipment.ranged_strength || 0) > 0)) ||
                 / rune$/i.test(itemName);
-            // Separate distant spawn points are separate waiting cycles. Only
-            // one local pile containing multiple copies establishes training.
-            if (entries.some(([source, type]) => String(type).includes('spawn') &&
-                spawnCount(itemName, source) >= (combatAmmunition ? 5 : 2))) return true;
             return entries.some(([source, type]) => {
                 if (type === 'shop' && fixed('shops', source).length) return true;
                 if (String(type).includes('drop')) {
@@ -3631,8 +3676,9 @@
                     if (String(type).includes('drop')) return acquisitionOrigins(itemName, source, fixed('monsters', source));
                     const direct = ['objects', 'npcs', 'monsters', 'shops'].flatMap(kind => fixed(kind, source));
                     if (direct.length) return direct;
-                    const producerSkill = knownNames.get(source), producerMeta = data.challenges?.[producerSkill]?.[source];
-                    if (!producerMeta || !taskLevelReadiness(source, producerSkill, producerMeta).allowed ||
+                    const reference = knownTaskReference(source), producerSkill = reference?.category;
+                    const producerName = reference?.name, producerMeta = data.challenges?.[producerSkill]?.[producerName];
+                    if (!producerMeta || !taskLevelReadiness(producerName, producerSkill, producerMeta).allowed ||
                         !declaredSkillReadiness(producerMeta).allowed) return [];
                     const reusable = (producerMeta.Items || []).filter(item => !item.includes('*'));
                     if (!reusable.every(item => itemRequirementReadiness(item, next).allowed)) return [];
@@ -3641,7 +3687,7 @@
                     const hasFixedAnchor = !!(producerMeta.Chunks?.length || producerMeta.NPCs?.length ||
                         producerMeta.Monsters?.length || producerMeta.Objects?.length || producerMeta.Mix?.length);
                     return !hasFixedAnchor && consumed.length === 1 ? reasonableRecipeItemOrigins(consumed[0], next) :
-                        taskOrigins(source, producerSkill, next);
+                        taskOrigins(producerName, producerSkill, next);
                 });
             }));
         }
@@ -3669,8 +3715,9 @@
                         return chance === null || chance >= TRAINING_DROP_RATE;
                     }
                     if (['objects', 'npcs', 'monsters', 'shops'].some(kind => fixed(kind, source).length > 0)) return true;
-                    const producerSkill = knownNames.get(source), producerMeta = data.challenges?.[producerSkill]?.[source];
-                    if (!producerMeta || !taskLevelReadiness(source, producerSkill, producerMeta).allowed ||
+                    const reference = knownTaskReference(source), producerSkill = reference?.category;
+                    const producerName = reference?.name, producerMeta = data.challenges?.[producerSkill]?.[producerName];
+                    if (!producerMeta || !taskLevelReadiness(producerName, producerSkill, producerMeta).allowed ||
                         !declaredSkillReadiness(producerMeta).allowed) return false;
                     const reusable = (producerMeta.Items || []).filter(item => !item.includes('*'));
                     if (!reusable.every(item => itemRequirementReadiness(item, next).allowed)) return false;
@@ -3681,15 +3728,14 @@
                 return available;
             });
         }
-        function progressionSupplyReadiness(skill, meta, taskClass, advancesSkillProgression, forestBound = false) {
-            // Reviewed processing skills use deliberate ingredient paths at
-            // every level. Other skills keep the level-one introduction rule,
-            // while later milestones reject low-rate incidental drops in their inputs.
+        function progressionSupplyReadiness(skill, meta, taskClass, advancesSkillProgression) {
+            // Every skill action that consumes an item uses a deliberate
+            // ingredient path at every level.
             // Reward objectives are classified separately, so rare BiS and
             // Collection Log drops stay available without becoming training supplies.
             const recipe = recipeSupplySkills.has(skill) && (meta.Items || []).some(raw => raw.includes('*'));
-            if (forestBound || (!recipe && (taskClass !== 'skill_progression' || !advancesSkillProgression ||
-                Number(meta.Level || 1) <= 1))) {
+            if (!recipe && (taskClass !== 'skill_progression' || !advancesSkillProgression ||
+                Number(meta.Level || 1) <= 1)) {
                 return { allowed: true, blocks: [] };
             }
             const blocks = (meta.Items || []).filter(raw => raw.includes('*')).flatMap(raw => {

@@ -253,7 +253,15 @@
             // Focused activities may provide ingredients at a lower rate than
             // ordinary monster drops because the player can repeat the activity
             // specifically for that resource.
-            skills: Object.freeze(['Cooking', 'Crafting', 'Mining', 'Smithing']),
+            // Every skill action that consumes an item must use a reviewed,
+            // deliberate supply route. Reaching a loose ground spawn proves
+            // that the item exists, but does not make it a primary supply.
+            skills: Object.freeze([
+                'Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
+                'Cooking', 'Woodcutting', 'Fletching', 'Fishing', 'Firemaking', 'Crafting',
+                'Smithing', 'Mining', 'Herblore', 'Agility', 'Thieving', 'Slayer', 'Farming',
+                'Runecraft', 'Hunter', 'Construction', 'Sailing'
+            ]),
             commonMonsterChance: 1 / 4,
             focusedActivityChance: 1 / 20,
             rareFallbackRatio: 1 / 2,
@@ -266,18 +274,30 @@
                 'Karambwan': 'Cooked karambwan',
                 'Curry leaves': 'Curry leaf',
                 'BLessed wyrm bones': 'Blessed wyrm bones',
-                'Ball of wall': 'Ball of wool'
+                'Ball of wall': 'Ball of wool',
+                'Irit': 'Irit leaf',
+                'Husca potion (unf)': 'Huasca potion (unf)',
+                'Primorial crystal': 'Primordial crystal',
+                'Infinty boots': 'Infinity boots'
             }),
             inputCorrections: Object.freeze({
                 // This partial-product row otherwise consumes its own output.
                 'Make a ~|part wild pie (raw chompy)|~': Object.freeze({
                     'Part wild pie (raw chompy)*': 'Part wild pie (raw bear meat)*'
+                }),
+                // Barbarian mixes accept the dose variants represented by the
+                // upstream antidote++ item family.
+                'Mix an ~|antidote+ mix|~': Object.freeze({
+                    'Antidote++*': 'Antidote++[+]*'
                 })
             }),
             additionalOutputs: Object.freeze({
                 // The upstream row represents every recoloured cape but omits
                 // Output because there are several possible results.
-                'Dye a ~|cape|~': Object.freeze(['Cape[+]'])
+                'Dye a ~|cape|~': Object.freeze(['Cape[+]']),
+                // Fareed awards this quest item, but the upstream quest step
+                // omits it as an output.
+                '~|Desert Treasure I|~ 7c2': Object.freeze(['Fire diamond'])
             })
         }),
         // Currency shops inherit the requirements of the activity that earns

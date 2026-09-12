@@ -1842,10 +1842,11 @@ test('secondary recipe steps and their produced items obey every prerequisite sk
     assert.equal(roast.available, false); assert.match(roast.eligibilityReason, /Firemaking level 20/);
     assert.equal(spit.progressionBlocked, true); assert.equal(spit.progressionCeiling, 1);
     assert.match(spit.accessResult.reason, /Smithing level 15/);
-    assert.equal(bronze.available, true, 'one bronze bar remains valid for the one-time level-one task');
+    assert.equal(bronze.available, false, 'a loose bronze bar is not a primary Smithing supply');
+    assert.match(bronze.accessResult.reason, /No reasonable primary source supplies Bronze bar/);
 });
 
-test('one item spawn permits one objective but cannot establish a training loop', () => {
+test('one item spawn permits neither an objective nor a training loop', () => {
     const baseChunks = ['4911', '5428', '6451'];
     const calculate = chunkIds => {
         const request = usePreset(makeRequest(chunkIds), 'Boardlocked Chunker');
@@ -1853,18 +1854,19 @@ test('one item spawn permits one objective but cannot establish a training loop'
         request.boardlocked.state.progressionInitialized = true;
         request.boardlocked.state.actualLevels.Smithing = 1;
         request.boardlocked.state.acquiredEnablers.Hammer = { manual: true };
+        request.boardlocked.state.acquiredEnablers['Bronze pickaxe'] = { manual: true };
         return runWorker(request).result.tasks.find(task => task.name === 'Smith a ~|bronze mace|~');
     };
     const oneSpawn = calculate(baseChunks);
     assert.ok(oneSpawn); assert.equal(oneSpawn.available, false);
-    assert.match(oneSpawn.accessResult.reason, /No repeatable Smithing training method/);
+    assert.match(oneSpawn.accessResult.reason, /No repeatable Smithing training method|No reasonable primary source supplies Bronze bar/);
 
     const mineAndFurnace = calculate([...baseChunks, '12849']);
     assert.ok(mineAndFurnace); assert.equal(mineAndFurnace.available, true,
         'repeatable copper and tin plus the existing furnace create a real Smithing training loop');
 });
 
-test('distant item spawns do not combine into a local training supply', () => {
+test('ground item spawns do not become a primary supply or training loop', () => {
     const fixture = sourceFixture();
     fixture.data.challenges.Cooking = {
         Cook: { Items: ['Raw food*'], Objects: ['Cooking object[+]'], Level: 1, Primary: true, Output: 'Cooked food' },
@@ -1880,16 +1882,20 @@ test('distant item spawns do not combine into a local training supply', () => {
     fixture.state.progressionHighWater.Cooking = 1;
     fixture.state.progressionInitialized = true;
     fixture.unlocked = { '1000': '1000', '2000': '2000' };
+    fixture.annotations = annotations;
     let tasks = R.buildTasks(fixture).tasks;
-    assert.equal(tasks.find(task => task.name === 'Cook').available, true,
-        'one local spawn still supplies its one-time objective');
+    assert.equal(tasks.find(task => task.name === 'Cook').available, false,
+        'one local spawn cannot supply even a one-time processing objective');
+    assert.match(tasks.find(task => task.name === 'Cook').accessResult.reason,
+        /No reasonable primary source supplies Raw food/);
     assert.equal(tasks.find(task => task.name === 'Better').available, false,
         'one spawn in each of two distant chunks is not one usable rotation');
 
     fixture.data.chunks['1000'].Spawn['Raw food'] = 2;
     tasks = R.buildTasks(fixture).tasks;
-    assert.equal(tasks.find(task => task.name === 'Better').available, true,
-        'multiple copies at one location establish a local supply');
+    assert.equal(tasks.find(task => task.name === 'Cook').available, false,
+        'a larger loose pile still is not a deliberate resource source');
+    assert.equal(tasks.find(task => task.name === 'Better').available, false);
 });
 
 test('single-charge producers need a sufficiently large local pool for training', () => {
@@ -2075,14 +2081,17 @@ test('real worker: Imp flour cannot unlock the later mud-pie goal', () => {
         'a level-one recipe cannot use the same incidental Imp flour loophole');
 });
 
-test('every reviewed processing recipe input has a primary supply route', () => {
+test('every skill recipe input has a primary supply route', () => {
     const catalog = R.recipeSupplyCatalog(chunkData, annotations);
-    const expectedMinimums = { Cooking: 200, Crafting: 300, Mining: 5, Smithing: 300 };
-    assert.deepEqual(catalog.skills, Object.keys(expectedMinimums));
+    const expectedMinimums = { Prayer: 20, Magic: 250, Cooking: 200, Woodcutting: 10,
+        Fletching: 160, Fishing: 25, Firemaking: 50, Crafting: 300, Smithing: 300, Mining: 5,
+        Herblore: 150, Agility: 1, Thieving: 5, Slayer: 1, Farming: 90, Runecraft: 75,
+        Hunter: 4, Construction: 130, Sailing: 35 };
+    assert.deepEqual(catalog.skills, R.SKILLS);
     for (const [skill, minimum] of Object.entries(expectedMinimums)) {
         const recipes = catalog.recipes.filter(recipe => recipe.skill === skill);
         assert.ok(recipes.length > minimum, skill + ' audit unexpectedly lost most recipes');
-        for (const recipe of recipes) for (const input of recipe.inputs) {
+        for (const recipe of recipes) for (const input of recipe.inputs.filter(input => input.consumable)) {
             assert.ok(input.alternatives.some(item => catalog.globallySupplied(item)),
                 `${skill}: ${recipe.name} has no primary source for ${input.raw}`);
         }
@@ -2103,6 +2112,8 @@ test('every reviewed processing recipe input has a primary supply route', () => 
         'a registered collection reward can feed its later recipe');
     assert.equal(approved('Bronze bar', 'Dwarf'), false,
         'an incidental Dwarf drop cannot stand in for mining and smelting bronze');
+    assert.equal(approved('Bronze bar', '6451-1'), false,
+        'a ground spawn cannot stand in for mining and smelting bronze');
     assert.equal(approved('Bronze bar', 'Smelt a ~|bronze bar|~'), true,
         'ordinary smelting is a primary Smithing input route');
     assert.equal(approved('Barronite deposit', 'Mine from ~|rocks (Barronite)|~'), true,
@@ -2574,7 +2585,7 @@ test('bronze axe acquisition satisfies the base family, activates future Woodcut
     assert.deepEqual(R.snapshotVisit(visit, afterTasks).currentVisit.candidateTaskIds, snapshotIds);
 });
 
-test('processing logs inherits the axe requirement until logs are directly obtainable', () => {
+test('processing logs follows primary sources and ignores loose log spawns', () => {
     const taskName = 'Fletch ~|logs|~ into shafts';
     const request = usePreset(makeRequest(['4912']), 'Boardlocked Chunker');
     let shaft = runWorker(request).result.tasks.find(task => task.name === taskName);
@@ -2586,12 +2597,13 @@ test('processing logs inherits the axe requirement until logs are directly obtai
 
     request.boardlocked.state.acquiredEnablers['Bronze axe'] = { manual: true };
     shaft = runWorker(request).result.tasks.find(task => task.name === taskName);
-    assert.equal(shaft.available, true, 'actually acquiring the offered axe unlocks log processing');
+    assert.equal(shaft.available, true, 'actually acquiring an axe unlocks log processing');
 
     const directLogs = usePreset(makeRequest(['4912', '12850']), 'Boardlocked Chunker');
     shaft = runWorker(directLogs).result.tasks.find(task => task.name === taskName);
-    assert.equal(shaft.available, true, 'a direct log spawn remains a valid axe-free source');
-    assert.ok(shaft.origins.some(source => source.sourceType === 'spawn' && source.sourceName === 'Logs'));
+    assert.equal(shaft.available, false, 'a loose log cannot replace a primary source');
+    assert.ok(!shaft.origins.some(source => source.sourceType === 'spawn'),
+        'adding a loose log cannot turn it into a task source');
 });
 
 test('available gathering milestones come before dependent processing tasks', () => {
@@ -2623,10 +2635,11 @@ test('available gathering milestones come before dependent processing tasks', ()
     const directResult = runWorker(direct).result;
     const directTasks = R.adaptTasks(directResult.tasks, {}, direct.boardlocked.state, direct.chunks,
         directResult.sections, direct.manualSections, R.buildTaskCatalog(direct.chunkInfo, direct.boardlocked.tasksMap), direct.boardlocked.tasksMap);
-    assert.ok(directTasks.find(task => task.name === 'Burn ~|logs|~')?.eligible,
-        'a direct log spawn bypasses the gathering milestone');
-    assert.ok(directTasks.find(task => task.name === 'Fletch ~|logs|~ into shafts')?.eligible,
-        'a direct log spawn bypasses the gathering milestone');
+    for (const name of ['Burn ~|logs|~', 'Fletch ~|logs|~ into shafts']) {
+        const downstream = directTasks.find(task => task.name === name);
+        assert.equal(downstream?.eligible, false, 'a loose log cannot bypass the gathering milestone');
+        assert.equal(downstream?.resourceMilestoneBlocked, true);
+    }
 });
 
 test('a dependent task stays blocked while its gathering milestone is outside the progression window', () => {
@@ -2788,11 +2801,11 @@ test('a distinct process remains separate when it consumes the same resource', (
         Cannon: { Items: ['Bronze bar*'], Objects: ['Anvil'], Level: 5, Primary: true, Output: 'Bronze cannonball', Priority: 1 }
     }, Extra: {}, Quest: {}, Diary: {}, BiS: {} };
     const data = { challenges, codeItems: { itemsPlus: {}, objectsPlus: {}, tools: {} },
-        taskUnlocks: { Items: {} }, equipment: {}, chunks: { '1000': { Spawn: { 'Bronze bar': 2 } } } };
+        taskUnlocks: { Items: {} }, equipment: {}, shopItems: { 'Metal stock': { 'Bronze bar': { 1: 'Always' } } } };
     const state = fresh(); state.actualLevels.Smithing = 5;
     const result = R.buildTasks({ data, valids: { Smithing: { Dagger: 1, Sword: 4, Cannon: 5 } },
-        base: { objects: { Anvil: { '1000': true } }, items: { 'Bronze bar': { '1000': 'primary-spawn' } },
-            npcs: {}, monsters: {}, shops: {} },
+        base: { objects: { Anvil: { '1000': true } }, items: { 'Bronze bar': { 'Metal stock': 'shop' } },
+            npcs: {}, monsters: {}, shops: { 'Metal stock': { '1000': true } } },
         rules: { 'Show Skill Tasks': true }, state, unlocked: { '1000': '1000' }, annotations });
     const tasks = R.adaptTasks(result.tasks, {}, state, { '1000': '1000' }, {}, {}, R.buildTaskCatalog(data));
     assert.deepEqual(tasks.filter(task => task.eligible).map(task => task.name).sort(), ['Cannon', 'Sword']);
@@ -2894,7 +2907,8 @@ test('bull shark drops require an acquired ship cannon and the Sailing level to 
 test('a blocked sea-monster source does not hide an accessible land source for the same item', () => {
     const data = {
         challenges: { Attack: { 'Obtain a trophy': { Items: ['Trophy*'], Level: 1, Primary: true } }, Extra: {}, Quest: {}, Diary: {} },
-        codeItems: { itemsPlus: {}, monstersPlus: { 'BountyMonster[+]': ['Bull shark'] }, tools: {} }, equipment: {}
+        codeItems: { itemsPlus: {}, monstersPlus: { 'BountyMonster[+]': ['Bull shark'] }, tools: {} }, equipment: {},
+        shopItems: { 'Land store': { Trophy: { 1: 'Always' } } }
     };
     const result = R.buildTasks({ data, valids: { Attack: { 'Obtain a trophy': 1 } },
         base: { items: { Trophy: { 'Bull shark': 'drop', 'Land store': 'shop' } },
