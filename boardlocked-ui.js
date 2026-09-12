@@ -318,7 +318,7 @@
             if (sourceVersion < 6 && !hasStarted()) state.initialization.druidicRitual = true;
             if (!state.enablersInitialized) state = R.recoverAcquiredEnablers(state, legacy(), chunkInfo, tasksMap, BoardlockedData);
             const arrivalAccess = actualAccessEvaluator();
-            const arrivalMigration = sourceVersion < R.VERSION ? R.migrateCurrentArrival(chunkInfo, state,
+            const arrivalMigration = R.arrivalMigrationNeeded(sourceVersion) ? R.migrateCurrentArrival(chunkInfo, state,
                 tempChunks.unlocked || {}, manualSections,
                 (from, to, connection) => completedConnectionAllowed(from, to, connection, arrivalAccess),
                 BoardlockedData.travelConnections, chunkInfo.walkableChunks || [], tempChunks.blacklisted || {}) :
@@ -484,6 +484,8 @@
     function calculate(request) {
         ensureMap();
         if (!state.enabled) return;
+        if (catalogData !== chunkInfo) { catalogData = chunkInfo; catalog = R.buildTaskCatalog(chunkInfo, tasksMap); }
+        state = R.reconcileProgression(state, catalog, legacy(), tasksMap);
         invalidate();
         error = ''; signature = inputSignature();
         const requestId = generation;
@@ -499,7 +501,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl60');
+        worker = new Worker('./worker.js?v=6.9.66-bl61');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1852,7 +1854,7 @@
             syncAssumedAccountSetup();
             nextState = state;
             const arrivalAccess = actualAccessEvaluator();
-            const arrivalMigration = imported.version < R.VERSION ? R.migrateCurrentArrival(chunkInfo, nextState,
+            const arrivalMigration = R.arrivalMigrationNeeded(imported.version) ? R.migrateCurrentArrival(chunkInfo, nextState,
                 tempChunks.unlocked || {}, manualSections,
                 (from, to, connection) => completedConnectionAllowed(from, to, connection, arrivalAccess),
                 BoardlockedData.travelConnections, chunkInfo.walkableChunks || [], tempChunks.blacklisted || {}) :

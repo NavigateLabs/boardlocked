@@ -503,20 +503,24 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'only an upgraded active free visit is eligible for reopening');
     assert.match(ui, /pendingRuleTaskRefresh[\s\S]*R\.openRuleUpdateVisit/,
         'an upgraded completed visit must recover tasks newly exposed in its current tile');
+    assert.match(ui, /R\.arrivalMigrationNeeded\(sourceVersion\)/,
+        'ordinary rules updates must not rerun an older arrival migration');
+    assert.match(ui, /R\.arrivalMigrationNeeded\(imported\.version\)/,
+        'import applies arrival repair only to saves that predate that migration');
     assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
     assert.match(html, /boardlocked-combat-data\.js\?v=1/);
     assert.match(html, /boardlocked-data\.js\?v=27/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl32/);
-    assert.match(html, /boardlocked\.js\?v=84/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl60/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl60/);
+    assert.match(html, /boardlocked\.js\?v=85/);
+    assert.match(index, /worker\.js\?v=6\.9\.66-bl61/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.66-bl61/);
     assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
     assert.match(worker, /boardlocked-data\.js\?v=27/);
-    assert.match(worker, /boardlocked\.js\?v=84/);
+    assert.match(worker, /boardlocked\.js\?v=85/);
     assert.match(worker, /boardlocked-worker\.js\?v=31/);
-    assert.match(html, /boardlocked-ui\.js\?v=101/);
+    assert.match(html, /boardlocked-ui\.js\?v=102/);
     assert.match(html, /boardlocked\.css\?v=26/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
@@ -1284,7 +1288,7 @@ test('quests, diaries, collection, minigame and BiS objectives are not suppresse
     assert.equal(tasks.find(t => t.name === 'Tool').superseded, true, 'ordinary tool-use action shares the cleared skill band');
 });
 
-test('stored high-water marks survive unchecking and can be rebuilt from completed tasks', () => {
+test('unchecking a progression task retracts its high-water and inferred actual level', () => {
     const f = progressionFixture();
     const onlyBread = f.list.filter(t => t.name === 'Bread');
     const legacy = { checkedChallenges: { Cooking: { Fish: true } } };
@@ -1292,11 +1296,29 @@ test('stored high-water marks survive unchecking and can be rebuilt from complet
     assert.equal(state.progressionHighWater.Cooking, 20);
     assert.equal(R.adaptTasks(onlyBread, legacy, state, geo, {}, {}, f.catalog)[0].eligible, false);
     delete legacy.checkedChallenges.Cooking.Fish;
-    state = R.initializeProgression(R.normalizeState(JSON.parse(JSON.stringify(state))), f.catalog, legacy, f.ids);
-    assert.equal(R.adaptTasks(onlyBread, legacy, state, geo, {}, {}, f.catalog)[0].eligible, false);
-    state = R.initializeProgression(state, f.catalog, legacy, f.ids, true);
+    state = R.reconcileProgression(R.normalizeState(JSON.parse(JSON.stringify(state))), f.catalog, legacy, f.ids);
     assert.equal(state.progressionHighWater.Cooking, 0);
+    assert.equal(state.actualLevels.Cooking, 1);
     assert.equal(R.adaptTasks(onlyBread, legacy, state, geo, {}, {}, f.catalog)[0].eligible, true);
+});
+
+test('unchecking does not lower a separately established level above the task inference', () => {
+    const f = progressionFixture();
+    const legacy = { checkedChallenges: { Cooking: { Fish: true } } };
+    let state = R.initializeProgression(fresh(), f.catalog, legacy, f.ids);
+    state.actualLevels.Cooking = 30;
+    delete legacy.checkedChallenges.Cooking.Fish;
+    state = R.reconcileProgression(state, f.catalog, legacy, f.ids);
+    assert.equal(state.progressionHighWater.Cooking, 0);
+    assert.equal(state.actualLevels.Cooking, 30);
+});
+
+test('arrival repair runs only for saves older than the migration that introduced it', () => {
+    assert.equal(R.ARRIVAL_MIGRATION_VERSION, 46);
+    assert.equal(R.arrivalMigrationNeeded(45), true);
+    assert.equal(R.arrivalMigrationNeeded(46), false);
+    assert.equal(R.arrivalMigrationNeeded(55), false,
+        'an unrelated rules update must not revalidate and move the current visit');
 });
 
 test('actual levels and special completions never advance a skill-task high-water mark', () => {

@@ -5,7 +5,8 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 55;
+    const VERSION = 56;
+    const ARRIVAL_MIGRATION_VERSION = 46;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
     const SKILLS = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic',
@@ -128,6 +129,8 @@
     });
     const LEGACY_BAND_MINIMUMS = Object.freeze([1, 15, 30, 45, 60, 75, 90]);
     const progressionWindow = skill => PROGRESSION_WINDOWS[skill] || 10;
+    const arrivalMigrationNeeded = sourceVersion => Number.isInteger(sourceVersion) &&
+        sourceVersion < ARRIVAL_MIGRATION_VERSION;
 
     function normalizeState(input) {
         if (input && (!Number.isInteger(input.version) || input.version < 1 || input.version > VERSION)) throw new Error('Unsupported Boardlocked state version: ' + input.version);
@@ -1305,9 +1308,17 @@
     }
     function reconcileProgression(state, catalog, legacy = {}, ids = {}) {
         const next = initializeProgression(state, catalog, legacy, ids);
+        next.actualLevels = { ...next.actualLevels };
         const derived = deriveProgressionHighWater(catalog, legacy, ids, next);
         for (const skill of SKILLS) {
-            next.progressionHighWater[skill] = Math.max(next.progressionHighWater[skill] || 0, derived[skill]);
+            const previousHighWater = next.progressionHighWater[skill] || 0;
+            // Checked task records are the evidence for ordinary skill
+            // progression. Retracting one must retract the inferred level it
+            // supplied, even after the player has moved on to later visits.
+            if (derived[skill] < previousHighWater && next.actualLevels[skill] === previousHighWater) {
+                next.actualLevels[skill] = Math.max(skill === 'Hitpoints' ? 10 : 1, derived[skill]);
+            }
+            next.progressionHighWater[skill] = derived[skill];
             // Completing a levelled skill goal proves this minimum real level.
             // The UI no longer asks players to maintain a second full level list.
             next.actualLevels[skill] = Math.max(next.actualLevels[skill] || (skill === 'Hitpoints' ? 10 : 1), derived[skill] || 0);
@@ -4436,7 +4447,7 @@
             slayerMasters: slayerProgression.masterStatuses,
             enablerCatalog, enablerAmbiguities: enablerModel.ambiguous, clueStatus };
     }
-    return { VERSION, STARTING_SECTION_POLICY, SKILLS, CLUE_TIERS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, own, copy, taskId, displayName, stripMarkup,
+    return { VERSION, ARRIVAL_MIGRATION_VERSION, STARTING_SECTION_POLICY, SKILLS, CLUE_TIERS, PROGRESSION_WINDOWS, progressionWindow, progressionCeiling, arrivalMigrationNeeded, own, copy, taskId, displayName, stripMarkup,
         canonicalItemKey, itemSourceAllowed, clueSourceCatalog, recipeSupplyCatalog, applyRecipeSupplyAliases,
         enablerTaskId, enablerItemFromTaskId, normalizeState, normalizeRunExport, normalizeBrowserSave,
         sanitizeLegacySnapshot, parseLocation, parseUnlockedLocations, locationAvailable,
