@@ -3266,7 +3266,8 @@
             // used as proof that the player can train up to it.
             if (trainingAnalysisReady && (trainingEvidenceSkills.has(skill) || skill === 'Hunter') &&
                 !trainingSupportedSkills.has(skill) &&
-                skill !== 'Combat' && !(combatSkills.has(skill) && combatSkillActivated(skill))) {
+                skill !== 'Combat' && skill !== 'Slayer' &&
+                !(combatSkills.has(skill) && combatSkillActivated(skill))) {
                 return { allowed: false, skill, level: record.level, known,
                     reason: 'No repeatable ' + skill + ' training method is available from level ' + known };
             }
@@ -3712,13 +3713,21 @@
                 item: canonicalItemKey(rawItem).replaceAll('*', ''),
                 reason: 'Complete ' + names.join(' or ') + ' before consuming this collection-log item' }] };
         }
-        function itemRequirementReadiness(rawItem, visiting = new Set()) {
-            const alternatives = expand(rawItem, codes.itemsPlus).map(canonicalItemKey);
+        const inputAlternativesAtLevel = (rawItem, level = Infinity) => {
+            const requirements = annotations.recipeSupply?.ingredientSkillLevels?.[canonicalItemKey(rawItem)] || {};
+            return expand(rawItem, codes.itemsPlus).map(canonicalItemKey)
+                .filter(itemName => Number(requirements[itemName] || 1) <= level);
+        };
+        function itemRequirementReadiness(rawItem, visiting = new Set(), level = Infinity, skill = '') {
+            const alternatives = inputAlternativesAtLevel(rawItem, level);
             const available = alternatives.some(itemName => ownedReusableItems.has(comparableItemKey(itemName)) ||
                 item(itemName, visiting).length > 0);
             if (available) return { allowed: true, blocks: [] };
             const blocks = alternatives.flatMap(itemName => dependencyDiagnostics.get(itemName) || []);
-            return { allowed: false, blocks: blocks.length ? blocks : [{
+            const tiered = !!annotations.recipeSupply?.ingredientSkillLevels?.[canonicalItemKey(rawItem)];
+            return { allowed: false, blocks: tiered ? [{ skill,
+                item: canonicalItemKey(rawItem), reason: 'No accessible ' + canonicalItemKey(rawItem) +
+                    ' usable at ' + skill + ' level ' + level }] : blocks.length ? blocks : [{
                 item: canonicalItemKey(rawItem).replaceAll('*', ''), reason: 'No accessible source for ' + canonicalItemKey(rawItem).replaceAll('*', '')
             }] };
         }
@@ -3731,7 +3740,8 @@
                     const milestone = collectionMilestoneReadiness(rawItem);
                     if (!milestone.allowed) { blocks.push(...milestone.blocks); continue; }
                 }
-                const readiness = itemRequirementReadiness(rawItem, next);
+                const readiness = itemRequirementReadiness(rawItem, next,
+                    Math.max(knownSkillLevel(skill), Number(meta.Level || 1)), skill);
                 if (!readiness.allowed) blocks.push(...readiness.blocks);
             }
             return { allowed: blocks.length === 0, blocks: [...new Map(blocks.map(block => [block.reason, block])).values()] };
@@ -3827,9 +3837,16 @@
             for (const skill of [...SKILLS, 'Nonskill']) for (const [name, meta] of Object.entries(data.challenges?.[skill] || {})) {
                 allTasks.push({ name, skill, meta });
             }
-            const rawRepeatable = raw => expand(raw, codes.itemsPlus).some(itemName => repeatableItems.has(comparableItemKey(itemName)));
+            const rawRepeatable = (raw, skill) => inputAlternativesAtLevel(raw, knownSkillLevel(skill))
+                .some(itemName => repeatableItems.has(comparableItemKey(itemName)));
             const rawObtainableOnce = (raw, visiting) => expand(raw, codes.itemsPlus).some(itemName =>
                 ownedReusableItems.has(comparableItemKey(itemName)) || item(itemName, visiting).length > 0);
+            const prerequisitesComplete = meta => Object.entries(meta.Tasks || {}).every(([rawName, requiredSkill]) => {
+                const choices = expand(rawName, codes.tasksPlus || {});
+                const needed = rawName.includes('[+]x') ? Number(rawName.split('[+]x')[1]) : 1;
+                return choices.filter(requiredName => isComplete({ name: requiredName, skill: requiredSkill,
+                    taskId: taskId(requiredName, requiredSkill, ids) }, legacy, state)).length >= needed;
+            });
             let changed = true, passes = 0;
             while (changed && passes++ < allTasks.length + SKILLS.length) {
                 changed = false;
@@ -3840,6 +3857,10 @@
                     const level = Number(meta.Level || 1), known = knownSkillLevel(skill);
                     if (SKILLS.includes(skill) && level > known &&
                         (!trainingSupportedSkills.has(skill) || level > skillCeiling(skill))) continue;
+                    if (SKILLS.includes(skill) && meta.Primary === true && !meta.NoXp && level <= known) {
+                        trainingEvidenceSkills.add(skill);
+                    }
+                    if (!prerequisitesComplete(meta)) continue;
                     const declared = Object.entries(meta.Skills || {}).every(([requiredSkill, rawLevel]) => {
                         if (!SKILLS.includes(requiredSkill)) return true;
                         const requiredLevel = Number(rawLevel || 1), requiredKnown = knownSkillLevel(requiredSkill);
@@ -3848,11 +3869,8 @@
                     if (!declared) continue;
                     const reusable = (meta.Items || []).filter(raw => !raw.includes('*'));
                     if (!reusable.every(raw => rawObtainableOnce(raw, new Set(['training:' + skill + ':' + name])))) continue;
-                    if (SKILLS.includes(skill) && meta.Primary === true && !meta.NoXp && level <= known) {
-                        trainingEvidenceSkills.add(skill);
-                    }
                     const consumables = (meta.Items || []).filter(raw => raw.includes('*'));
-                    if (!consumables.every(rawRepeatable)) continue;
+                    if (!consumables.every(raw => rawRepeatable(raw, skill))) continue;
                     if (SKILLS.includes(skill) && meta.Primary === true && !meta.NoXp && level <= known &&
                         repeatableTrainingAction(name, skill, meta) &&
                         !trainingSupportedSkills.has(skill)) {

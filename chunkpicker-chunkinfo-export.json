@@ -2034,7 +2034,8 @@
 					"Strength": 30
 				},
 				"Priority": 5,
-				"NoPet": true
+				"NoPet": true,
+				"Tasks": {"~|Barbarian Training|~ 2a1": "Quest"}
 			},
 			"Catch a ~|leaping sturgeon|~": {
 				"Items": ["Barbarian rod[+]", "Barbarian bait[+]"],
@@ -2046,7 +2047,8 @@
 					"Strength": 45
 				},
 				"Priority": 3,
-				"NoPet": true
+				"NoPet": true,
+				"Tasks": {"~|Barbarian Training|~ 2a1": "Quest"}
 			},
 			"Catch a ~|leaping trout|~": {
 				"Items": ["Barbarian rod[+]", "Barbarian bait[+]"],
@@ -2058,7 +2060,8 @@
 					"Strength": 15
 				},
 				"Priority": 3,
-				"NoPet": true
+				"NoPet": true,
+				"Tasks": {"~|Barbarian Training|~ 2a1": "Quest"}
 			},
 			"Play ~|Gnome Ball|~": {
 				"Chunks": ["9526-1"],
@@ -19244,7 +19247,8 @@
 					"Agility": 30,
 					"Strength": 30
 				},
-				"Not F2P": true
+				"Not F2P": true,
+				"Tasks": {"~|Barbarian Training|~ 2a1": "Quest"}
 			},
 			"Catch a ~|leaping sturgeon|~": {
 				"Items": ["Barbarian rod[+]", "Barbarian bait[+]*"],
@@ -19256,7 +19260,8 @@
 					"Agility": 45,
 					"Strength": 45
 				},
-				"Not F2P": true
+				"Not F2P": true,
+				"Tasks": {"~|Barbarian Training|~ 2a1": "Quest"}
 			},
 			"Catch a ~|leaping trout|~": {
 				"Items": ["Barbarian rod[+]", "Barbarian bait[+]*"],
@@ -19268,7 +19273,8 @@
 					"Agility": 15,
 					"Strength": 15
 				},
-				"Not F2P": true
+				"Not F2P": true,
+				"Tasks": {"~|Barbarian Training|~ 2a1": "Quest"}
 			},
 			"Catch a ~|leckish fish|~": {
 				"Category": ["CoX"],
@@ -19422,7 +19428,8 @@
 				"Objects": ["Fishing spot (karambwan)"],
 				"Output": "Raw karambwan",
 				"Primary": true,
-				"Not F2P": true
+				"Not F2P": true,
+				"Tasks": {"~|Tai Bwo Wannai Trio|~ 4": "Quest"}
 			},
 			"Catch a ~|raw lava eel|~": {
 				"Items": ["Oily fishing rod[+]", "Fishing bait*"],
@@ -19593,7 +19600,8 @@
 				"Objects": ["Fishing spot (Piscatoris Fishing Colony)"],
 				"Output": "Raw monkfish",
 				"Primary": true,
-				"Not F2P": true
+				"Not F2P": true,
+				"Tasks": {"~|Swan Song|~ Complete the quest": "Quest"}
 			},
 			"Catch a ~|raw pike|~": {
 				"Items": ["Fishing rod[+]", "Fishing bait*"],
@@ -19946,6 +19954,7 @@
 			},
 			"Participate in ~|Vale Totems|~ for Fletching xp": {
 				"Category": ["Minigame"],
+				"Items": ["Fletching knife[+]", "ValeTotemLogs[+]*"],
 				"Objects": ["Totem site", "Offering site"],
 				"Level": 20,
 				"Tasks": {
@@ -20768,7 +20777,8 @@
 				"NPCs": ["PointSlayerMasters[+]"],
 				"Level": 76,
 				"Primary": true,
-				"Output": "Amethyst broad bolts"
+				"Output": "Amethyst broad bolts",
+				"Tasks": {"Unlock ~|Broader fletching|~ for 300 Slayer reward points": "Extra"}
 			},
 			"Fletch ~|barbed bolts|~": {
 				"Items": ["Bronze bolts*", "Barb bolttips*"],
@@ -20789,7 +20799,8 @@
 				"Level": 52,
 				"Primary": true,
 				"Output": "Broad arrows",
-				"Priority": 2
+				"Priority": 2,
+				"Tasks": {"Unlock ~|Broader fletching|~ for 300 Slayer reward points": "Extra"}
 			},
 			"Create ~|seeking broad arrows|~": {
 				"Items": ["Broad arrows*", "Bucket of bloodwood sap*"],
@@ -20804,7 +20815,8 @@
 				"Level": 55,
 				"Primary": true,
 				"Output": "Broad bolts",
-				"Priority": 3
+				"Priority": 3,
+				"Tasks": {"Unlock ~|Broader fletching|~ for 300 Slayer reward points": "Extra"}
 			},
 			"Fletch ~|bronze bolts|~": {
 				"Items": ["Bronze bolts (unf)*", "Feather[+]*"],
@@ -61332,7 +61344,8 @@
 				},
 				"Priority": 3,
 				"Not Equip": true,
-				"Not F2P": true
+				"Not F2P": true,
+				"Tasks": {"~|Barbarian Training|~ 2a1": "Quest"}
 			},
 			"Catch a ~|leaping sturgeon|~": {
 				"Items": ["Barbarian rod[+]", "Barbarian bait[+]"],
@@ -61345,7 +61358,8 @@
 				},
 				"Priority": 1,
 				"Not Equip": true,
-				"Not F2P": true
+				"Not F2P": true,
+				"Tasks": {"~|Barbarian Training|~ 2a1": "Quest"}
 			},
 			"Catch a ~|leaping trout|~": {
 				"Items": ["Barbarian rod[+]", "Barbarian bait[+]"],
@@ -61358,7 +61372,8 @@
 				},
 				"Priority": 2,
 				"Not Equip": true,
-				"Not F2P": true
+				"Not F2P": true,
+				"Tasks": {"~|Barbarian Training|~ 2a1": "Quest"}
 			},
 			"Wear a ~|black mask|~": {
 				"Items": ["Black mask (10)"],
@@ -76553,6 +76568,13 @@
 				"Category": ["Money Unlockables"],
 				"Label": "Permanent Unlockables",
 				"Chunks": ["Stronghold of Security"]
+			},
+			"Unlock ~|Broader fletching|~ for 300 Slayer reward points": {
+				"Category": ["Money Unlockables"],
+				"Label": "Permanent Unlockables",
+				"Description": "Purchase the Broader fletching Slayer reward for 300 points from a point-giving Slayer master.",
+				"NPCs": ["PointSlayerMasters[+]"],
+				"Not F2P": true
 			},
 			"Unlock free ~|fish shoal|~ access": {
 				"Category": ["Money Unlockables"],
@@ -177223,6 +177245,7 @@
 			"Torva armour[+]": ["Torva full helm", "Torva platebody", "Torva platelegs"],
 			"Oathplate armour[+]": ["Oathplate helm", "Oathplate chest", "Oathplate legs"],
 			"Barbarian bait[+]": ["Feather", "Fishing bait", "Fish offcuts", "Roe", "Caviar"],
+			"ValeTotemLogs[+]": ["Oak logs", "Willow logs", "Maple logs", "Yew logs", "Magic logs", "Redwood logs"],
 			"Aerial fishing bait[+]": ["King worm", "Fish offcuts"],
 			"Barbarian rod[+]": ["Barbarian rod", "Pearl barbarian rod"],
 			"BarbarianBow[+]": ["Training bow", "Shortbow", "Longbow", "Oak shortbow", "Oak longbow", "Willow shortbow", "Willow longbow", "Maple shortbow", "Maple longbow", "Yew shortbow", "Yew longbow", "Seercull", "Magic shortbow", "Magic longbow"],
@@ -178006,6 +178029,7 @@
 			"Lantern[+]": "Any lantern for lantern fishing",
 			"RawSquid[+]": "Any raw squid",
 			"AerialFish[+]": "Any aerial fishing fish",
+			"ValeTotemLogs[+]": "Logs usable at Vale Totems",
 			"Aerial fishing bait[+]": "King worm or fish offcuts",
 			"RawFishOffcuts[+]": "Any raw fish that can be cut into fish offcuts",
 			"RawFishFineOffcuts[+]": "Any raw fish that can be cut into fine fish offcuts",

@@ -1436,6 +1436,84 @@ test('Lake Molch worms support repeatable Hunter training only when their sectio
     assert.equal(tasks.find(task => task.name === 'Catch higher prey').available, false);
 });
 
+test('Vale Totems needs a knife and logs that can be carved at the current Fletching level', () => {
+    const name = 'Participate in ~|Vale Totems|~ for Fletching xp';
+    const quest = '~|Vale Totems (miniquest)|~ Complete the quest';
+    const data = structuredClone(chunkData);
+    R.applyRecipeSupplyAliases(data, annotations);
+    assert.deepEqual(data.challenges.Fletching[name].Items,
+        ['Fletching knife[+]', 'ValeTotemLogs[+]*']);
+    assert.deepEqual(data.codeItems.itemsPlus['ValeTotemLogs[+]'],
+        ['Oak logs', 'Willow logs', 'Maple logs', 'Yew logs', 'Magic logs', 'Redwood logs']);
+
+    const fixture = sourceFixture();
+    fixture.data = { challenges: { Fletching: {
+        [name]: { Items: ['Fletching knife[+]', 'ValeTotemLogs[+]*'], Objects: ['Totem site'],
+            Level: 20, Primary: true, Output: 'Vale offerings', Tasks: { [quest]: 'Quest' } },
+        'Fletch next': { Objects: ['Next source'], Level: 30, Primary: true }
+    }, Quest: { [quest]: {} } }, codeItems: { itemsPlus: { 'Fletching knife[+]': ['Knife'],
+        'ValeTotemLogs[+]': data.codeItems.itemsPlus['ValeTotemLogs[+]'] } },
+    shopItems: { 'Tool shop': { Knife: 10 }, 'Log shop': { 'Willow logs': 10 } }, equipment: {} };
+    fixture.base = { objects: { 'Totem site': { '1000': true }, 'Next source': { '1000': true } },
+        npcs: {}, monsters: {}, shops: { 'Tool shop': { '1000': true }, 'Log shop': { '1000': true } },
+        items: { Knife: { 'Tool shop': 'shop' }, 'Willow logs': { 'Log shop': 'shop' } } };
+    fixture.valids = { Fletching: { [name]: 20, 'Fletch next': 30 } };
+    fixture.ids = { [name]: 'vale', 'Fletch next': 'next' };
+    fixture.state.progressionHighWater.Fletching = 20;
+    fixture.state.progressionInitialized = true;
+    fixture.annotations = annotations;
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === name).available, false);
+    assert.match(tasks.find(task => task.name === 'Fletch next').accessResult.reason,
+        /No repeatable Fletching training method/);
+
+    fixture.data.shopItems['Log shop']['Oak logs'] = 10;
+    fixture.base.items['Oak logs'] = { 'Log shop': 'shop' };
+    tasks = R.buildTasks(fixture).tasks;
+    assert.match(tasks.find(task => task.name === 'Fletch next').accessResult.reason,
+        /No repeatable Fletching training method/);
+
+    fixture.legacy = { checkedAllTasks: { Quest: { [quest]: true } } };
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === name).available, true);
+    assert.equal(tasks.find(task => task.name === 'Fletch next').available, true);
+});
+
+test('leaping fish and broad Fletching recipes wait for their actual unlocks', () => {
+    const lesson = '~|Barbarian Training|~ 2a1';
+    for (const skill of ['Fishing', 'Agility', 'Strength']) {
+        for (const fish of ['trout', 'salmon', 'sturgeon']) {
+            const name = 'Catch a ~|leaping ' + fish + '|~';
+            assert.equal(chunkData.challenges[skill][name].Tasks?.[lesson], 'Quest', skill + ': ' + fish);
+        }
+    }
+
+    const unlock = 'Unlock ~|Broader fletching|~ for 300 Slayer reward points';
+    assert.deepEqual(chunkData.challenges.Extra[unlock].NPCs, ['PointSlayerMasters[+]']);
+    for (const name of ['Fletch ~|broad arrows|~', 'Fletch ~|broad bolts|~',
+        'Fletch ~|amethyst broad bolts|~']) {
+        assert.equal(chunkData.challenges.Fletching[name].Tasks?.[unlock], 'Extra', name);
+    }
+    const data = { challenges: { Quest: { [lesson]: {} }, Extra: { [unlock]: {} },
+        Fishing: { Fish: { Tasks: { [lesson]: 'Quest' } } },
+        Fletching: { Broad: { Tasks: { [unlock]: 'Extra' } } } }, codeItems: {} };
+    const state = fresh();
+    let access = R.createAccess(data, state, {});
+    assert.equal(access.task('Fish', 'Fishing').allowed, false);
+    assert.equal(access.task('Broad', 'Fletching').allowed, false);
+    access = R.createAccess(data, state, { checkedAllTasks: { Quest: { [lesson]: true },
+        Extra: { [unlock]: true } } });
+    assert.equal(access.task('Fish', 'Fishing').allowed, true);
+    assert.equal(access.task('Broad', 'Fletching').allowed, true);
+});
+
+test('karambwan and monkfish goals use their Fishing unlock milestones', () => {
+    assert.equal(chunkData.challenges.Fishing['Catch a ~|raw karambwan|~'].Tasks?.['~|Tai Bwo Wannai Trio|~ 4'],
+        'Quest', 'Lubufu teaches karambwan fishing during the quest');
+    assert.equal(chunkData.challenges.Fishing['Catch a ~|raw monkfish|~'].Tasks?.['~|Swan Song|~ Complete the quest'],
+        'Quest', 'the permanent raw monkfish spots open after Swan Song');
+});
+
 test('a found log cannot enable a Hunter trap goal or fund Hunter training', () => {
     const fixture = sourceFixture();
     fixture.data = { challenges: { Hunter: {

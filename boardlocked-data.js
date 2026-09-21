@@ -277,6 +277,14 @@
             renewableSourceSpawns: Object.freeze({
                 'King worm': Object.freeze(['5432-1'])
             }),
+            // Alternative materials can have different skill requirements
+            // even when the activity has one minimum level.
+            ingredientSkillLevels: Object.freeze({
+                'ValeTotemLogs[+]': Object.freeze({
+                    'Oak logs': 20, 'Willow logs': 35, 'Maple logs': 50,
+                    'Yew logs': 65, 'Magic logs': 80, 'Redwood logs': 90
+                })
+            }),
             // Trap supplies are spent or eventually lost. A single found item
             // can still be used once, but cannot establish repeatable training.
             consumedInputsBySkill: Object.freeze({
