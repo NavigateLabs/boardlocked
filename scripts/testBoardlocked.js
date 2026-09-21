@@ -1224,7 +1224,7 @@ test('Boardlocked progress navigation uses completed evidence and clear destinat
     assert.match(index, /filterByObtainedBiS = BOARDLOCKED_FORK/);
     assert.match(index, /BOARDLOCKED_FORK \? '' : `<div class='show-completed-btn/,
         'the obtained-only BIS control remains fixed and hidden in Boardlocked');
-    assert.match(index, /Boardlocked\.trainingMethodsAtOrBelow\(methods, boardlockedSkillProgress\(skill\)\.level\)/);
+    assert.match(index, /Boardlocked\.trainingMethodsAtOrBelow\(methods, boardlockedSkillProgress\(skill\)\.level, skill, chunkInfo\)/);
     assert.match(index, /Highest Completed Task/);
     assert.match(index, /At or below completed task level/);
     assert.match(ui, /skillProgress: skill => R\.completedSkillProgress/);
@@ -1300,6 +1300,82 @@ test('unchecking a progression task retracts its high-water and inferred actual 
     assert.equal(state.progressionHighWater.Cooking, 0);
     assert.equal(state.actualLevels.Cooking, 1);
     assert.equal(R.adaptTasks(onlyBread, legacy, state, geo, {}, {}, f.catalog)[0].eligible, true);
+});
+
+test('a Thieving door unlock is a goal but cannot fund the next training band', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges = { Thieving: {
+        'Unlock door': { Objects: ['Locked door'], Level: 1, Primary: true },
+        'Pickpocket farmer': { NPCs: ['Farmer'], Level: 10, Primary: true }
+    } };
+    fixture.base = { objects: { 'Locked door': { '1000': true } }, npcs: { Farmer: { '1000': true } },
+        monsters: {}, shops: {}, items: {} };
+    fixture.valids = { Thieving: { 'Unlock door': 1, 'Pickpocket farmer': 10 } };
+    fixture.state.progressionHighWater.Thieving = 1;
+    fixture.state.progressionInitialized = true;
+    fixture.unlocked = { '1000': '1000' };
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Unlock door').available, true);
+    assert.match(tasks.find(task => task.name === 'Pickpocket farmer').accessResult.reason,
+        /No repeatable Thieving training method/);
+
+    fixture.data.challenges.Thieving['Pickpocket citizen'] = { NPCs: ['Citizen'], Level: 1, Primary: true };
+    fixture.base.npcs.Citizen = { '1000': true };
+    fixture.valids.Thieving['Pickpocket citizen'] = 1;
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Pickpocket farmer').available, true);
+});
+
+test('Agility shortcuts obey the skill window without acting as training courses', () => {
+    const fixture = sourceFixture();
+    fixture.data.challenges = { Agility: {
+        'Cross low shortcut': { Objects: ['Low obstacle'], Level: 1, Primary: true, Category: ['Shortcut'] },
+        'Cross high shortcut': { Objects: ['High obstacle'], Level: 30, Primary: true, Category: ['Shortcut'] },
+        'Access training course': { Objects: ['Course start'], Level: 15, Primary: true }
+    } };
+    fixture.base = { objects: { 'Low obstacle': { '1000': true }, 'High obstacle': { '1000': true },
+        'Course start': { '1000': true } }, npcs: {}, monsters: {}, shops: {}, items: {} };
+    fixture.valids = { Agility: { 'Cross low shortcut': 1, 'Cross high shortcut': 30,
+        'Access training course': 15 } };
+    fixture.state.progressionHighWater.Agility = 1;
+    fixture.state.progressionInitialized = true;
+    fixture.unlocked = { '1000': '1000' };
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.match(tasks.find(task => task.name === 'Access training course').accessResult.reason,
+        /No repeatable Agility training method/);
+    let adapted = R.adaptTasks(tasks, {}, fixture.state, fixture.unlocked, {}, {}, tasks);
+    assert.equal(adapted.find(task => task.name === 'Cross high shortcut').progressionBlocked, true);
+
+    fixture.data.challenges.Agility['Access beginner course'] = { Objects: ['Beginner course'], Level: 1, Primary: true };
+    fixture.base.objects['Beginner course'] = { '1000': true };
+    fixture.valids.Agility['Access beginner course'] = 1;
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Access training course').available, true);
+    adapted = R.adaptTasks(tasks, {}, fixture.state, fixture.unlocked, {}, {}, tasks);
+    assert.equal(adapted.find(task => task.name === 'Cross high shortcut').progressionBlocked, true);
+});
+
+test('Thieving and Agility training lists exclude access actions', () => {
+    const data = { challenges: {
+        Thieving: {
+            'Unlock door': { Category: [], Level: 1, Primary: true },
+            'Pickpocket citizen': { Level: 1, Primary: true }
+        },
+        Agility: {
+            'Cross shortcut': { Category: ['Shortcut'], Level: 5, Primary: true },
+            'Access course': { Level: 1, Primary: true }
+        }
+    } };
+    assert.deepEqual(R.trainingMethodsAtOrBelow({ 'Unlock door': 1, 'Pickpocket citizen': 1 },
+        10, 'Thieving', data), { 'Pickpocket citizen': 1 });
+    assert.deepEqual(R.trainingMethodsAtOrBelow({ 'Cross shortcut': 5, 'Access course': 1 },
+        10, 'Agility', data), { 'Access course': 1 });
+    assert.equal(R.repeatableTrainingAction('Climb the ~|crumbling wall|~', 'Thieving', { Primary: true }), false);
+    assert.equal(R.taskMetadata('Cross shortcut', 'Agility', data.challenges.Agility['Cross shortcut']).usesSkillLevelWindow, true);
+    const movario = require('../chunkpicker-chunkinfo-export.json').challenges.Thieving['Pickpocket ~|Movario|~'];
+    assert.equal(movario.NoXp, true, 'the zero-XP pickpocket cannot open Thieving training');
+    assert.equal(R.taskMetadata('Pickpocket ~|Movario|~', 'Thieving', movario).advancesSkillProgression, false);
+    assert.equal(R.taskMetadata('Pickpocket ~|Movario|~', 'Thieving', movario).usesSkillLevelWindow, true);
 });
 
 test('unchecking does not lower a separately established level above the task inference', () => {

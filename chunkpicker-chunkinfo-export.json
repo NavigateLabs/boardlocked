@@ -62164,7 +62164,8 @@
 				"Level": 42,
 				"NPCs": ["Movario"],
 				"Output": "Movario",
-				"Primary": true,
+				"Primary": false,
+				"NoXp": true,
 				"Tasks": {
 					"Access the ~|Dorgesh-Kaan Agility Course|~ (grapple route)": "Agility"
 				},

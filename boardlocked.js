@@ -893,6 +893,13 @@
     }
     const isHerblorePreparation = (name, meta = {}) => /^Clean\b/.test(displayName(name)) ||
         /\(unf\)/i.test(String(meta.Output || '')) || /^Unfinished potion\b/i.test(String(meta.Output || ''));
+    function repeatableTrainingAction(name, skill, meta = {}) {
+        // Access actions can be useful goals without proving a practical XP loop.
+        if (meta.NoXp) return false;
+        if (skill === 'Agility' && (meta.Category || []).includes('Shortcut')) return false;
+        if (skill === 'Thieving' && /^(?:Unlock|Climb)\b/.test(displayName(name))) return false;
+        return true;
+    }
     function taskMetadata(name, skill, meta, ids = {}) {
         const categories = meta.Category || [];
         const herblorePreparation = skill === 'Herblore' && isHerblorePreparation(name, meta);
@@ -934,7 +941,8 @@
         // Secondary actions can still carry real skill requirements. They do not
         // advance the high-water mark, but their levels must obey the same pacing
         // window when they are used directly or as an item-production step.
-        const usesSkillLevelWindow = advancesSkillProgression || (taskClass === 'other' &&
+        const usesSkillLevelWindow = advancesSkillProgression || (['Agility', 'Thieving'].includes(skill) &&
+            taskClass === 'activity' && Number.isFinite(meta.Level)) || (taskClass === 'other' &&
             (meta.Primary === false || herblorePreparation) && SKILLS.includes(skill) && Number.isFinite(meta.Level));
         const bisReason = taskClass === 'bis' ? stripMarkup(meta.BisReason ||
             (meta.Set ? 'BIS Skilling · ' + meta.Set : meta.Label || (categories.includes('BIS Skilling') ? 'BIS Skilling' : ''))) : '';
@@ -1315,10 +1323,11 @@
         return { skill, level: task?.level || 0, taskId: task?.taskId || null, name: task?.name || null,
             displayName: task?.displayName || null };
     }
-    function trainingMethodsAtOrBelow(methods = {}, highestCompletedLevel = 0) {
+    function trainingMethodsAtOrBelow(methods = {}, highestCompletedLevel = 0, skill = null, data = null) {
         const limit = Number(highestCompletedLevel) || 0;
-        return Object.fromEntries(Object.entries(methods).filter(([, level]) =>
-            Number.isFinite(Number(level)) && Number(level) <= limit));
+        return Object.fromEntries(Object.entries(methods).filter(([name, level]) =>
+            Number.isFinite(Number(level)) && Number(level) <= limit &&
+            (!skill || repeatableTrainingAction(name, skill, data?.challenges?.[skill]?.[name]))));
     }
     function initializeProgression(state, catalog, legacy = {}, ids = {}, force = false) {
         const next = { ...state, progressionHighWater: { ...state.progressionHighWater } };
@@ -3826,10 +3835,11 @@
                     const consumables = (meta.Items || []).filter(raw => raw.includes('*'));
                     if (!consumables.every(rawRepeatable)) continue;
                     if (SKILLS.includes(skill) && meta.Primary === true && !meta.NoXp && level <= known &&
+                        repeatableTrainingAction(name, skill, meta) &&
                         !trainingSupportedSkills.has(skill)) {
                         trainingSupportedSkills.add(skill); methods.set(skill, new Set([name])); changed = true;
                     } else if (SKILLS.includes(skill) && meta.Primary === true && !meta.NoXp && level <= known &&
-                        trainingSupportedSkills.has(skill)) methods.get(skill)?.add(name);
+                        repeatableTrainingAction(name, skill, meta) && trainingSupportedSkills.has(skill)) methods.get(skill)?.add(name);
                     if (meta.Output && producerSupportsTraining(name, skill, origins)) {
                         const output = comparableItemKey(meta.Output);
                         if (!repeatableItems.has(output)) { repeatableItems.add(output); changed = true; }
@@ -4650,7 +4660,7 @@
         isAbstractGatheringToolTask, isRedundantForestryParticipationTask, completedEquipmentItems,
         collapseRedundantEquipmentTasks, chooseResourceRepresentativeTasks, openCatchUpMilestones,
         openForestryCompanionMilestones, scopeAxeUpgradesToWoodcutting, buildTaskCatalog,
-        deriveProgressionHighWater, completedSkillProgress, trainingMethodsAtOrBelow,
+        deriveProgressionHighWater, completedSkillProgress, trainingMethodsAtOrBelow, repeatableTrainingAction,
         initializeProgression, reconcileProgression, setProgressionHighWater, recordCombatTaskCompletion, skillMilestones, adaptTasks,
         actualCombatLevel, combatProgressionRequirementLevel, setSlayerMasterState, setEncounterBlocked, setBossBlocked, slayerLockDefinition, slayerLockTargets, slayerLockStatus, slayerProgressionModel,
         buildTravelGraph, deriveConnectedFrontier, inferConnectedSections, inferTravelAnchor, inferLegacyAnchorSections, setTravelAnchor, derivePool, chooseCandidate,

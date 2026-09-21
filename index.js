@@ -9522,7 +9522,7 @@ let boardlockedSkillProgress = function(skill) {
 let boardlockedTrainingMethods = function(skill) {
     const methods = checkPrimaryMethod(skill, globalValids, baseChunkData, true);
     if (!BOARDLOCKED_FORK) return methods;
-    return Boardlocked.trainingMethodsAtOrBelow(methods, boardlockedSkillProgress(skill).level);
+    return Boardlocked.trainingMethodsAtOrBelow(methods, boardlockedSkillProgress(skill).level, skill, chunkInfo);
 }
 
 let openProgressView = function(tab) {
