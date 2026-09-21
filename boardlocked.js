@@ -5,7 +5,7 @@
     else root.Boardlocked = api;
 })(typeof self !== 'undefined' ? self : globalThis, function () {
     'use strict';
-    const VERSION = 57;
+    const VERSION = 58;
     const ARRIVAL_MIGRATION_VERSION = 46;
     const ENABLER_REVISION = 2;
     const STARTING_SECTION_POLICY = 'one-connected-region-by-medium';
@@ -144,7 +144,7 @@
         if (input && (!Number.isInteger(input.version) || input.version < 1 || input.version > VERSION)) throw new Error('Unsupported Boardlocked state version: ' + input.version);
         const state = { version: VERSION, enabled: false, actualLevels: {}, currentVisit: null, travelAnchor: null,
             travelAnchorSections: null,
-            visitHistory: [], originOverrides: {}, accessOverrides: {}, adminHistory: [],
+            visitHistory: [], passiveGoals: {}, originOverrides: {}, accessOverrides: {}, adminHistory: [],
             progressionHighWater: {}, progressionInitialized: false, rulePresetInitialized: false,
             combatProgression: { frontier: 1, mature: false, evidence: [] },
             slayerMasters: {}, blockedEncounters: {}, clueLocks: {}, clueTaskCooldown: 0,
@@ -158,6 +158,19 @@
             if (typeof input.enabled !== 'boolean' || !Array.isArray(input.visitHistory)) throw new Error('Invalid Boardlocked state');
             for (const key of ['currentVisit', 'visitHistory', 'originOverrides', 'accessOverrides', 'adminHistory']) {
                 if (input[key] !== undefined) state[key] = copy(input[key]);
+            }
+            if (input.passiveGoals !== undefined) {
+                if (!input.passiveGoals || Array.isArray(input.passiveGoals) || typeof input.passiveGoals !== 'object') {
+                    throw new Error('Invalid passive Farming goals');
+                }
+                for (const [id, goal] of Object.entries(input.passiveGoals)) {
+                    if (!id || ['__proto__', 'prototype', 'constructor'].includes(id) || !goal ||
+                        typeof goal !== 'object' || typeof goal.name !== 'string' ||
+                        typeof goal.locationId !== 'string' || !parseLocation(goal.locationId)) {
+                        throw new Error('Invalid passive Farming goal: ' + id);
+                    }
+                    state.passiveGoals[id] = copy(goal);
+                }
             }
             state.enabled = input.enabled;
             if (input.startingQuestPointFloor !== undefined) {
@@ -878,8 +891,11 @@
         }
         return { questProgress: progress, questPointTotal: Math.max(questPointTotal, Number(questPointFloor) || 0) };
     }
+    const isHerblorePreparation = (name, meta = {}) => /^Clean\b/.test(displayName(name)) ||
+        /\(unf\)/i.test(String(meta.Output || '')) || /^Unfinished potion\b/i.test(String(meta.Output || ''));
     function taskMetadata(name, skill, meta, ids = {}) {
         const categories = meta.Category || [];
+        const herblorePreparation = skill === 'Herblore' && isHerblorePreparation(name, meta);
         const taskRequirements = Object.entries(meta.Tasks || {});
         const onlyMirroredSkillRequirements = taskRequirements.length > 0 && taskRequirements.every(([taskName, taskSkill]) =>
             taskName === name + '--' + taskSkill && own(meta.Skills, taskSkill));
@@ -896,6 +912,14 @@
             taskClass = 'collection'; classificationReason = 'Collection Log category metadata';
         } else if (skill === 'Slayer' && /^Receive a Slayer assignment from\b/.test(displayName(name))) {
             taskClass = 'activity'; classificationReason = 'Each accessible Slayer master is an independent training entry point';
+        } else if (herblorePreparation) {
+            taskClass = 'other'; classificationReason = 'Ingredient preparation; finished potions are the Herblore milestones';
+        } else if (skill === 'Herblore' && categories.includes('CoX') && meta.Primary === true &&
+            /\bpotion\b/i.test(displayName(name)) && Number.isFinite(meta.Level)) {
+            taskClass = 'skill_progression'; classificationReason = 'Finished raid potion with a Herblore level';
+        } else if (skill === 'Farming' && categories.includes('Normal Farming') &&
+            /^(Grow|Harvest)\b/.test(displayName(name)) && Number.isFinite(meta.Level)) {
+            taskClass = 'skill_progression'; classificationReason = 'Ordinary crop growth is a passive Farming milestone';
         } else if (categories.length) {
             taskClass = 'activity'; classificationReason = 'Independent activity/rule category: ' + categories.join(', ');
         } else if (SKILLS.includes(skill) && Number.isFinite(meta.Level) && !meta.NoXp && (meta.Primary === true ||
@@ -910,15 +934,16 @@
         // Secondary actions can still carry real skill requirements. They do not
         // advance the high-water mark, but their levels must obey the same pacing
         // window when they are used directly or as an item-production step.
-        const usesSkillLevelWindow = advancesSkillProgression || (taskClass === 'other' && meta.Primary === false &&
-            SKILLS.includes(skill) && Number.isFinite(meta.Level));
+        const usesSkillLevelWindow = advancesSkillProgression || (taskClass === 'other' &&
+            (meta.Primary === false || herblorePreparation) && SKILLS.includes(skill) && Number.isFinite(meta.Level));
         const bisReason = taskClass === 'bis' ? stripMarkup(meta.BisReason ||
             (meta.Set ? 'BIS Skilling · ' + meta.Set : meta.Label || (categories.includes('BIS Skilling') ? 'BIS Skilling' : ''))) : '';
         return { taskId: taskId(name, skill, ids), name, displayName: displayName(name), skill, type: skill,
             category: meta.Label || skill, sourceCategories: categories.slice(), level: meta.Level || null,
             priority: Number.isFinite(meta.Priority) ? meta.Priority : null,
             description: meta.Description || '', taskClass, classificationReason, advancesSkillProgression, usesSkillLevelWindow,
-            skilling: advancesSkillProgression, bisReason,
+            skilling: advancesSkillProgression, passiveGoal: skill === 'Farming' &&
+                categories.includes('Normal Farming') && /^(Grow|Harvest)\b/.test(displayName(name)), bisReason,
             bisSet: meta.Set || null };
     }
 
@@ -1141,6 +1166,8 @@
         return cycleItems;
     }
     function resourceRepresentativeMetadata(name, skill, meta, annotations = {}, inferredResources = null) {
+        // Different finished potions from one herb are distinct milestones.
+        if (skill === 'Herblore') return null;
         const ignored = new Set(annotations.resourceRepresentatives?.ignoredPrimaryResources?.[skill] || []);
         const items = meta.Items || [];
         const candidates = inferredResources == null ?
@@ -1626,6 +1653,7 @@
             const highWater = state.progressionHighWater?.[task.skill] ?? 0;
             const ceiling = task.usesSkillLevelWindow ? progressionCeiling(catalog, task.skill, highWater,
                 state.actualLevels?.[task.skill] || 1) : null;
+            const passiveAssigned = !!state.passiveGoals?.[task.taskId];
             const superseded = !!task.usesSkillLevelWindow && task.level <= highWater;
             const progressionBlocked = !!task.usesSkillLevelWindow && task.level > ceiling;
             return { ...task, origins, activeOrigins, blockedEncounterSources, encounterDeferred,
@@ -1636,11 +1664,11 @@
                 completed, implicitlyCompleted: !!impliedByItem || !!impliedByBetterEquipment,
                 completionEvidenceItem: impliedByBetterEquipment || impliedByItem,
                 superiorEquipmentCompletion: !!impliedByBetterEquipment,
-                backlogged, superseded,
+                backlogged, superseded, passiveAssigned,
                 progressionBlocked, progressionHighWater: task.usesSkillLevelWindow ? highWater : null,
                 progressionCeiling: ceiling,
-                eligible: task.available !== false && !completed && !backlogged && !superseded && !progressionBlocked && activeOrigins.length > 0,
-                eligibilityReason: impliedByItem ? 'Completed by obtaining ' + impliedByItem : completed ? 'Completed' : superseded ? 'At or below the highest completed ' + task.skill + ' task (level ' + highWater + ')' :
+                eligible: task.available !== false && !completed && !backlogged && !passiveAssigned && !superseded && !progressionBlocked && activeOrigins.length > 0,
+                eligibilityReason: impliedByItem ? 'Completed by obtaining ' + impliedByItem : completed ? 'Completed' : passiveAssigned ? 'In passive Farming goals' : superseded ? 'At or below the highest completed ' + task.skill + ' task (level ' + highWater + ')' :
                     progressionBlocked ? 'Above the current ' + task.skill + ' progression window (next through level ' + ceiling + ')' : backlogged ? 'Backlogged' :
                     task.available === false ? task.accessResult?.reason || 'Access unavailable' : !origins.length ? 'Unassigned origin' :
                     encounterDeferred ? 'Encounter deferred until you reactivate ' + blockedEncounterSources.join(', ') :
@@ -2251,6 +2279,7 @@
         return journal({ ...state, travelAnchor: visit.locationId, travelAnchorSections: entrySections }, visit);
     }
     const snapshotTask = task => ({ name: task.name, skill: task.skill, displayName: task.displayName, level: task.level || null,
+        passiveGoal: !!task.passiveGoal,
         equipmentName: task.equipmentName || null, taskClass: task.taskClass || null,
         bossSources: task.bossSources || [], encounterSources: task.encounterSources || task.bossSources || [],
         encounterDetails: task.encounterDetails || {},
@@ -2272,7 +2301,7 @@
             requiresTraining: !!task.slayerProgression.requiresTraining
         } : null });
     const VISIT_SNAPSHOT_DISPLAY_FIELDS = Object.freeze(['name', 'skill', 'displayName', 'level', 'equipmentName',
-        'taskClass', 'bossSources', 'encounterSources', 'encounterDetails', 'enablerItemKey',
+        'taskClass', 'passiveGoal', 'bossSources', 'encounterSources', 'encounterDetails', 'enablerItemKey',
         'provesAcquiredItemKeys', 'confirmsEquipped', 'capabilities', 'bisReason', 'bisSet',
         'slayerTrainingAlternative', 'slayerTrainingMasters', 'slayerProgression',
         'nonGenerating', 'incidentalSkill', 'incidentalKind', 'incidentalGroup', 'incidentalScope',
@@ -2334,12 +2363,22 @@
         const reachableIds = new Set(state.currentVisit.reachableTaskIds || []);
         const direct = tasks.filter(task => task.eligible && !task.nonGenerating &&
             (reachableIds.size ? reachableIds.has(task.taskId) : taskMatchesVisit(task, state.currentVisit)));
-        const incidental = incidentalTasksForGenerators(tasks, direct);
-        const trainingMasters = new Set(direct.filter(task => task.slayerProgression?.requiresTraining)
+        const passive = direct.filter(task => task.passiveGoal);
+        const active = direct.filter(task => !task.passiveGoal);
+        const passiveCompanions = incidentalTasksForGenerators(tasks, passive)
+            .filter(task => !incidentalTasksForGenerators(tasks, active).some(activeTask =>
+                activeTask.taskId === task.taskId));
+        const passiveGoals = { ...(state.passiveGoals || {}) };
+        for (const task of [...passive, ...passiveCompanions]) passiveGoals[task.taskId] = {
+            ...snapshotTask(task), locationId: state.currentVisit.locationId,
+            assignedAt: state.currentVisit.timestamp, visitNumber: state.currentVisit.visitNumber
+        };
+        const incidental = incidentalTasksForGenerators(tasks, active);
+        const trainingMasters = new Set(active.filter(task => task.slayerProgression?.requiresTraining)
             .flatMap(task => task.slayerProgression.supportingMasters || []));
         const trainingAlternatives = trainingMasters.size ? tasks.filter(task => task.eligible && task.slayerTrainingAlternative &&
             (task.slayerTrainingMasters || []).some(master => trainingMasters.has(master))) : [];
-        const selected = [...new Map([...direct, ...trainingAlternatives, ...incidental]
+        const selected = [...new Map([...active, ...trainingAlternatives, ...incidental]
             .map(task => [task.taskId, task])).values()];
         const visit = { ...state.currentVisit, candidateTaskIds: selected.map(task => task.taskId) };
         // Keep compact display/category metadata so an invalidated or subsequently
@@ -2348,34 +2387,47 @@
         visit.candidateTasks = Object.fromEntries(tasks.filter(t => snapshotIds.has(t.taskId)).map(t => [t.taskId, snapshotTask(t)]));
         visit.status = visit.candidateTaskIds.length ? 'task_required' : 'resolved';
         if (!visit.candidateTaskIds.length) visit.resolution = 'no_tasks';
-        return journal(state, visit);
+        return journal({ ...state, passiveGoals }, visit);
     }
     function openRuleUpdateVisit(state, tasks, reason = 'New tasks became available after a rules update',
         timestamp = new Date().toISOString()) {
         const visit = state.currentVisit;
         const known = new Set(visit?.candidateTaskIds || []);
         const generators = visit ? tasks.filter(task => task.eligible && !task.nonGenerating && taskMatchesVisit(task, visit)) : [];
+        const activeGenerators = generators.filter(task => !task.passiveGoal);
+        const activeIncidental = incidentalTasksForGenerators(tasks, activeGenerators);
+        const passiveIncidentalIds = new Set(incidentalTasksForGenerators(tasks,
+            generators.filter(task => task.passiveGoal)).map(task => task.taskId));
         const opened = visit ? [...new Map([...generators, ...incidentalTasksForGenerators(tasks, generators)]
             .filter(task => !known.has(task.taskId)).map(task => [task.taskId, task])).values()] : [];
-        if (visit?.status === 'task_required' && opened.length) {
-            const candidateTaskIds = [...visit.candidateTaskIds, ...opened.map(task => task.taskId)];
+        const passive = opened.filter(task => task.passiveGoal || passiveIncidentalIds.has(task.taskId) &&
+            !activeIncidental.some(incidental => incidental.taskId === task.taskId));
+        const passiveIds = new Set(passive.map(task => task.taskId));
+        const active = opened.filter(task => !passiveIds.has(task.taskId));
+        if (passive.length) state = { ...state, passiveGoals: { ...(state.passiveGoals || {}),
+            ...Object.fromEntries(passive.map(task => [task.taskId, {
+                ...snapshotTask(task), locationId: visit.locationId, assignedAt: timestamp,
+                visitNumber: visit.visitNumber
+            }])) } };
+        if (visit?.status === 'task_required' && active.length) {
+            const candidateTaskIds = [...visit.candidateTaskIds, ...active.map(task => task.taskId)];
             const candidateTasks = { ...(visit.candidateTasks || {}),
-                ...Object.fromEntries(opened.map(task => [task.taskId, snapshotTask(task)])) };
+                ...Object.fromEntries(active.map(task => [task.taskId, snapshotTask(task)])) };
             return { state: journal(state, { ...visit, candidateTaskIds, candidateTasks }),
-                openedTaskIds: opened.map(task => task.taskId) };
+                openedTaskIds: active.map(task => task.taskId) };
         }
         if (visit?.status !== 'resolved' || visit.resolution !== 'task_completed') {
             return { state, openedTaskIds: [] };
         }
-        if (!opened.length) return { state, openedTaskIds: [] };
+        if (!active.length) return { state, openedTaskIds: [] };
         let next = startVisit(state, { kind: 'stay', locationId: visit.locationId, metadata: {
             entrySections: visit.arrivalSections || [], arrivalMedium: visit.arrivalMedium,
-            startGroup: visit.startGroup || null, taskIds: opened.map(task => task.taskId)
+            startGroup: visit.startGroup || null, taskIds: active.map(task => task.taskId)
         } }, visit.chunkName || '', timestamp);
         next = { ...next, adminHistory: [...next.adminHistory, { timestamp, action: 'open_rule_update_visit',
             visitNumber: next.currentVisit.visitNumber, locationId: visit.locationId,
-            taskIds: opened.map(task => task.taskId), reason }] };
-        return { state: next, openedTaskIds: opened.map(task => task.taskId) };
+            taskIds: active.map(task => task.taskId), reason }] };
+        return { state: next, openedTaskIds: active.map(task => task.taskId) };
     }
     function reopenUncompletedVisit(state, completedIds, progressionLevels = null,
         reason = 'The task that completed this visit was unchecked', timestamp = new Date().toISOString()) {
@@ -2615,8 +2667,9 @@
                     reason: 'Ground item spawns are availability, not a primary supply' });
             }
         }
-        const addDrop = (itemName, monster, chance) => add(itemName, { kind: 'monster', sourceName: monster,
+        const addDrop = (itemName, monster, chance, batchCount = 1) => add(itemName, { kind: 'monster', sourceName: monster,
             sourceType: chance >= commonMonsterChance ? 'primary-drop' : 'secondary-drop', chance,
+            batchCount,
             preferred: Number.isFinite(chance) && chance >= commonMonsterChance,
             reason: Number.isFinite(chance) && chance >= commonMonsterChance ? 'Common monster drop' : 'Rare monster drop' });
         for (const [monster, drops] of Object.entries(data.drops || {})) for (const [dropName, quantities] of Object.entries(drops || {})) {
@@ -2626,7 +2679,8 @@
                     const innerChance = supplyChance(tableRate);
                     addDrop(itemName, monster, Number.isFinite(outerChance) && Number.isFinite(innerChance) ? outerChance * innerChance : null);
                 }
-            } else addDrop(dropName, monster, outerChance < 0 ? null : outerChance);
+            } else addDrop(dropName, monster, outerChance < 0 ? null : outerChance,
+                Math.max(1, ...Object.keys(quantities || {}).map(value => Number.parseInt(value, 10)).filter(Number.isFinite)));
         }
         for (const [skill, pools] of Object.entries(data.skillItems || {})) for (const [pool, items] of Object.entries(pools || {})) {
             const producers = challengePools.get(skill + ':' + canonicalItemKey(pool)) || [];
@@ -2646,6 +2700,10 @@
                 }
             }
         }
+        const farmingSeedItems = new Set(recipes.filter(recipe => recipe.skill === 'Farming' &&
+            (data.challenges?.Farming?.[recipe.name]?.Category || []).includes('Normal Farming'))
+            .flatMap(recipe => recipe.inputs.flatMap(input => input.alternatives))
+            .filter(item => /\bseed\b|\bacorn\b|\btuber\b/i.test(item)));
         const ingredients = {};
         const directItems = new Set(recipes.flatMap(recipe => recipe.inputs.flatMap(input => input.alternatives)));
         const usedItems = new Set(directItems), pending = [...usedItems];
@@ -2664,9 +2722,31 @@
             // way to supply a consumed ingredient. Keep them visible in the
             // audit, but never promote them through the rare-source fallback.
             const ordinary = sources.filter(source => source.kind !== 'registered' && source.primaryEligible !== false);
-            const preferred = ordinary.filter(source => source.preferred);
+            const farmingSeed = farmingSeedItems.has(itemKey);
+            const preferred = ordinary.filter(source => farmingSeed ?
+                ['shop', 'action', 'reward'].includes(source.kind) ||
+                    source.kind === 'monster' && (source.chance >= commonMonsterChance ||
+                        source.batchCount >= 2 && source.chance >= 1 / 100) ||
+                    source.kind === 'activity' && Number.isFinite(source.chance) &&
+                        (/^Open seed pack/.test(source.sourceName) && source.chance >= 1 / 50 ||
+                            /^Pickpocket a ~\|master farmer\|~/.test(source.sourceName) && source.chance >= 1 / 20 ||
+                            /^Steal from a ~\|seed stall\|~/.test(source.sourceName) && source.chance >= 1 / 20 ||
+                            /^Catch a ~\|[^|]+ impling\|~/.test(source.sourceName) && source.chance >= 1 / 20) :
+                source.preferred);
             let approved = preferred;
-            if (!approved.length && ordinary.length) {
+            if (farmingSeed && !approved.length) {
+                // A one-time planting may reasonably come from the best
+                // repeatable creature source when no seed-focused route exists.
+                // Keep the ceiling well above incidental rare-table seeds.
+                const creatureSources = ordinary.filter(source => source.kind === 'monster' &&
+                    Number.isFinite(source.chance) && source.chance >= 1 / 32);
+                if (creatureSources.length) {
+                    const best = Math.max(...creatureSources.map(source => source.chance));
+                    approved = creatureSources.filter(source => source.chance >= best * rareFallbackRatio)
+                        .map(source => ({ ...source, reason: 'Best repeatable seed drop' }));
+                }
+            }
+            if (!farmingSeed && !approved.length && ordinary.length) {
                 const numeric = ordinary.filter(source => Number.isFinite(source.chance));
                 if (numeric.length) {
                     const best = Math.max(...numeric.map(source => source.chance));
@@ -2676,8 +2756,10 @@
             }
             approved = [...approved, ...registered];
             const approvedKeys = new Set(approved.map(source => source.identity));
+            const approvedReasons = new Map(approved.map(source => [source.identity, source.reason]));
             ingredients[itemKey] = { itemKey, sources: sources.map(source => ({ ...source,
-                approved: approvedKeys.has(source.identity) })), approvedSources: [...approvedKeys] };
+                approved: approvedKeys.has(source.identity),
+                reason: approvedReasons.get(source.identity) || source.reason })), approvedSources: [...approvedKeys] };
         }
         const sourceAllowed = (itemName, sourceName, sourceType) => {
             if (!enabled) return true;
@@ -4152,6 +4234,9 @@
             const meta = data.challenges[skill]?.[name] || {};
             if (skill === 'Nonskill' || value === false || meta.NeverShow || isAbstractGatheringToolTask(name, skill, meta) ||
                 isRedundantForestryParticipationTask(meta)) continue;
+            // Cleaning and unfinished mixtures remain valid ingredient-production
+            // paths, but the full finished potion is the Herblore objective.
+            if (skill === 'Herblore' && isHerblorePreparation(name, meta)) continue;
             if (SKILLS.includes(skill) || skill === 'Combat') { if (!rules['Show Skill Tasks']) continue; }
             if (skill === 'BiS' && !rules['Show Best in Slot Tasks']) continue;
             if (skill === 'Quest' && !rules['Show Quest Tasks']) continue;

@@ -147,6 +147,10 @@ body.bl-clue-target-picking #canvas { cursor: crosshair !important; }
 #bl-panel .bl-key-free { border-color: #686e6e !important; border-width: 1px !important; background: transparent; opacity: .65; }
 #bl-panel .bl-key-waiting { border-color: #3a9bdc !important; border-style: dashed !important; background: transparent; }
 #bl-panel .bl-area-hint { padding: 8px 9px; background: #ffd16633; border: 1px solid #c69318; border-radius: 4px; font-size: 12px; }
+#bl-panel .bl-passive-goals { margin: 10px 0; padding: 7px 9px; border: 1px solid #8885; border-radius: 5px; }
+#bl-panel .bl-passive-goal { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-top: 1px solid #8883; font-size: 13px; }
+#bl-panel .bl-passive-goal span { flex: 1; }
+#bl-panel .bl-passive-goal small { opacity: .7; }
 #bl-message:not(:empty) { padding: 9px; background: #d8ecd9; color: #153c33; border-radius: 4px; }
 #bl-message.bl-error { background: #ffe0d9; color: #8d2113; }
 #bl-unassigned button { display: block; width: 100%; text-align: left; margin-top: 5px; overflow-wrap: anywhere; }

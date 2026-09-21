@@ -561,14 +561,19 @@
                 const refresh = R.openRuleUpdateVisit(state, tasks,
                     'Newly eligible tasks restored after Boardlocked rules update');
                 pendingRuleTaskRefresh = false;
+                const passiveChanged = refresh.state !== state;
+                state = refresh.state;
                 if (refresh.openedTaskIds.length) {
-                    state = refresh.state;
                     message = 'A newly eligible task in the current tile was restored after the rules update.';
                     rebuild();
-                }
+                } else if (passiveChanged) rebuild();
             }
             slayerConfirmation = R.slayerMasterConfirmationForVisit(tasks, state.currentVisit);
-            if (!slayerConfirmation) state = R.snapshotVisit(state, tasks);
+            if (!slayerConfirmation) {
+                const passiveCount = Object.keys(state.passiveGoals || {}).length;
+                state = R.snapshotVisit(state, tasks);
+                if (Object.keys(state.passiveGoals || {}).length !== passiveCount) rebuild();
+            }
             pool.current = state.travelAnchor;
             dataReady = true;
             save(); render(); drawCanvas();
@@ -1606,6 +1611,32 @@
         }
         if (!encounters.length) list.append(element('p', 'No encounters are waiting.'));
     }
+    function renderPassiveGoals() {
+        const panel = document.getElementById('bl-passive-goals');
+        if (!panel) return;
+        const entries = Object.entries(state.passiveGoals || {});
+        panel.hidden = entries.length === 0;
+        const list = document.getElementById('bl-passive-list');
+        list.replaceChildren();
+        const completedIds = R.completionIds(legacy(), tasksMap);
+        const remaining = entries.filter(([id]) => !completedIds.has(id)).length;
+        document.getElementById('bl-passive-summary').textContent =
+            'Passive Farming · ' + remaining + ' open';
+        for (const [id, saved] of entries.sort((a, b) => (a[1].level || 0) - (b[1].level || 0) ||
+            a[1].displayName.localeCompare(b[1].displayName))) {
+            const live = tasks.find(task => task.taskId === id);
+            const task = live || { ...saved, taskId: id, completed: completedIds.has(id) };
+            const row = element('label', null, { className: 'bl-passive-goal' });
+            const checkbox = element('input', null, { type: 'checkbox',
+                'aria-label': 'Complete passive Farming goal ' + saved.displayName });
+            checkbox.checked = task.completed || completedIds.has(id);
+            checkbox.disabled = !canEdit() || busy;
+            checkbox.addEventListener('change', () => complete(task, checkbox.checked));
+            row.append(checkbox, element('span', (saved.level ? '[' + saved.level + '] ' : '') + saved.displayName),
+                element('small', saved.locationId));
+            list.append(row);
+        }
+    }
     function render() {
         if (!panel) return;
         document.body.classList.add('bl-enabled');
@@ -1637,6 +1668,7 @@
         renderSlayerMasters();
         renderClues();
         renderBlockedEncounters();
+        renderPassiveGoals();
         document.getElementById('bl-setup-status').textContent = setupLocations.map(id => id + ': ' + (busy ? 'calculating' : pool.live.includes(id) ?
             'encounter (' + pool.byLocation[id].length + ' eligible tasks)' : 'free travel tile')).join('\n');
         renderPastTasks();
@@ -2081,6 +2113,7 @@
             <button id="bl-sections" type="button" hidden>Choose accessible sections</button>
             <section><h3>Current visit</h3><strong id="bl-visit-title"></strong><p id="bl-visit-status"></p><p id="bl-area-hint" class="bl-area-hint" hidden></p><div id="bl-candidates"></div>
             <button id="bl-void" type="button">Void / recalculate current visit</button></section>
+            <details id="bl-passive-goals" class="bl-passive-goals" hidden><summary id="bl-passive-summary">Passive Farming</summary><p class="bl-muted">Grow these crops whenever you wish. They do not hold up travel.</p><div id="bl-passive-list"></div></details>
             <div class="bl-map-legend" aria-label="Map legend"><span><i class="bl-key-current"></i>Current</span><span><i class="bl-key-area"></i>Your area</span><span><i class="bl-key-rollable"></i>Rollable</span><span><i class="bl-key-free"></i>Free</span><span><i class="bl-key-waiting"></i>Waiting task</span></div>
             <details class="bl-run-guide"><summary>How Boardlocked works</summary><p>Unlocked tiles stay available for training, supplies, and travel. Complete one task from the current visit before rolling again.</p><p>Rolls follow open routes and may cross free tiles. A transport destination must be rolled before you enter it.</p></details>
             <details class="bl-roll-pool"><summary id="bl-pool-heading">Roll pool</summary><p id="bl-pool-summary"></p><details><summary>Locations and task counts</summary><div id="bl-locations"></div></details></details>

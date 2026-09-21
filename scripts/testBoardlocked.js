@@ -513,15 +513,15 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
     assert.match(html, /boardlocked-data\.js\?v=29/);
     assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
     assert.match(html, /index\.js\?v=6\.9\.66-bl33/);
-    assert.match(html, /boardlocked\.js\?v=87/);
+    assert.match(html, /boardlocked\.js\?v=88/);
     assert.match(index, /worker\.js\?v=6\.9\.66-bl63/g);
     assert.match(ui, /worker\.js\?v=6\.9\.66-bl63/);
     assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
     assert.match(worker, /boardlocked-data\.js\?v=29/);
-    assert.match(worker, /boardlocked\.js\?v=87/);
+    assert.match(worker, /boardlocked\.js\?v=88/);
     assert.match(worker, /boardlocked-worker\.js\?v=32/);
-    assert.match(html, /boardlocked-ui\.js\?v=104/);
-    assert.match(html, /boardlocked\.css\?v=26/);
+    assert.match(html, /boardlocked-ui\.js\?v=105/);
+    assert.match(html, /boardlocked\.css\?v=27/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {
     const data = { sections: {
@@ -2217,21 +2217,30 @@ test('real worker: Imp flour cannot unlock the later mud-pie goal', () => {
         'a level-one recipe cannot use the same ordinary Imp flour loophole');
 });
 
-test('every skill recipe input has a primary supply route', () => {
+test('every skill recipe input has a primary route except audited very rare Farming seeds', () => {
     const catalog = R.recipeSupplyCatalog(chunkData, annotations);
     const expectedMinimums = { Prayer: 20, Magic: 250, Cooking: 200, Woodcutting: 10,
         Fletching: 160, Fishing: 25, Firemaking: 50, Crafting: 300, Smithing: 300, Mining: 5,
         Herblore: 150, Agility: 1, Thieving: 5, Slayer: 1, Farming: 90, Runecraft: 75,
         Hunter: 4, Construction: 130, Sailing: 35 };
     assert.deepEqual(catalog.skills, R.SKILLS);
+    const deferredSeeds = [];
     for (const [skill, minimum] of Object.entries(expectedMinimums)) {
         const recipes = catalog.recipes.filter(recipe => recipe.skill === skill);
         assert.ok(recipes.length > minimum, skill + ' audit unexpectedly lost most recipes');
         for (const recipe of recipes) for (const input of recipe.inputs.filter(input => input.consumable)) {
+            if (skill === 'Farming' && input.alternatives.length === 1 &&
+                ['Ironwood seed', 'Rosewood seed'].includes(input.alternatives[0]) &&
+                !catalog.globallySupplied(input.alternatives[0])) {
+                deferredSeeds.push(input.alternatives[0]);
+                continue;
+            }
             assert.ok(input.alternatives.some(item => catalog.globallySupplied(item)),
                 `${skill}: ${recipe.name} has no primary source for ${input.raw}`);
         }
     }
+    assert.deepEqual(deferredSeeds.sort(), ['Ironwood seed', 'Rosewood seed'],
+        'these one-off seeds currently have only very rare incidental creature sources');
     const approved = (item, source) => catalog.ingredients[item].sources
         .some(candidate => candidate.sourceName === source && candidate.approved);
     assert.equal(approved('Pot of flour', 'Imp'), false, 'incidental Imp flour is not a recipe source');
@@ -2440,6 +2449,90 @@ test('rare supplies remain valid for reward goals and registered encounter activ
     tasks = R.buildTasks(fixture).tasks;
     assert.equal(tasks.find(task => task.name === 'Ordinary').available, true,
         'after registering the reward, the encounter decision governs its downstream ordinary goals');
+});
+
+test('Herblore goals require a finished potion with a primary source for every ingredient', () => {
+    const fixture = sourceFixture();
+    const clean = 'Clean a ~|grimy guam leaf|~', unfinished = 'Mix a ~|guam potion (unf)|~';
+    const potion = 'Mix an ~|attack potion|~';
+    fixture.data.challenges = { Herblore: {
+        [clean]: { Items: ['Grimy guam leaf*'], Level: 3, Primary: true, Output: 'Guam leaf' },
+        [unfinished]: { Items: ['Guam leaf*', 'Vial of water*'], Level: 3, Primary: false,
+            Output: 'Guam potion (unf)' },
+        [potion]: { Items: ['Guam potion (unf)*', 'Eye of newt*'], Level: 3, Primary: true,
+            Output: 'Attack potion(3)' }
+    }, Extra: {}, Quest: {}, Diary: {} };
+    fixture.data.drops = { Herb: { 'Grimy guam leaf': { 1: 'Always' } } };
+    fixture.data.shopItems = { 'Vial shop': { 'Vial of water': 10 } };
+    fixture.base = { objects: {}, monsters: { Herb: { '2000': true } }, npcs: {},
+        shops: { 'Vial shop': { '3000': true } }, items: {
+            'Grimy guam leaf': { Herb: 'primary-drop' }, 'Guam leaf': { [clean]: 'primary-Herblore' },
+            'Guam potion (unf)': { [unfinished]: 'secondary-Herblore' },
+            'Vial of water': { 'Vial shop': 'shop' }, 'Eye of newt': {}
+        } };
+    fixture.valids = { Herblore: { [clean]: 3, [unfinished]: 3, [potion]: 3 } };
+    fixture.ids = { [clean]: 'clean-guam', [unfinished]: 'guam-unf', [potion]: 'attack-potion' };
+    fixture.annotations = annotations;
+    assert.equal(R.taskMetadata(clean, 'Herblore', fixture.data.challenges.Herblore[clean]).advancesSkillProgression,
+        false, 'past cleaning completions cannot inflate the Herblore baseline');
+    assert.equal(R.taskMetadata(unfinished, 'Herblore', fixture.data.challenges.Herblore[unfinished]).usesSkillLevelWindow,
+        true, 'preparation must still respect the Herblore level window');
+    const rogueUnfinished = "Mix an ~|unfinished potion (Rogue's Purse)|~";
+    assert.equal(R.taskMetadata(rogueUnfinished, 'Herblore',
+        chunkData.challenges.Herblore[rogueUnfinished]).advancesSkillProgression, false);
+    const raidPotion = 'Mix a weak ~|golpar|~ potion';
+    assert.equal(R.taskMetadata(raidPotion, 'Herblore',
+        chunkData.challenges.Herblore[raidPotion]).advancesSkillProgression, true);
+    assert.equal(R.resourceRepresentativeMetadata(raidPotion, 'Herblore',
+        chunkData.challenges.Herblore[raidPotion], annotations), null,
+    'different finished potions from one herb stay distinct');
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === clean), undefined);
+    assert.equal(tasks.find(task => task.name === unfinished), undefined);
+    assert.equal(tasks.find(task => task.name === potion)?.available, false,
+        'an herb and an unfinished potion cannot stand in for the missing secondary');
+    fixture.data.shopItems['Newt shop'] = { 'Eye of newt': 10 };
+    fixture.base.shops['Newt shop'] = { '1000': true };
+    fixture.base.items['Eye of newt']['Newt shop'] = 'shop';
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === potion)?.available, true);
+});
+
+test('Farming seeds prefer deliberate sources and never use an arbitrary rare-drop fallback', () => {
+    const catalog = R.recipeSupplyCatalog(chunkData, annotations);
+    const approved = (item, source) => catalog.ingredients[item]?.sources
+        .some(candidate => candidate.sourceName === source && candidate.approved);
+    assert.equal(approved('Guam seed', 'Open seed pack*'), true);
+    assert.equal(approved('Guam seed', 'Pickpocket a ~|master farmer|~'), false);
+    assert.equal(approved('White lily seed', 'Hespori'), true,
+        'a repeatable batch source can supply a single planting');
+    assert.equal(approved('Cotton seed', 'Orca'), true,
+        'a repeatable one-off seed source preserves dependent Crafting and Herblore recipes');
+    assert.equal(approved('Rosewood seed', 'Stingray'), false,
+        'an incidental one-seed drop does not become a Farming training source');
+});
+
+test('ordinary crop goals enter a persistent passive log without blocking travel', () => {
+    const metadata = R.taskMetadata('Grow a ~|cabbage|~', 'Farming',
+        { Category: ['Normal Farming'], Level: 7, Primary: true });
+    assert.equal(metadata.taskClass, 'skill_progression');
+    assert.equal(metadata.passiveGoal, true);
+    const crop = task('crop', ['1000'], { name: metadata.name, displayName: metadata.displayName,
+        skill: 'Farming', level: 7, passiveGoal: true, taskClass: 'skill_progression',
+        advancesSkillProgression: true });
+    const pet = task('farming-pet', ['1000'], { skill: 'Extra', nonGenerating: true,
+        incidentalSkill: 'Farming', incidentalTrigger: 'skill_progression' });
+    let state = R.startVisit(fresh(), { kind: 'frontier', locationId: '1000' });
+    state = R.snapshotVisit(state, [crop, pet]);
+    assert.equal(state.currentVisit.resolution, 'no_tasks');
+    assert.equal(R.canRoll(state), true);
+    assert.equal(state.passiveGoals.crop.locationId, '1000');
+    assert.equal(state.passiveGoals['farming-pet'].locationId, '1000',
+        'an incidental skilling pet remains checkable without making the visit blocking');
+    assert.equal(R.normalizeState(JSON.parse(JSON.stringify(state))).passiveGoals.crop.level, 7);
+    const revisit = adapt([crop], {}, state);
+    assert.equal(revisit[0].eligible, false);
+    assert.equal(revisit[0].eligibilityReason, 'In passive Farming goals');
 });
 
 test('ordinary monster completions advance one shared combat frontier and level 60 releases it', () => {
