@@ -1378,6 +1378,93 @@ test('Thieving and Agility training lists exclude access actions', () => {
     assert.equal(R.taskMetadata('Pickpocket ~|Movario|~', 'Thieving', movario).usesSkillLevelWindow, true);
 });
 
+test('Hunter trap supplies are consumable and Puro-Puro access starts at level 17', () => {
+    const data = structuredClone(chunkData);
+    R.applyRecipeSupplyAliases(data, annotations);
+    const hunter = data.challenges.Hunter;
+    assert.deepEqual(hunter['Catch a ~|wild kebbit|~'].Items, ['Knife', 'Logs*']);
+    assert.deepEqual(hunter['Catch a ~|sunlight antelope|~'].Items, ['Teasing stick', 'Logs[+]*', 'Knife']);
+    assert.deepEqual(hunter['Catch a ~|fish shoal|~'].Items, ['Drift net*']);
+    assert.deepEqual(hunter['Catch a ~|baby impling|~'].Items, ['Butterfly net[+]', 'Impling jar*']);
+    assert.deepEqual(hunter['Catch a ~|stymphike|~'].Items, ['Letvek*', 'StymphikeSpear[+]']);
+    assert.deepEqual(hunter['Catch a ~|maniacal monkey (Hunter)|~'].Items, ['Banana*']);
+    for (const skill of ['Hunter', 'Fishing']) for (const fish of ['bluegill', 'common tench', 'mottled eel', 'greater siren']) {
+        assert.deepEqual(data.challenges[skill][`Catch a ~|${fish}|~`].Items, ['Aerial fishing bait[+]*']);
+    }
+    assert.deepEqual(data.codeItems.itemsPlus['Aerial fishing bait[+]'], ['King worm', 'Fish offcuts']);
+    assert.deepEqual(hunter['Use a ~|bird house|~'].Items, ['Bird house (item)*', 'Birdhouse seed[+]*']);
+    assert.deepEqual(data.challenges.Fishing['Catch a ~|fish shoal|~'].Items, ['Drift net*']);
+    const puro = hunter['Catch implings in ~|Puro-Puro|~ after reaching 17 Hunter'];
+    assert.equal(puro.Level, 17);
+    assert.equal(R.repeatableTrainingAction('Catch implings in ~|Puro-Puro|~ after reaching 17 Hunter',
+        'Hunter', puro), false);
+    assert.equal(R.taskMetadata('Catch implings in ~|Puro-Puro|~ after reaching 17 Hunter', 'Hunter', puro).usesSkillLevelWindow, true);
+});
+
+test('the dedicated Lake Molch worm source supplies aerial fishing, but ordinary spawns stay incidental', () => {
+    const catalog = R.recipeSupplyCatalog(chunkData, annotations);
+    const worm = catalog.ingredients['King worm']?.sources || [];
+    assert.equal(worm.find(source => source.sourceName === '5432-1')?.approved, true);
+    assert.equal(worm.find(source => source.sourceName === '9526-1')?.approved, false);
+    const bronzeBar = catalog.ingredients['Bronze bar']?.sources || [];
+    assert.ok(bronzeBar.filter(source => source.kind === 'spawn').every(source => !source.approved));
+});
+
+test('Lake Molch worms support repeatable Hunter training only when their section is reachable', () => {
+    const fixture = sourceFixture();
+    fixture.data = { challenges: { Hunter: {
+        'Catch a ~|bluegill|~': { Items: ['Aerial fishing bait[+]*'], Objects: ['Fishing spot (aerial fishing)'],
+            Level: 35, Primary: true, Output: 'Bluegill loot' },
+        'Catch higher prey': { NPCs: ['Higher prey'], Level: 40, Primary: true }
+    } }, codeItems: { itemsPlus: { 'Aerial fishing bait[+]': ['King worm', 'Fish offcuts'] } },
+    chunks: { '5432': { Sections: { '1': { Spawn: { 'King worm': 1 },
+        Object: { 'Fishing spot (aerial fishing)': 1 } } } } }, equipment: {}, shopItems: {} };
+    fixture.base = { objects: { 'Fishing spot (aerial fishing)': { '5432-1': true } },
+        npcs: { 'Higher prey': { '1000': true } }, monsters: {}, shops: {},
+        items: { 'King worm': { '5432-1': 'spawn' } } };
+    fixture.valids = { Hunter: { 'Catch a ~|bluegill|~': 35, 'Catch higher prey': 40 } };
+    fixture.ids = { 'Catch a ~|bluegill|~': 'bluegill', 'Catch higher prey': 'higher' };
+    fixture.unlocked = { '5432': '5432', '1000': '1000' };
+    fixture.sections = { '5432': { '1': true } };
+    fixture.state.progressionHighWater.Hunter = 35;
+    fixture.state.progressionInitialized = true;
+    fixture.annotations = annotations;
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Catch higher prey').available, true);
+    fixture.manualSections = { '5432': { '1': false } };
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Catch higher prey').available, false);
+});
+
+test('a found log cannot enable a Hunter trap goal or fund Hunter training', () => {
+    const fixture = sourceFixture();
+    fixture.data = { challenges: { Hunter: {
+        'Catch wild kebbit': { Items: ['Knife', 'Logs'], NPCs: ['Wild kebbit'], Level: 23, Primary: true },
+        'Catch higher prey': { NPCs: ['Higher prey'], Level: 30, Primary: true }
+    } }, codeItems: { itemsPlus: {} }, equipment: {}, shopItems: {} };
+    fixture.base = { npcs: { 'Wild kebbit': { '1000': true }, 'Higher prey': { '1000': true } },
+        objects: {}, monsters: {}, shops: {}, items: { Logs: { '1000': 'spawn' }, Knife: { '1000': 'spawn' } } };
+    fixture.valids = { Hunter: { 'Catch wild kebbit': 23, 'Catch higher prey': 30 } };
+    fixture.state.actualLevels.Hunter = 23;
+    fixture.state.progressionHighWater.Hunter = 23;
+    fixture.state.progressionInitialized = true;
+    fixture.unlocked = { '1000': '1000' };
+    fixture.annotations = annotations;
+    R.applyRecipeSupplyAliases(fixture.data, annotations);
+    let tasks = R.buildTasks(fixture).tasks;
+    assert.match(tasks.find(task => task.name === 'Catch wild kebbit').accessResult.reason,
+        /No reasonable primary source supplies Logs/);
+    assert.match(tasks.find(task => task.name === 'Catch higher prey').accessResult.reason,
+        /No repeatable Hunter training method/);
+
+    fixture.data.shopItems['Log shop'] = { Logs: 10 };
+    fixture.base.shops['Log shop'] = { '1000': true };
+    fixture.base.items.Logs['Log shop'] = 'shop';
+    tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === 'Catch wild kebbit').available, true);
+    assert.equal(tasks.find(task => task.name === 'Catch higher prey').available, true);
+});
+
 test('unchecking does not lower a separately established level above the task inference', () => {
     const f = progressionFixture();
     const legacy = { checkedChallenges: { Cooking: { Fish: true } } };

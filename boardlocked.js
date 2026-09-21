@@ -898,6 +898,7 @@
         if (meta.NoXp) return false;
         if (skill === 'Agility' && (meta.Category || []).includes('Shortcut')) return false;
         if (skill === 'Thieving' && /^(?:Unlock|Climb)\b/.test(displayName(name))) return false;
+        if (skill === 'Hunter' && (meta.Category || []).includes('Puro-Puro')) return false;
         return true;
     }
     function taskMetadata(name, skill, meta, ids = {}) {
@@ -941,7 +942,7 @@
         // Secondary actions can still carry real skill requirements. They do not
         // advance the high-water mark, but their levels must obey the same pacing
         // window when they are used directly or as an item-production step.
-        const usesSkillLevelWindow = advancesSkillProgression || (['Agility', 'Thieving'].includes(skill) &&
+        const usesSkillLevelWindow = advancesSkillProgression || (['Agility', 'Thieving', 'Hunter'].includes(skill) &&
             taskClass === 'activity' && Number.isFinite(meta.Level)) || (taskClass === 'other' &&
             (meta.Primary === false || herblorePreparation) && SKILLS.includes(skill) && Number.isFinite(meta.Level));
         const bisReason = taskClass === 'bis' ? stripMarkup(meta.BisReason ||
@@ -2596,6 +2597,14 @@
                 focusedCategories: [...focusedCategories], incidentalCategories: [...incidentalCategories] } };
     }
 
+    function recipeTaskInputs(skill, name, meta, config = {}) {
+        const consumed = new Set(config.consumedInputsBySkill?.[skill] || []);
+        return (meta.Items || []).map(raw => {
+            const corrected = config.inputCorrections?.[name]?.[raw] || raw;
+            return corrected.includes('*') || !consumed.has(corrected) ? corrected : corrected + '*';
+        });
+    }
+
     function recipeSupplyCatalog(data = {}, annotations = {}) {
         const enabled = !!annotations.recipeSupply, config = annotations.recipeSupply || {};
         const trackedSkills = new Set(enabled ? config.skills || ['Cooking', 'Crafting'] : []);
@@ -2621,7 +2630,7 @@
             candidates.set(itemKey, list);
         };
         const expanded = raw => expand(raw, groups).map(canonical);
-        const taskInputs = (name, meta) => (meta.Items || []).map(raw => config.inputCorrections?.[name]?.[raw] || raw);
+        const taskInputs = (skill, name, meta) => recipeTaskInputs(skill, name, meta, config);
         const bestChance = quantities => Math.max(-1, ...Object.values(quantities || {}).map(supplyChance).filter(Number.isFinite));
         const challengePools = new Map();
         for (const [skill, tasks] of Object.entries(data.challenges || {})) for (const [name, meta] of Object.entries(tasks || {})) {
@@ -2636,14 +2645,14 @@
                     const list = challengePools.get(poolKey) || [];
                     list.push({ skill, name, meta }); challengePools.set(poolKey, list);
                 }
-                producerInputs.set(name, taskInputs(name, meta).map(raw => expanded(raw)));
+                producerInputs.set(name, taskInputs(skill, name, meta).map(raw => expanded(raw)));
             }
             for (const reward of Array.isArray(meta.Reward) ? meta.Reward : []) {
                 if (typeof reward === 'string') for (const output of expanded(reward)) add(output, { kind: 'reward', sourceName: name,
                     sourceType: 'primary-' + skill, chance: 1, preferred: true, reason: 'Guaranteed task or quest reward' });
             }
             if (trackedSkills.has(skill)) recipes.push({ skill, name,
-                inputs: taskInputs(name, meta).map(raw => ({ raw, consumable: raw.includes('*'), alternatives: expanded(raw) })) });
+                inputs: taskInputs(skill, name, meta).map(raw => ({ raw, consumable: raw.includes('*'), alternatives: expanded(raw) })) });
             if (['bis', 'collection'].includes(taskMetadata(name, skill, meta).taskClass) &&
                 meta.Items?.length === 1 && !meta.Items[0].includes('*')) {
                 for (const itemName of expanded(meta.Items[0])) add(itemName, { kind: 'registered', sourceName: name,
@@ -2670,10 +2679,14 @@
         }
         for (const [chunkId, chunk] of Object.entries(data.chunks || {})) {
             for (const [sectionId, contents] of [['', chunk], ...Object.entries(chunk.Sections || {})]) {
-                for (const [itemName, count] of Object.entries(contents.Spawn || {})) add(itemName, { kind: 'spawn',
-                    sourceName: chunkId + (sectionId ? '-' + sectionId : ''), sourceType: 'spawn', chance: 1,
-                    count: Number(count || 0), preferred: false, primaryEligible: false,
-                    reason: 'Ground item spawns are availability, not a primary supply' });
+                for (const [itemName, count] of Object.entries(contents.Spawn || {})) {
+                    const sourceName = chunkId + (sectionId ? '-' + sectionId : '');
+                    const renewable = (config.renewableSourceSpawns?.[itemName] || []).includes(sourceName);
+                    add(itemName, { kind: 'spawn', sourceName, sourceType: 'spawn', chance: 1,
+                        count: Number(count || 0), preferred: renewable, primaryEligible: renewable,
+                        reason: renewable ? 'Dedicated renewable activity supply' :
+                            'Ground item spawns are availability, not a primary supply' });
+                }
             }
         }
         const addDrop = (itemName, monster, chance, batchCount = 1) => add(itemName, { kind: 'monster', sourceName: monster,
@@ -2817,7 +2830,7 @@
         for (const skill of annotations.recipeSupply?.skills || ['Cooking', 'Crafting']) {
             for (const [name, meta] of Object.entries(data.challenges?.[skill] || {})) {
                 if (!Array.isArray(meta.Items)) continue;
-                meta.Items = meta.Items.map(raw => annotations.recipeSupply?.inputCorrections?.[name]?.[raw] || raw).map(raw => {
+                meta.Items = recipeTaskInputs(skill, name, meta, annotations.recipeSupply).map(raw => {
                     const suffix = raw.endsWith('*') ? '*' : '';
                     const name = suffix ? raw.slice(0, -1) : raw;
                     return (aliases[name] || name) + suffix;
@@ -3248,7 +3261,11 @@
             if (record.level <= known) return { allowed: true };
             if (record.level > ceiling) return { allowed: false, skill, level: record.level, ceiling,
                 reason: skill + ' level ' + record.level + ' is above the current progression window (through ' + ceiling + ')' };
-            if (trainingAnalysisReady && trainingEvidenceSkills.has(skill) && !trainingSupportedSkills.has(skill) &&
+            // Hunter captures are the training actions themselves. If none is
+            // reachable at the known level, a higher-level capture cannot be
+            // used as proof that the player can train up to it.
+            if (trainingAnalysisReady && (trainingEvidenceSkills.has(skill) || skill === 'Hunter') &&
+                !trainingSupportedSkills.has(skill) &&
                 skill !== 'Combat' && !(combatSkills.has(skill) && combatSkillActivated(skill))) {
                 return { allowed: false, skill, level: record.level, known,
                     reason: 'No repeatable ' + skill + ' training method is available from level ' + known };
@@ -3797,7 +3814,9 @@
                     return chance === null || chance >= TRAINING_DROP_RATE ||
                         (combatAmmunition && chance * averageDropQuantity(source, itemName) >= 1);
                 }
-                if (String(type).includes('spawn')) return false;
+                if (String(type).includes('spawn')) return (
+                    (annotations.recipeSupply?.renewableSourceSpawns?.[canonicalItemKey(itemName)] || [])
+                        .includes(source) && origin(source, 'spawn', itemName, 'Dedicated renewable activity supply').length > 0);
                 return ['objects', 'npcs'].some(kind => fixed(kind, source).length > 0);
             });
         }

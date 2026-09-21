@@ -19164,6 +19164,7 @@
 				"Not F2P": true
 			},
 			"Catch a ~|bluegill|~": {
+				"Items": ["Aerial fishing bait[+]*"],
 				"Level": 43,
 				"Objects": ["Fishing spot (aerial fishing)"],
 				"Output": "Bluegill loot",
@@ -19183,6 +19184,7 @@
 				"NoPet": true
 			},
 			"Catch a ~|common tench|~": {
+				"Items": ["Aerial fishing bait[+]*"],
 				"Level": 56,
 				"Objects": ["Fishing spot (aerial fishing)"],
 				"Output": "Common tench loot",
@@ -19213,6 +19215,7 @@
 				"Not F2P": true
 			},
 			"Catch a ~|greater siren|~": {
+				"Items": ["Aerial fishing bait[+]*"],
 				"Level": 91,
 				"Objects": ["Fishing spot (aerial fishing)"],
 				"Output": "Greater siren loot",
@@ -19291,6 +19294,7 @@
 				"NoBoost": true
 			},
 			"Catch a ~|mottled eel|~": {
+				"Items": ["Aerial fishing bait[+]*"],
 				"Level": 73,
 				"Objects": ["Fishing spot (aerial fishing)"],
 				"Output": "Mottled eel loot",
@@ -22991,7 +22995,7 @@
 				"Category": ["Puro-Puro"],
 				"Chunks": ["Puro-Puro"],
 				"Items": ["Impling jar"],
-				"Level": 1,
+				"Level": 17,
 				"Primary": true,
 				"Priority": 1,
 				"NoBoost": true
@@ -23224,6 +23228,7 @@
 				"Priority": 2
 			},
 			"Catch a ~|bluegill|~": {
+				"Items": ["Aerial fishing bait[+]*"],
 				"Level": 35,
 				"Objects": ["Fishing spot (aerial fishing)"],
 				"Output": "Bluegill loot",
@@ -23261,6 +23266,7 @@
 				}
 			},
 			"Catch a ~|common tench|~": {
+				"Items": ["Aerial fishing bait[+]*"],
 				"Level": 51,
 				"Objects": ["Fishing spot (aerial fishing)"],
 				"Output": "Common tench loot",
@@ -23399,6 +23405,7 @@
 				"ForcedSecondary": true
 			},
 			"Catch a ~|greater siren|~": {
+				"Items": ["Aerial fishing bait[+]*"],
 				"Level": 87,
 				"Objects": ["Fishing spot (aerial fishing)"],
 				"Output": "Greater siren loot",
@@ -23486,7 +23493,7 @@
 				"ForcedSecondary": true
 			},
 			"Catch a ~|maniacal monkey (Hunter)|~": {
-				"Items": ["Knife", "Logs"],
+				"Items": ["Banana*"],
 				"Level": 60,
 				"NPCs": ["Maniacal monkey"],
 				"Output": "Maniacal monkey (Hunter)",
@@ -23497,6 +23504,7 @@
 				}
 			},
 			"Catch a ~|mottled eel|~": {
+				"Items": ["Aerial fishing bait[+]*"],
 				"Level": 68,
 				"Objects": ["Fishing spot (aerial fishing)"],
 				"Output": "Mottled eel loot",
@@ -177215,6 +177223,7 @@
 			"Torva armour[+]": ["Torva full helm", "Torva platebody", "Torva platelegs"],
 			"Oathplate armour[+]": ["Oathplate helm", "Oathplate chest", "Oathplate legs"],
 			"Barbarian bait[+]": ["Feather", "Fishing bait", "Fish offcuts", "Roe", "Caviar"],
+			"Aerial fishing bait[+]": ["King worm", "Fish offcuts"],
 			"Barbarian rod[+]": ["Barbarian rod", "Pearl barbarian rod"],
 			"BarbarianBow[+]": ["Training bow", "Shortbow", "Longbow", "Oak shortbow", "Oak longbow", "Willow shortbow", "Willow longbow", "Maple shortbow", "Maple longbow", "Yew shortbow", "Yew longbow", "Seercull", "Magic shortbow", "Magic longbow"],
 			"Barrows magic[+]": ["Ahrim's hood", "Ahrim's robe top", "Ahrim's robe skirt"],
@@ -177997,6 +178006,7 @@
 			"Lantern[+]": "Any lantern for lantern fishing",
 			"RawSquid[+]": "Any raw squid",
 			"AerialFish[+]": "Any aerial fishing fish",
+			"Aerial fishing bait[+]": "King worm or fish offcuts",
 			"RawFishOffcuts[+]": "Any raw fish that can be cut into fish offcuts",
 			"RawFishFineOffcuts[+]": "Any raw fish that can be cut into fine fish offcuts",
 			"CrabForPaste[+]": "Either red or blue crab",

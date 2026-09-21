@@ -272,6 +272,22 @@
             commonMonsterChance: 1 / 4,
             focusedActivityChance: 1 / 20,
             rareFallbackRatio: 1 / 2,
+            // This scenery is an unlimited, purpose-built bait dispenser at
+            // Lake Molch. Ordinary ground spawns (including bars) stay excluded.
+            renewableSourceSpawns: Object.freeze({
+                'King worm': Object.freeze(['5432-1'])
+            }),
+            // Trap supplies are spent or eventually lost. A single found item
+            // can still be used once, but cannot establish repeatable training.
+            consumedInputsBySkill: Object.freeze({
+                Hunter: Object.freeze([
+                    'Logs', 'Logs[+]', 'Drift net', 'Impling jar', 'Birdhouse seed[+]',
+                    'Bird house (item)', 'Oak bird house', 'Willow bird house', 'Teak bird house',
+                    'Maple bird house', 'Mahogany bird house', 'Yew bird house', 'Magic bird house',
+                    'Redwood bird house', 'Letvek', 'Aerial fishing bait[+]', 'Banana'
+                ]),
+                Fishing: Object.freeze(['Drift net'])
+            }),
             itemAliases: Object.freeze({
                 // The upstream recipe uses one b, while Hunter produces the
                 // correctly named item.
