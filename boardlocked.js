@@ -2702,7 +2702,7 @@
         }
         const farmingSeedItems = new Set(recipes.filter(recipe => recipe.skill === 'Farming' &&
             (data.challenges?.Farming?.[recipe.name]?.Category || []).includes('Normal Farming'))
-            .flatMap(recipe => recipe.inputs.flatMap(input => input.alternatives))
+            .flatMap(recipe => recipe.inputs.filter(input => input.consumable).flatMap(input => input.alternatives))
             .filter(item => /\bseed\b|\bacorn\b|\btuber\b/i.test(item)));
         const ingredients = {};
         const directItems = new Set(recipes.flatMap(recipe => recipe.inputs.flatMap(input => input.alternatives)));
