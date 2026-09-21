@@ -8250,11 +8250,13 @@
 			},
 			"Gain xp in the Bee Hive ~|Forestry|~ event": {
 				"Category": ["ForestryXp"],
-				"Chunks": ["Player-owned house"],
 				"Items": ["Forestry kit", "Logs[+]"],
 				"Level": 1,
 				"Skills": {
 					"Woodcutting": 1
+				},
+				"Tasks": {
+					"Construction Trainable[+]": "Nonskill"
 				},
 				"Primary": true,
 				"Not F2P": true,
@@ -8262,48 +8264,60 @@
 			},
 			"Participate in ~|Vale Totems|~ for Construction xp": {
 				"Category": ["Minigame", "Construction Minigame"],
-				"Chunks": ["Player-owned house"],
 				"Objects": ["Totem site"],
 				"Level": 1,
 				"Tasks": {
-					"~|Vale Totems (miniquest)|~ Complete the quest": "Quest"
+					"~|Vale Totems (miniquest)|~ Complete the quest": "Quest",
+					"Construction Trainable[+]": "Nonskill"
 				},
 				"Primary": true,
 				"Priority": 99
 			},
 			"Repair broken bridges in the ~|Hallowed Sepulchre|~": {
 				"Category": ["Construction Minigame"],
-				"Chunks": ["Hallowed Sepulchre", "Player-owned house"],
+				"Chunks": ["Hallowed Sepulchre"],
 				"Items": ["Hammer[+]", "Saw[+]", "Plank[+]", "Nails[+]"],
 				"Level": 56,
+				"Tasks": {
+					"Construction Trainable[+]": "Nonskill"
+				},
 				"Primary": false,
 				"Priority": 483
 			},
 			"Repair braziers at ~|Wintertodt|~": {
 				"Category": ["Boss", "Construction Minigame"],
-				"Chunks": ["6462", "Player-owned house"],
+				"Chunks": ["6462"],
 				"Items": ["Hammer"],
 				"Level": 1,
+				"Tasks": {
+					"Construction Trainable[+]": "Nonskill"
+				},
 				"Primary": true,
 				"Priority": 101,
 				"NoBoost": true
 			},
 			"Repair masts and totem poles at ~|Tempoross|~": {
 				"Category": ["Boss", "Construction Minigame"],
-				"Chunks": ["12076-1", "Player-owned house"],
+				"Chunks": ["12076-1"],
 				"NPCs": ["Tempoross"],
 				"Items": ["Hammer"],
 				"Level": 1,
+				"Tasks": {
+					"Construction Trainable[+]": "Nonskill"
+				},
 				"Primary": true,
 				"Priority": 102,
 				"NoBoost": true
 			},
 			"Fill holes on ~|Fishing Trawler|~": {
 				"Category": ["Minigame", "Construction Minigame"],
-				"Chunks": ["10545-1", "Player-owned house"],
+				"Chunks": ["10545-1"],
 				"Items": ["Swamp paste"],
 				"Objects": ["Trawler boat"],
 				"Level": 1,
+				"Tasks": {
+					"Construction Trainable[+]": "Nonskill"
+				},
 				"Primary": true,
 				"Priority": 103,
 				"NoBoost": true
@@ -29029,6 +29043,12 @@
 				"Monsters": ["Runite Golem"],
 				"Output Object": "Runite rocks",
 				"Not F2P": true
+			},
+			"POH Access": {
+				"Chunks": ["Player-owned house"]
+			},
+			"Estate Agent Access": {
+				"NPCs": ["Estate Agent[+]"]
 			},
 			"Wearable facemask": {
 				"Items": ["Facemask"],
@@ -63263,11 +63283,13 @@
 			},
 			"Gain xp in the Bee Hive ~|Forestry|~ event": {
 				"Category": ["ForestryXp"],
-				"Chunks": ["Player-owned house"],
 				"Items": ["Forestry kit", "Logs[+]"],
 				"Level": 1,
 				"Skills": {
 					"Construction": 1
+				},
+				"Tasks": {
+					"Construction Trainable[+]": "Nonskill"
 				},
 				"Primary": true,
 				"Not F2P": true,
@@ -73692,60 +73714,70 @@
 			"(Fossil Island Notes) Obtain a ~|scribbled note|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
 			"(Fossil Island Notes) Obtain a ~|partial note|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
 			"(Fossil Island Notes) Obtain an ~|ancient note|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
 			"(Fossil Island Notes) Obtain ~|ancient writings|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
 			"(Fossil Island Notes) Obtain an ~|experimental note|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
 			"(Fossil Island Notes) Obtain a ~|paragraph of text|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
 			"(Fossil Island Notes) Obtain a ~|musty smelling note|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
 			"(Fossil Island Notes) Obtain a ~|hastily scrawled note|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
 			"(Fossil Island Notes) Obtain an ~|old writing|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
 			"(Fossil Island Notes) Obtain a ~|short note|~": {
 				"Category": ["Collection Log", "Collection Log Other"],
 				"Label": "Collection Log",
+				"Items": ["Numulite"],
 				"Objects": ["Stone chest (House on the Hill)"],
 				"Not F2P": true
 			},
@@ -177729,7 +177761,7 @@
 			"Raiments of the Eye[+]": ["Hat of the eye", "Robe top of the eye", "Robe bottoms of the eye", "Boots of the eye"],
 			"Poison[+]": ["Bronze dagger(p)", "Bronze dagger(p+)", "Bronze dagger(p++)", "Iron dagger(p)", "Iron dagger(p+)", "Iron dagger(p++)", "Steel dagger(p)", "Steel dagger(p+)", "Steel dagger(p++)", "Black dagger(p)", "Black dagger(p+)", "Black dagger(p++)", "White dagger(p)", "White dagger(p+)", "White dagger(p++)", "Mithril dagger(p)", "Mithril dagger(p+)", "Mithril dagger(p++)", "Adamant dagger(p)", "Adamant dagger(p+)", "Adamant dagger(p++)", "Rune dagger(p)", "Rune dagger(p+)", "Rune dagger(p++)", "Dragon dagger(p)", "Dragon dagger(p+)", "Dragon dagger(p++)", "Abyssal dagger(p)", "Abyssal dagger(p+)", "Abyssal dagger(p++)", "Bone dagger(p)", "Bone dagger(p+)", "Bone dagger(p++)", "Keris(p)", "Keris(p+)", "Keris(p++)", "Bronze spear(p)", "Bronze spear(p+)", "Bronze spear(p++)", "Bronze spear(kp)", "Iron spear(p)", "Iron spear(p+)", "Iron spear(p++)", "Iron spear(kp)", "Steel spear(p)", "Steel spear(p+)", "Steel spear(p++)", "Steel spear(kp)", "Black spear(p)", "Black spear(p+)", "Black spear(p++)", "Black spear(kp)", "Mithril spear(p)", "Mithril spear(p+)", "Mithril spear(p++)", "Mithril spear(kp)", "Adamant spear(p)", "Adamant spear(p+)", "Adamant spear(p++)", "Adamant spear(kp)", "Rune spear(p)", "Rune spear(p+)", "Rune spear(p++)", "Rune spear(kp)", "Dragon spear(p)", "Dragon spear(p+)", "Dragon spear(p++)", "Dragon spear(kp)", "Bronze hasta(p)", "Bronze hasta(p+)", "Bronze hasta(p++)", "Bronze hasta(kp)", "Iron hasta(p)", "Iron hasta(p+)", "Iron hasta(p++)", "Iron hasta(kp)", "Steel hasta(p)", "Steel hasta(p+)", "Steel hasta(p++)", "Steel hasta(kp)", "Black hasta(p)", "Black hasta(p+)", "Black hasta(p++)", "Black hasta(kp)", "Mithril hasta(p)", "Mithril hasta(p+)", "Mithril hasta(p++)", "Mithril hasta(kp)", "Adamant hasta(p)", "Adamant hasta(p+)", "Adamant hasta(p++)", "Adamant hasta(kp)", "Rune hasta(p)", "Rune hasta(p+)", "Rune hasta(p++)", "Rune hasta(kp)", "Dragon hasta(p)", "Dragon hasta(p+)", "Dragon hasta(p++)", "Dragon hasta(kp)", "Bronze dart(p)", "Bronze dart(p+)", "Bronze dart(p++)", "Iron dart (p)", "Iron dart(p+)", "Iron dart(p++)", "Steel dart(p)", "Steel dart(p+)", "Steel dart(p++)", "Black dart(p)", "Black dart(p+)", "Black dart(p++)", "Mithril dart(p)", "Mithril dart(p+)", "Mithril dart(p++)", "Adamant dart(p)", "Adamant dart(p+)", "Adamant dart(p++)", "Rune dart(p)", "Rune dart(p+)", "Rune dart(p++)", "Amethyst dart(p)", "Amethyst dart(p+)", "Amethyst dart(p++)", "Dragon dart(p)", "Dragon dart(p+)", "Dragon dart(p++)", "Bronze knife(p)", "Bronze knife(p+)", "Bronze knife(p++)", "Iron knife(p)", "Iron knife(p+)", "Iron knife(p++)", "Steel knife(p)", "Steel knife(p+)", "Steel knife(p++)", "Black knife(p)", "Black knife(p+)", "Black knife(p++)", "Mithril knife(p)", "Mithril knife(p+)", "Mithril knife(p++)", "Adamant knife(p)", "Adamant knife(p+)", "Adamant knife(p++)", "Rune knife(p)", "Rune knife(p+)", "Rune knife(p++)", "Amethyst knife(p)", "Amethyst knife(p+)", "Amethyst knife(p++)", "Dragon knife(p)", "Dragon knife(p+)", "Dragon knife(p++)", "Bronze bolts (p)", "Bronze bolts (p+)", "Bronze bolts (p++)", "Blurite bolts (p)", "Blurite bolts (p+)", "Blurite bolts (p++)", "Silver bolts (p)", "Silver bolts (p+)", "Silver bolts (p++)", "Iron bolts (p)", "Iron bolts (p+)", "Iron bolts (p++)", "Steel bolts (p)", "Steel bolts (p+)", "Steel bolts (p++)", "Black bolts (p)", "Black bolts (p+)", "Black bolts (p++)", "Mithril bolts (p)", "Mithril bolts (p+)", "Mithril bolts (p++)", "Adamant bolts (p)", "Adamant bolts (p+)", "Adamant bolts (p++)", "Runite bolts (p)", "Runite bolts (p+)", "Runite bolts (p++)", "Dragon bolts (p)", "Dragon bolts (p+)", "Dragon bolts (p++)", "Weapon poison", "Weapon poison(+)", "Weapon poison(++)", "Karambwan paste", "Emerald bolts (e)"],
 			"Demonbane[+]": ["Silverlight", "Darklight", "Arclight", "Holy water", "Book of the dead", "Scorching bow"],
-			"NerfDefenceWeapon[+]": ["Bandos Godsword", "Dragon warhammer", "Darklight", "Arclight", "Bone dagger", "Bone crossbow", "Barrelchest anchor"],
+			"NerfDefenceWeapon[+]": ["Bandos godsword", "Dragon warhammer", "Darklight", "Arclight", "Bone dagger", "Bone crossbow", "Barrelchest anchor"],
 			"Salamander[+]": ["Swamp lizard", "Orange salamander", "Red salamander", "Black salamander", "Tecu salamander"],
 			"BeneathCursedSandsMeat[+]": ["Raw beef", "Cooked meat"],
 			"Ancient brew[+]": ["Ancient brew(1)", "Ancient brew(2)", "Ancient brew(3)", "Ancient brew(4)"],
@@ -178724,7 +178756,8 @@
 			"Access the (mith grapple) escape from the Water Obelisk Island ~|shortcut|~[+]": ["Access the (mith grapple) escape from the Water Obelisk Island ~|shortcut|~", "Access the (mith grapple) escape from the Water Obelisk Island ~|shortcut|~ barehanded"],
 			"Access the (mith grapple) over the River Lum to Al Kharid ~|shortcut|~[+]": ["Access the (mith grapple) over the River Lum to Al Kharid ~|shortcut|~", "Access the (mith grapple) over the River Lum to Al Kharid ~|shortcut|~ barehanded"],
 			"Access the (mith grapple) scale Catherby cliffside ~|shortcut|~[+]": ["Access the (mith grapple) scale Catherby cliffside ~|shortcut|~", "Access the (mith grapple) scale Catherby cliffside ~|shortcut|~ barehanded"],
-			"Access the (mith grapple) scale Falador Wall ~|shortcut|~[+]": ["Access the (mith grapple) scale Falador Wall ~|shortcut|~", "Access the (mith grapple) scale Falador Wall ~|shortcut|~ barehanded"]
+			"Access the (mith grapple) scale Falador Wall ~|shortcut|~[+]": ["Access the (mith grapple) scale Falador Wall ~|shortcut|~", "Access the (mith grapple) scale Falador Wall ~|shortcut|~ barehanded"],
+			"Construction Trainable[+]": ["POH Access", "Estate Agent Access"]
 		},
 		"forceTalisman": {
 			"Nature talisman": {
@@ -256107,12 +256140,18 @@
 			}],
 			"Cake^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Chocolate cake^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Pineapple^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Brimhaven": "Sailing"
+			}, {
+				"Use the mooring point at ~|Brimhaven|~": "Sailing"
 			}],
 			"Uncut opal^Tiny port reward bag loot*-source": [{
 				"Use the mooring point at ~|Cairn Isle|~": "Sailing"
@@ -256137,18 +256176,28 @@
 			}],
 			"Raw cod^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw tuna^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw lobster^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw bass^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw shark^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Bones^Tiny port reward bag loot*-source": [{
 				"Use the mooring point at ~|Entrana|~": "Sailing"
@@ -256163,49 +256212,77 @@
 				"Use the mooring point at ~|Hosidius|~": "Sailing"
 			}],
 			"Bird nest (empty)^Tiny port reward bag loot*-source": [{
-				"Take ~|port tasks|~ from Land's End": "Sailing"
+				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Banana^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Musa Point": "Sailing"
+			}, {
+				"Use the mooring point at ~|Musa Point|~": "Sailing"
 			}],
 			"Raw manta ray^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Khazard": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Khazard|~": "Sailing"
 			}],
 			"Raw sea turtle^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Khazard": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Khazard|~": "Sailing"
 			}],
 			"Raw anglerfish^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Piscarilius": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Piscarilius|~": "Sailing"
 			}],
 			"Casket^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Sarim": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Sarim|~": "Sailing"
 			}],
 			"Spirit flakes^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ruins of Unkah": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ruins of Unkah|~": "Sailing"
 			}],
 			"Bucket of sand^Tiny port reward bag loot*-source": [{
 				"Use the mooring point at ~|Sunset Coast|~": "Sailing"
 			}],
 			"Adamant cannonball^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Rune cannonball^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Dragon cannonball^Tiny port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Grapes^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Aldarin": "Sailing"
+			}, {
+				"Use the mooring point at ~|Aldarin|~": "Sailing"
 			}],
 			"Cake^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Chocolate cake^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Pineapple^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Brimhaven": "Sailing"
+			}, {
+				"Use the mooring point at ~|Brimhaven|~": "Sailing"
 			}],
 			"Uncut opal^Small port reward bag loot*-source": [{
 				"Use the mooring point at ~|Cairn Isle|~": "Sailing"
@@ -256230,42 +256307,68 @@
 			}],
 			"Raw cod^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw tuna^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw lobster^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw bass^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw shark^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Varlamorian kebab^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Civitas illa Fortis": "Sailing"
+			}, {
+				"Use the mooring point at ~|Civitas illa Fortis|~": "Sailing"
 			}],
 			"Bronze scimitar^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Iron scimitar^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Mithril scimitar^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Adamant scimitar^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Rune scimitar^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Teak logs^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Etceteria": "Sailing"
+			}, {
+				"Use the mooring point at ~|Etceteria|~": "Sailing"
 			}],
 			"Mahogany logs^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Etceteria": "Sailing"
+			}, {
+				"Use the mooring point at ~|Etceteria|~": "Sailing"
 			}],
 			"Copper ore^Small port reward bag loot*-source": [{
 				"Use the mooring point at ~|Jatizso|~": "Sailing"
@@ -256286,22 +256389,34 @@
 				"Use the mooring point at ~|Jatizso|~": "Sailing"
 			}],
 			"Bird nest (empty)^Small port reward bag loot*-source": [{
-				"Take ~|port tasks|~ from Land's End": "Sailing"
+				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Banana^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Musa Point": "Sailing"
+			}, {
+				"Use the mooring point at ~|Musa Point|~": "Sailing"
 			}],
 			"Raw manta ray^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Khazard": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Khazard|~": "Sailing"
 			}],
 			"Raw sea turtle^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Khazard": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Khazard|~": "Sailing"
 			}],
 			"Raw anglerfish^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Piscarilius": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Piscarilius|~": "Sailing"
 			}],
 			"Casket^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Sarim": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Sarim|~": "Sailing"
 			}],
 			"Elkhorn coral^Small port reward bag loot*-source": [{
 				"Use the mooring point at ~|Red Rock|~": "Sailing"
@@ -256314,159 +256429,263 @@
 			}],
 			"Archer helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Berserker helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Farseer helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Warrior helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Fremennik helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Spirit flakes^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ruins of Unkah": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ruins of Unkah|~": "Sailing"
 			}],
 			"Elkhorn frag^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Pillar frag^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Umbral frag^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Bronze full helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze platebody^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze platelegs^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron full helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron platebody^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron platelegs^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel full helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel platebody^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel platelegs^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril full helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril platebody^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril platelegs^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant full helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant platebody^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant platelegs^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune full helm^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune platebody^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune platelegs^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze cannonball^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Iron cannonball^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Steel cannonball^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Adamant cannonball^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Rune cannonball^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Dragon cannonball^Small port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Grapes^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Aldarin": "Sailing"
+			}, {
+				"Use the mooring point at ~|Aldarin|~": "Sailing"
 			}],
 			"Cake^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Chocolate cake^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Pineapple^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Brimhaven": "Sailing"
+			}, {
+				"Use the mooring point at ~|Brimhaven|~": "Sailing"
 			}],
 			"Raw cod^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw tuna^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw lobster^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw bass^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw shark^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Varlamorian kebab^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Civitas illa Fortis": "Sailing"
+			}, {
+				"Use the mooring point at ~|Civitas illa Fortis|~": "Sailing"
 			}],
 			"Bronze scimitar^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Iron scimitar^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Mithril scimitar^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Adamant scimitar^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Rune scimitar^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Lead ore^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Deepfin Point": "Sailing"
+			}, {
+				"Use the mooring point at ~|Deepfin Point|~": "Sailing"
 			}],
 			"Nickel ore^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Deepfin Point": "Sailing"
+			}, {
+				"Use the mooring point at ~|Deepfin Point|~": "Sailing"
 			}],
 			"Teak logs^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Etceteria": "Sailing"
+			}, {
+				"Use the mooring point at ~|Etceteria|~": "Sailing"
 			}],
 			"Mahogany logs^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Etceteria": "Sailing"
+			}, {
+				"Use the mooring point at ~|Etceteria|~": "Sailing"
 			}],
 			"Copper ore^Medium port reward bag loot*-source": [{
 				"Use the mooring point at ~|Jatizso|~": "Sailing"
@@ -256487,10 +256706,14 @@
 				"Use the mooring point at ~|Jatizso|~": "Sailing"
 			}],
 			"Bird nest (empty)^Medium port reward bag loot*-source": [{
-				"Take ~|port tasks|~ from Land's End": "Sailing"
+				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Astral rune^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Lunar Isle": "Sailing"
+			}, {
+				"Use the mooring point at ~|Lunar Isle|~": "Sailing"
 			}],
 			"Yak-hide^Medium port reward bag loot*-source": [{
 				"Use the mooring point at ~|Neitiznot|~": "Sailing"
@@ -256500,21 +256723,33 @@
 			}],
 			"Raw manta ray^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Khazard": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Khazard|~": "Sailing"
 			}],
 			"Raw sea turtle^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Khazard": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Khazard|~": "Sailing"
 			}],
 			"Raw anglerfish^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Piscarilius": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Piscarilius|~": "Sailing"
 			}],
 			"Casket^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Sarim": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Sarim|~": "Sailing"
 			}],
 			"Zulrah's scales^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Tyras": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Tyras|~": "Sailing"
 			}],
 			"Crystal shards^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Prifddinas": "Sailing"
+			}, {
+				"Use the mooring point at ~|Prifddinas|~": "Sailing"
 			}],
 			"Elkhorn coral^Medium port reward bag loot*-source": [{
 				"Use the mooring point at ~|Red Rock|~": "Sailing"
@@ -256527,156 +256762,256 @@
 			}],
 			"Archer helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Berserker helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Farseer helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Warrior helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Fremennik helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Spirit flakes^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ruins of Unkah": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ruins of Unkah|~": "Sailing"
 			}],
 			"Elkhorn frag^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Pillar frag^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Umbral frag^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Bucket of sand^Medium port reward bag loot*-source": [{
 				"Use the mooring point at ~|Sunset Coast|~": "Sailing"
 			}],
 			"Bronze full helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze platebody^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze platelegs^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron full helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron platebody^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron platelegs^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel full helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel platebody^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel platelegs^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril full helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril platebody^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril platelegs^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant full helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant platebody^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant platelegs^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune full helm^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune platebody^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune platelegs^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze cannonball^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Iron cannonball^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Rune cannonball^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Dragon cannonball^Medium port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Grapes^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Aldarin": "Sailing"
+			}, {
+				"Use the mooring point at ~|Aldarin|~": "Sailing"
 			}],
 			"Cake^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Chocolate cake^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Pineapple^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Brimhaven": "Sailing"
+			}, {
+				"Use the mooring point at ~|Brimhaven|~": "Sailing"
 			}],
 			"Raw cod^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw tuna^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw lobster^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw bass^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Raw shark^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Varlamorian kebab^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Civitas illa Fortis": "Sailing"
+			}, {
+				"Use the mooring point at ~|Civitas illa Fortis|~": "Sailing"
 			}],
 			"Bronze scimitar^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Iron scimitar^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Mithril scimitar^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Adamant scimitar^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Rune scimitar^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Corsair Cove": "Sailing"
+			}, {
+				"Use the mooring point at ~|Corsair Cove|~": "Sailing"
 			}],
 			"Lead ore^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Deepfin Point": "Sailing"
+			}, {
+				"Use the mooring point at ~|Deepfin Point|~": "Sailing"
 			}],
 			"Nickel ore^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Deepfin Point": "Sailing"
+			}, {
+				"Use the mooring point at ~|Deepfin Point|~": "Sailing"
 			}],
 			"Teak logs^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Etceteria": "Sailing"
+			}, {
+				"Use the mooring point at ~|Etceteria|~": "Sailing"
 			}],
 			"Mahogany logs^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Etceteria": "Sailing"
+			}, {
+				"Use the mooring point at ~|Etceteria|~": "Sailing"
 			}],
 			"Compost^Large port reward bag loot*-source": [{
 				"Use the mooring point at ~|Hosidius|~": "Sailing"
@@ -256688,25 +257023,37 @@
 				"Use the mooring point at ~|Hosidius|~": "Sailing"
 			}],
 			"Bird nest (empty)^Large port reward bag loot*-source": [{
-				"Take ~|port tasks|~ from Land's End": "Sailing"
+				"Take ~|port tasks|~ from Catherby": "Sailing"
+			}, {
+				"Use the mooring point at ~|Catherby|~": "Sailing"
 			}],
 			"Astral rune^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Lunar Isle": "Sailing"
+			}, {
+				"Use the mooring point at ~|Lunar Isle|~": "Sailing"
 			}],
 			"Raw monkfish^Large port reward bag loot*-source": [{
 				"Use the mooring point at ~|Piscatoris|~": "Sailing"
 			}],
 			"Raw anglerfish^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Piscarilius": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Piscarilius|~": "Sailing"
 			}],
 			"Casket^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Sarim": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Sarim|~": "Sailing"
 			}],
 			"Zulrah's scales^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Tyras": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Tyras|~": "Sailing"
 			}],
 			"Crystal shards^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Prifddinas": "Sailing"
+			}, {
+				"Use the mooring point at ~|Prifddinas|~": "Sailing"
 			}],
 			"Elkhorn coral^Large port reward bag loot*-source": [{
 				"Use the mooring point at ~|Red Rock|~": "Sailing"
@@ -256719,126 +257066,206 @@
 			}],
 			"Archer helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Berserker helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Farseer helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Warrior helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Fremennik helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Elkhorn frag^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Pillar frag^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Umbral frag^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Bucket of sand^Large port reward bag loot*-source": [{
 				"Use the mooring point at ~|Sunset Coast|~": "Sailing"
 			}],
 			"Bronze full helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze platebody^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze platelegs^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron full helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron platebody^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron platelegs^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel full helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel platebody^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel platelegs^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril full helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril platebody^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril platelegs^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant full helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant platebody^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant platelegs^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune full helm^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune platebody^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune platelegs^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze cannonball^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Iron cannonball^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Steel cannonball^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Dragon cannonball^Large port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Grapes^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Aldarin": "Sailing"
+			}, {
+				"Use the mooring point at ~|Aldarin|~": "Sailing"
 			}],
 			"Cake^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Chocolate cake^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Ardougne": "Sailing"
+			}, {
+				"Use the mooring point at ~|Ardougne|~": "Sailing"
 			}],
 			"Lead ore^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Deepfin Point": "Sailing"
+			}, {
+				"Use the mooring point at ~|Deepfin Point|~": "Sailing"
 			}],
 			"Nickel ore^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Deepfin Point": "Sailing"
+			}, {
+				"Use the mooring point at ~|Deepfin Point|~": "Sailing"
 			}],
 			"Teak logs^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Etceteria": "Sailing"
+			}, {
+				"Use the mooring point at ~|Etceteria|~": "Sailing"
 			}],
 			"Mahogany logs^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Etceteria": "Sailing"
+			}, {
+				"Use the mooring point at ~|Etceteria|~": "Sailing"
 			}],
 			"Astral rune^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Lunar Isle": "Sailing"
+			}, {
+				"Use the mooring point at ~|Lunar Isle|~": "Sailing"
 			}],
 			"Zulrah's scales^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Tyras": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Tyras|~": "Sailing"
 			}],
 			"Crystal shards^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Prifddinas": "Sailing"
+			}, {
+				"Use the mooring point at ~|Prifddinas|~": "Sailing"
 			}],
 			"Elkhorn coral^Huge port reward bag loot*-source": [{
 				"Use the mooring point at ~|Red Rock|~": "Sailing"
@@ -256851,96 +257278,158 @@
 			}],
 			"Archer helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Berserker helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Farseer helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Warrior helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Fremennik helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Rellekka": "Sailing"
+			}, {
+				"Use the mooring point at ~|Rellekka|~": "Sailing"
 			}],
 			"Elkhorn frag^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Pillar frag^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Umbral frag^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from The Summer Shore": "Sailing"
+			}, {
+				"Use the mooring point at ~|The Summer Shore|~": "Sailing"
 			}],
 			"Bronze full helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze platebody^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze platelegs^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron full helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron platebody^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Iron platelegs^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel full helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel platebody^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Steel platelegs^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril full helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril platebody^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Mithril platelegs^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant full helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant platebody^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Adamant platelegs^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune full helm^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune platebody^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Rune platelegs^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Void Knights' Outpost": "Sailing"
+			}, {
+				"Use the mooring point at ~|Void Knights' Outpost|~": "Sailing"
 			}],
 			"Bronze cannonball^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Iron cannonball^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Steel cannonball^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Mithril cannonball^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}],
 			"Rune cannonball^Huge port reward bag loot*-source": [{
 				"Take ~|port tasks|~ from Port Roberts": "Sailing"
+			}, {
+				"Use the mooring point at ~|Port Roberts|~": "Sailing"
 			}]
 		},
 		"Monsters": {

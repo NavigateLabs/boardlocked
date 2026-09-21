@@ -1910,14 +1910,26 @@ let calcChallenges = function(chunks, baseChunkData) {
                     let challenge = chunkInfo['challenges'][skill][name];
                     if (challenge.hasOwnProperty('Tasks')) {
                         Object.keys(challenge['Tasks']).some(subTask => {
-                            if (!newValids.hasOwnProperty(challenge['Tasks'][subTask]) || !newValids[challenge['Tasks'][subTask]].hasOwnProperty(subTask)) {
-                                !!newValids[skill] && delete newValids[skill][name];
-                                !!valids[skill] && delete valids[skill][name];
-                                !!tempItemSkill[skill][item] && tempItemSkill[skill][item].splice(tempItemSkill[skill][item].indexOf(name), 1);
-                                if (!!tempItemSkill[skill][item] && tempItemSkill[skill][item].length === 0) {
-                                    delete tempItemSkill[skill][item];
+                            if (subTask.includes('[+]') && tasksPlus.hasOwnProperty(subTask.split('[+]x')[0].replaceAll('[+]', '') + '[+]')) {
+                                if (tasksPlus[subTask.split('[+]x')[0].replaceAll('[+]', '') + '[+]'].filter((plus) => newValids.hasOwnProperty(challenge['Tasks'][subTask]) && newValids[challenge['Tasks'][subTask]].hasOwnProperty(plus)).length === 0) {
+                                    !!newValids[skill] && delete newValids[skill][name];
+                                    !!valids[skill] && delete valids[skill][name];
+                                    !!tempItemSkill[skill][item] && tempItemSkill[skill][item].splice(tempItemSkill[skill][item].indexOf(name), 1);
+                                    if (!!tempItemSkill[skill][item] && tempItemSkill[skill][item].length === 0) {
+                                        delete tempItemSkill[skill][item];
+                                    }
+                                    return true;
                                 }
-                                return true;
+                            } else {
+                                if (!newValids.hasOwnProperty(challenge['Tasks'][subTask]) || !newValids[challenge['Tasks'][subTask]].hasOwnProperty(subTask)) {
+                                    !!newValids[skill] && delete newValids[skill][name];
+                                    !!valids[skill] && delete valids[skill][name];
+                                    !!tempItemSkill[skill][item] && tempItemSkill[skill][item].splice(tempItemSkill[skill][item].indexOf(name), 1);
+                                    if (!!tempItemSkill[skill][item] && tempItemSkill[skill][item].length === 0) {
+                                        delete tempItemSkill[skill][item];
+                                    }
+                                    return true;
+                                }
                             }
                         });
                     }
@@ -8303,13 +8315,13 @@ let calcBIS = function(completedOnly) {
                 delete bestEquipment['weapon'];
             }
         });
-        if (bestEquipment.hasOwnProperty('weapon') && bestEquipment.hasOwnProperty('2h')) {
+        if (bestEquipment.hasOwnProperty('weapon') && bestEquipment.hasOwnProperty('2h') && !rules['Show Best in Slot 1H and 2H']) {
             delete bestEquipment['2h'];
             if (!bestEquipment.hasOwnProperty('shield') && !!tempShield) {
                 bestEquipment['shield'] = tempShield;
             }
         }
-        rules['Show Best in Slot 1H and 2H'] && !!savedWeaponBis && Object.keys(savedWeaponBis).filter(slot => !!savedWeaponBis[slot]).forEach((slot) => {
+        rules['Show Best in Slot 1H and 2H'] && !!savedWeaponBis && Object.keys(savedWeaponBis).filter(slot => !!savedWeaponBis[slot] && !bestEquipment[slot]).forEach((slot) => {
             if (slot === 'ammo (2h)' && !savedWeaponBis['ammo']) {
                 bestEquipment['ammo'] = savedWeaponBis['ammo (2h)'];
             } else {
