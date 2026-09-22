@@ -1410,6 +1410,23 @@ test('the dedicated Lake Molch worm source supplies aerial fishing, but ordinary
     assert.ok(bronzeBar.filter(source => source.kind === 'spawn').every(source => !source.approved));
 });
 
+test('picking nettles requires reachable gloves before nettle tea becomes a Cooking goal', () => {
+    assert.deepEqual(chunkData.challenges.Nonskill['Pick nettles*'].Items, ['Gloves[+]']);
+    assert.ok(chunkData.codeItems.itemsPlus['Gloves[+]'].includes('Red gloves'),
+        'ordinary coloured gloves sold for nettle-picking must count');
+    const chunkIds = ['6969', '6970', '7221', '7222', '7223', '7224', '7225', '7226', '7478', '7479'];
+    const request = makeRequest(chunkIds);
+    request.boardlocked.state.actualLevels.Cooking = 10;
+    request.boardlocked.state.progressionHighWater.Cooking = 10;
+    request.boardlocked.state.progressionInitialized = true;
+    const tea = () => runWorker(request).result.tasks.find(task => task.name === 'Brew a ~|nettle tea|~');
+    assert.equal(tea().available, false, 'nettle objects alone must not unlock the tea goal');
+
+    const shop = Object.keys(request.chunkInfo.chunks['6970'].Sections['1'].Shop)[0];
+    request.chunkInfo.shopItems[shop]['Leather gloves'] = 10;
+    assert.equal(tea().available, true, 'a reachable glove source restores the tea goal');
+});
+
 test('Lake Molch worms support repeatable Hunter training only when their section is reachable', () => {
     const fixture = sourceFixture();
     fixture.data = { challenges: { Hunter: {

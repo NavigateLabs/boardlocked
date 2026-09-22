@@ -39048,6 +39048,7 @@
 				"Output": "Potato loot"
 			},
 			"Pick nettles*": {
+				"Items": ["Gloves[+]"],
 				"Description": "Must be picked with gloves (gloves can be random event gloves)",
 				"Objects": ["Nettles"],
 				"Output": "Nettles",
@@ -177337,7 +177338,7 @@
 			"Fly fishing rod[+]": ["Fly fishing rod", "Pearl fly fishing rod"],
 			"Fremennik Isles ores[+]": ["Tin ore", "Coal", "Mithril ore"],
 			"Frog-leather armour[+]": ["Frog-leather body", "Frog-leather chaps", "Frog-leather boots"],
-			"Gloves[+]": ["Leather gloves", "Void knight gloves", "Snow imp costume gloves", "Bunny paws", "Ghostly gloves", "Penance gloves", "Ham gloves", "Canifis gloves", "Fremennik gloves", "Mourner gloves", "White gloves", "Gloves of silence", "Clue hunter gloves", "Holy wraps", "Spined gloves", "Skeletal gloves", "Rock-shell gloves", "Mining gloves", "Ornate gloves", "Spooky gloves", "Spookier gloves", "Graceful gloves"],
+			"Gloves[+]": ["Leather gloves", "Grey gloves", "Purple gloves", "Red gloves", "Teal gloves", "Yellow gloves", "Void knight gloves", "Snow imp costume gloves", "Bunny paws", "Ghostly gloves", "Penance gloves", "Ham gloves", "Canifis gloves", "Fremennik gloves", "Mourner gloves", "White gloves", "Gloves of silence", "Clue hunter gloves", "Holy wraps", "Spined gloves", "Skeletal gloves", "Rock-shell gloves", "Mining gloves", "Ornate gloves", "Spooky gloves", "Spookier gloves", "Graceful gloves"],
 			"God cape[+]": ["Saradomin cape", "Zamorak cape", "Guthix cape"],
 			"Godsword[+]": ["Saradomin godsword", "Zamorak godsword", "Armadyl godsword", "Bandos godsword", "Ancient godsword"],
 			"God staff[+]": ["Saradomin staff", "Zamorak staff", "Guthix staff"],
