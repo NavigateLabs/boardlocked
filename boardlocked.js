@@ -895,7 +895,7 @@
         /\(unf\)/i.test(String(meta.Output || '')) || /^Unfinished potion\b/i.test(String(meta.Output || ''));
     function repeatableTrainingAction(name, skill, meta = {}) {
         // Access actions can be useful goals without proving a practical XP loop.
-        if (meta.NoXp) return false;
+        if (meta.NoXp || meta.NoTraining) return false;
         if (skill === 'Agility' && (meta.Category || []).includes('Shortcut')) return false;
         if (skill === 'Thieving' && /^(?:Unlock|Climb)\b/.test(displayName(name))) return false;
         if (skill === 'Hunter' && (meta.Category || []).includes('Puro-Puro')) return false;

@@ -1521,6 +1521,33 @@ test('karambwan and monkfish goals use their Fishing unlock milestones', () => {
     assert.equal(chunkData.challenges.Fishing['Catch a ~|sacred eel|~'].Tasks?.[permission], 'Extra');
 });
 
+test('panning remains a goal without funding later Fishing or Mining levels', () => {
+    const name = 'Pan at a ~|panning point|~';
+    for (const skill of ['Fishing', 'Mining']) {
+        assert.equal(chunkData.challenges[skill][name].NoTraining, true);
+        assert.equal(R.repeatableTrainingAction(name, skill, chunkData.challenges[skill][name]), false);
+    }
+    const fixture = sourceFixture();
+    fixture.data = { challenges: { Fishing: {
+        [name]: { Items: ['Panning tray', 'Cup of tea'], Objects: ['Panning point'],
+            Level: 1, Primary: true, NoTraining: true },
+        'Catch higher fish': { Objects: ['Higher spot'], Level: 8, Primary: true }
+    } }, codeItems: { itemsPlus: {} }, equipment: {}, shopItems: { 'Tea shop': { 'Cup of tea': 10 } } };
+    fixture.base = { objects: { 'Panning point': { '1000': true }, 'Higher spot': { '1000': true } },
+        npcs: {}, monsters: {}, shops: { 'Tea shop': { '1000': true } },
+        items: { 'Panning tray': { '1000': 'spawn' }, 'Cup of tea': { 'Tea shop': 'shop' } } };
+    fixture.valids = { Fishing: { [name]: 1, 'Catch higher fish': 8 } };
+    fixture.ids = { [name]: 'pan', 'Catch higher fish': 'higher' };
+    fixture.state.progressionHighWater.Fishing = 1;
+    fixture.state.progressionInitialized = true;
+    fixture.annotations = annotations;
+    const tasks = R.buildTasks(fixture).tasks;
+    assert.equal(tasks.find(task => task.name === name).available, true);
+    assert.ok(tasks.find(task => task.name === name).origins.length);
+    assert.match(tasks.find(task => task.name === 'Catch higher fish').accessResult.reason,
+        /No repeatable Fishing training method/);
+});
+
 test('a found log cannot enable a Hunter trap goal or fund Hunter training', () => {
     const fixture = sourceFixture();
     fixture.data = { challenges: { Hunter: {

@@ -19149,7 +19149,8 @@
 					"Mining": 1
 				},
 				"Priority": 77,
-				"Not F2P": true
+				"Not F2P": true,
+				"NoTraining": true
 			},
 			"Catch a ~|raw bream|~": {
 				"Category": ["CoX"],
@@ -28008,7 +28009,8 @@
 					"Fishing": 1
 				},
 				"Priority": 77,
-				"Not F2P": true
+				"Not F2P": true,
+				"NoTraining": true
 			},
 			"Mine ~|sunstone rocks|~": {
 				"Items": ["Pickaxe[+]"],
