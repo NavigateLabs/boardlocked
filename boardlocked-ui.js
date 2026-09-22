@@ -502,7 +502,7 @@
             const parsed = R.parseLocation(key.slice(8));
             if (parsed?.sectionId) (strictSections[parsed.chunkId] ||= {})[parsed.sectionId] = false;
         }
-        worker = new Worker('./worker.js?v=6.9.66-bl63');
+        worker = new Worker('./worker.js?v=6.9.68-bl64');
         worker.onerror = event => { if (requestId === generation) fail(new Error(event.message || 'Strict worker failed')); };
         worker.onmessage = event => {
             if (requestId !== generation || !state.enabled) return;
@@ -1960,7 +1960,7 @@
             signedIn = false; locked = false; inEntry = false; atHome = false;
             viewOnly = false; chunkTasksOn = true; initialLoaded = true;
             $('.loading').show();
-            const [dataResponse, mapResponse] = await Promise.all([fetch('./chunkpicker-chunkinfo-export.json?v=2'), fetch('./tasksMap.json')]);
+            const [dataResponse, mapResponse] = await Promise.all([fetch('./chunkpicker-chunkinfo-export.json?v=3'), fetch('./tasksMap.json?v=3')]);
             if (!dataResponse.ok || !mapResponse.ok) throw new Error('Failed to load local task data');
             chunkInfo = await dataResponse.json(); tasksMap = await mapResponse.json();
             tasksMapReverse = Object.fromEntries(Object.entries(tasksMap).map(([name, id]) => [id, name]));

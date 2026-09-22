@@ -507,20 +507,20 @@ test('browser upgrades preserve the stored rule version and refresh task assets'
         'ordinary rules updates must not rerun an older arrival migration');
     assert.match(ui, /R\.arrivalMigrationNeeded\(imported\.version\)/,
         'import applies arrival repair only to saves that predate that migration');
-    assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=2/);
-    assert.match(html, /boardlocked-combat-data\.js\?v=1/);
+    assert.match(ui, /chunkpicker-chunkinfo-export\.json\?v=3/);
+    assert.match(index, /chunkpicker-chunkinfo-export\.json\?v=3/);
+    assert.match(html, /boardlocked-combat-data\.js\?v=2/);
     assert.match(html, /boardlocked-data\.js\?v=29/);
-    assert.match(html, /index\.css\?v=6\.9\.66-bl1/);
-    assert.match(html, /index\.js\?v=6\.9\.66-bl33/);
+    assert.match(html, /index\.css\?v=6\.9\.68-bl1/);
+    assert.match(html, /index\.js\?v=6\.9\.68-bl34/);
     assert.match(html, /boardlocked\.js\?v=88/);
-    assert.match(index, /worker\.js\?v=6\.9\.66-bl63/g);
-    assert.match(ui, /worker\.js\?v=6\.9\.66-bl63/);
-    assert.match(worker, /boardlocked-combat-data\.js\?v=1/);
+    assert.match(index, /worker\.js\?v=6\.9\.68-bl64/g);
+    assert.match(ui, /worker\.js\?v=6\.9\.68-bl64/);
+    assert.match(worker, /boardlocked-combat-data\.js\?v=2/);
     assert.match(worker, /boardlocked-data\.js\?v=29/);
     assert.match(worker, /boardlocked\.js\?v=88/);
     assert.match(worker, /boardlocked-worker\.js\?v=32/);
-    assert.match(html, /boardlocked-ui\.js\?v=105/);
+    assert.match(html, /boardlocked-ui\.js\?v=106/);
     assert.match(html, /boardlocked\.css\?v=27/);
 });
 test('section-aware travel never crosses from land into disconnected water', () => {

@@ -28,6 +28,7 @@
         "Air wizard": 13,
         "Akkha": 337,
         "Al-Kharid warrior": 9,
+        "Al Kharid warrior": 9,
         "Albatross": 110,
         "Albino bat": 52,
         "Alchemical Hydra": 426,
