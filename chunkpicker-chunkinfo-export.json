@@ -19709,7 +19709,8 @@
 				"Objects": ["Fishing spot (sacred eel)"],
 				"Output": "Sacred eel",
 				"Primary": true,
-				"Not F2P": true
+				"Not F2P": true,
+				"Tasks": {"Ask ~|High Priestess Zul-Harcinqa|~ for permission to fish sacred eels": "Extra"}
 			},
 			"Catch a ~|suphi fish|~": {
 				"Category": ["CoX"],
@@ -76570,10 +76571,16 @@
 				"Chunks": ["Stronghold of Security"]
 			},
 			"Unlock ~|Broader fletching|~ for 300 Slayer reward points": {
-				"Category": ["Money Unlockables"],
 				"Label": "Permanent Unlockables",
 				"Description": "Purchase the Broader fletching Slayer reward for 300 points from a point-giving Slayer master.",
 				"NPCs": ["PointSlayerMasters[+]"],
+				"Not F2P": true
+			},
+			"Ask ~|High Priestess Zul-Harcinqa|~ for permission to fish sacred eels": {
+				"Label": "Permanent Unlockables",
+				"Description": "Speak to the High Priestess in Zul-Andra to gain permission to fish sacred eels.",
+				"NPCs": ["High Priestess Zul-Harcinqa"],
+				"Tasks": {"~|Regicide|~ 8": "Quest"},
 				"Not F2P": true
 			},
 			"Unlock free ~|fish shoal|~ access": {

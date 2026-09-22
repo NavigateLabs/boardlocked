@@ -1490,6 +1490,8 @@ test('leaping fish and broad Fletching recipes wait for their actual unlocks', (
 
     const unlock = 'Unlock ~|Broader fletching|~ for 300 Slayer reward points';
     assert.deepEqual(chunkData.challenges.Extra[unlock].NPCs, ['PointSlayerMasters[+]']);
+    assert.ok(!chunkData.challenges.Extra[unlock].Category?.includes('Money Unlockables'),
+        'the Boardlocked preset disables optional money unlocks');
     for (const name of ['Fletch ~|broad arrows|~', 'Fletch ~|broad bolts|~',
         'Fletch ~|amethyst broad bolts|~']) {
         assert.equal(chunkData.challenges.Fletching[name].Tasks?.[unlock], 'Extra', name);
@@ -1512,6 +1514,11 @@ test('karambwan and monkfish goals use their Fishing unlock milestones', () => {
         'Quest', 'Lubufu teaches karambwan fishing during the quest');
     assert.equal(chunkData.challenges.Fishing['Catch a ~|raw monkfish|~'].Tasks?.['~|Swan Song|~ Complete the quest'],
         'Quest', 'the permanent raw monkfish spots open after Swan Song');
+    const permission = 'Ask ~|High Priestess Zul-Harcinqa|~ for permission to fish sacred eels';
+    assert.deepEqual(chunkData.challenges.Extra[permission].NPCs, ['High Priestess Zul-Harcinqa']);
+    assert.ok(!chunkData.challenges.Extra[permission].Category?.includes('Money Unlockables'));
+    assert.equal(chunkData.challenges.Extra[permission].Tasks?.['~|Regicide|~ 8'], 'Quest');
+    assert.equal(chunkData.challenges.Fishing['Catch a ~|sacred eel|~'].Tasks?.[permission], 'Extra');
 });
 
 test('a found log cannot enable a Hunter trap goal or fund Hunter training', () => {
